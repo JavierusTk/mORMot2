@@ -63,7 +63,9 @@ type
   // - could be set to paramOut or paramInOut if must be refereshed after
   // execution (for calling a stored procedure expecting such parameters)
   TSQLDBParamInOutType = (
-    paramIn, paramOut, paramInOut);
+    paramIn,
+    paramOut,
+    paramInOut);
 
   /// used to define a field/column layout in a table schema
   // - for TSQLDBConnectionProperties.SQLCreate to describe the new table
@@ -165,7 +167,11 @@ type
   /// possible column retrieval patterns
   // - used by TSQLDBColumnProperty.ColumnValueState
   TSQLDBStatementGetCol = (
-    colNone, colNull, colWrongType, colDataFilled, colDataTruncated);
+    colNone,
+    colNull,
+    colWrongType,
+    colDataFilled,
+    colDataTruncated);
 
   /// used to define a field/column layout
   // - for TSQLDBConnectionProperties.SQLCreate to describe the table
@@ -180,7 +186,7 @@ type
     // for the CREATE TABLE statement (e.g. for Oracle 1333=4000/3 is used)
     // - for TOleDBStatement: the offset of this column in the IRowSet data,
     // starting with a DBSTATUSENUM, the data, then its length (for inlined
-    // sftUTF8 and sftBlob only)
+    // oftUTF8 and oftBlob only)
     // - for TSQLDBOracleStatement: contains an offset to this column values
     // inside fRowBuffer[] internal buffer
     // - for TSQLDBDatasetStatement: maps TField pointer value
@@ -265,7 +271,11 @@ type
   // should generate unnested/any bound array statements - currently only
   // supported by mormot.db.sql.postgres for bulk insert/update/delete
   TSQLDBStatementCRUD = (
-    cCreate, cRead, cUpdate, cDelete, cPostgreBulkArray);
+    cCreate,
+    cRead,
+    cUpdate,
+    cDelete,
+    cPostgreBulkArray);
 
   /// identify the CRUD modes of a statement
   // - used e.g. for batch send abilities of a DB engine
@@ -284,8 +294,18 @@ type
   // - will be used e.g. for TSQLDBConnectionProperties.SQLFieldCreate(), or
   // for OleDB/ODBC/ZDBC tuning according to the connected database engine
   TSQLDBDefinition = (
-    dUnknown, dDefault, dOracle, dMSSQL, dJet, dMySQL, dSQLite,
-    dFirebird, dNexusDB, dPostgreSQL, dDB2, dInformix);
+    dUnknown,
+    dDefault,
+    dOracle,
+    dMSSQL,
+    dJet,
+    dMySQL,
+    dSQLite,
+    dFirebird,
+    dNexusDB,
+    dPostgreSQL,
+    dDB2,
+    dInformix);
 
   /// set of the available database definitions
   TSQLDBDefinitions = set of TSQLDBDefinition;
@@ -293,7 +313,11 @@ type
   /// where the LIMIT clause should be inserted for a given SQL syntax
   // - used by TSQLDBDefinitionLimitClause and SQLLimitClause() method
   TSQLDBDefinitionLimitPosition = (
-    posNone, posWhere, posSelect, posAfter, posOuter);
+    posNone,
+    posWhere,
+    posSelect,
+    posAfter,
+    posOuter);
 
   /// defines the LIMIT clause to be inserted for a given SQL syntax
   // - used by TSQLDBDefinitionLimitClause and SQLLimitClause() method
@@ -306,7 +330,7 @@ const
   /// the known column data types corresponding to our TSQLDBFieldType types
   // - will be used e.g. for TSQLDBConnectionProperties.SQLFieldCreate()
   // - see TSQLDBFieldTypeDefinition documentation to find out the mapping
-  DB_FIELDS: array[TSQLDBDefinition] of TSQLDBFieldTypeDefinition =(
+  DB_FIELDS: array[TSQLDBDefinition] of TSQLDBFieldTypeDefinition = (
   // ftUnknown=int32, ftNull=UTF8, ftInt64, ftDouble, ftCurrency, ftDate, ftUTF8, ftBlob
   // dUnknown
     (' INT', ' NVARCHAR(%)', ' BIGINT', ' DOUBLE', ' NUMERIC(19,4)',
@@ -554,10 +578,12 @@ type
     // - typical use may be:
     // ! var Customer: Variant;
     // ! begin
-    // !   with Props.Execute( 'select * from Sales.Customer where AccountNumber like ?',
-    // !       ['AW000001%'],@Customer) do begin
+    // !   with Props.Execute(
+    // !       'select * from Sales.Customer where AccountNumber like ?',
+    // !       ['AW000001%'], @Customer) do
+    // !   begin
     // !     while Step do //  loop through all matching data rows
-    // !       assert(Copy(Customer.AccountNumber,1,8)='AW000001');
+    // !       assert(Copy(Customer.AccountNumber, 1, 8)='AW000001');
     // !     ReleaseRows;
     // !   end;
     // ! end;
@@ -690,7 +716,8 @@ type
     // - typical use is:
     // ! var Row: Variant;
     // ! (...)
-    // !  with MyConnProps.Execute('select * from table where name=?',[aName]) do begin
+    // !  with MyConnProps.Execute('select * from table where name=?',[aName]) do
+    // !  begin
     // !    Row := RowData;
     // !    while Step do
     // !      writeln(Row.FirstName,Row.BirthDate);
@@ -708,7 +735,7 @@ type
     // - if Expanded is true, JSON data is an array of objects, for direct use
     // with any Ajax or .NET client:
     // & [ {"col1":val11,"col2":"val12"},{"col1":val21,... ]
-    // - if Expanded is false, JSON data is serialized (used in TSQLTableJSON)
+    // - if Expanded is false, JSON data is serialized (used in TOrmTableJSON)
     // & { "FieldCount":1,"Values":["col1","col2",val11,"val12",val21,..] }
     // - BLOB field value is saved as Base64, in the '"\uFFF0base64encodedbinary"'
     // format and contains true BLOB data
@@ -722,7 +749,7 @@ type
     // - if Expanded is true, JSON data is an array of objects, for direct use
     // with any Ajax or .NET client:
     // & [ {"col1":val11,"col2":"val12"},{"col1":val21,... ]
-    // - if Expanded is false, JSON data is serialized (used in TSQLTableJSON)
+    // - if Expanded is false, JSON data is serialized (used in TOrmTableJSON)
     // & { "FieldCount":1,"Values":["col1","col2",val11,"val12",val21,..] }
     // - BLOB field value is saved as Base64, in the '"\uFFF0base64encodedbinary"'
     // format and contains true BLOB data
@@ -901,7 +928,7 @@ type
     // - if Expanded is true, JSON data is an array of objects, for direct use
     // with any Ajax or .NET client:
     // & [ {"col1":val11,"col2":"val12"},{"col1":val21,... ]
-    // - if Expanded is false, JSON data is serialized (used in TSQLTableJSON)
+    // - if Expanded is false, JSON data is serialized (used in TOrmTableJSON)
     // & { "FieldCount":1,"Values":["col1","col2",val11,"val12",val21,..] }
     // - BLOB field value is saved as Base64, in the '"\uFFF0base64encodedbinary"'
     // format and contains true BLOB data
@@ -941,8 +968,15 @@ type
   // corresponding TSQLDBConnection.StartTransaction, TSQLDBConnection.Commit
   // and TSQLDBConnection.Rollback methods
   TOnSQLDBProcessEvent = (
-    speConnected, speDisconnected, speNonActive, speActive, speConnectionLost,
-    speReconnected, speStartTransaction, speCommit, speRollback);
+    speConnected,
+    speDisconnected,
+    speNonActive,
+    speActive,
+    speConnectionLost,
+    speReconnected,
+    speStartTransaction,
+    speCommit,
+    speRollback);
 
   /// event handler called during all external DB process
   // - event handler is specified by TSQLDBConnectionProperties.OnProcess or
@@ -961,7 +995,9 @@ type
 
   /// actions implemented by TSQLDBConnectionProperties.SharedTransaction()
   TSQLDBSharedTransactionAction = (
-    transBegin, transCommitWithoutException, transCommitWithException,
+    transBegin,
+    transCommitWithoutException,
+    transCommitWithException,
     transRollback);
 
   /// defines a callback signature able to handle multiple INSERT
@@ -1208,8 +1244,8 @@ type
     // multi-threaded applications), or some unexpected issues may occur - for
     // instance, ensure that your mORMot ORM server runs all its statements in
     // blocking mode for both read and write:
-    // ! aServer.AcquireExecutionMode[execORMGet] := am***;
-    // ! aServer.AcquireExecutionMode[execORMWrite] := am***;
+    // ! aServer.AcquireExecutionMode[execOrmGet] := am***;
+    // ! aServer.AcquireExecutionMode[execOrmWrite] := am***;
     // here, safe blocking am*** modes are any mode but amUnlocked, i.e. either
     // amLocked, amBackgroundThread or amMainThread
     property ConnectionTimeOutMinutes: cardinal read GetConnectionTimeOutMinutes
@@ -1279,7 +1315,8 @@ type
     // ! procedure WriteFamily(const aName: RawUTF8);
     // ! var R: Variant;
     // ! begin
-    // !   with MyConnProps.Execute('select * from table where name=?',[aName],@R) do begin
+    // !   with MyConnProps.Execute('select * from table where name=?',[aName],@R) do
+    // !   begin
     // !     while Step do
     // !       writeln(R.FirstName,' ',DateToStr(R.BirthDate));
     // !     ReleaseRows;
@@ -1420,7 +1457,7 @@ type
     /// get one field/column definition as text
     // - return column type as 'Name [Type Length Precision Scale]'
     class function GetFieldDefinition(const Column: TSQLDBColumnDefine): RawUTF8;
-    /// get one field/column definition as text, targeting a TSQLRecord
+    /// get one field/column definition as text, targeting a TOrm
     // published property
     // - return e.g. property type information as:
     // ! 'Name: RawUTF8 read fName write fName index 20;';
@@ -1458,9 +1495,9 @@ type
 
     /// returns the information to adapt the LIMIT # clause in the SQL SELECT
     // statement to a syntax matching the underlying DBMS
-    // - e.g. TSQLRestStorageExternal.AdaptSQLForEngineList() calls this
-    // to let TSQLRestServer.URI by-pass virtual table mechanism
-    function SQLLimitClause(AStmt: TSynTableStatement):
+    // - e.g. TRestStorageExternal.AdaptSQLForEngineList() calls this
+    // to let TRestServer.URI by-pass virtual table mechanism
+    function SQLLimitClause(AStmt: TSelectStatement):
       TSQLDBDefinitionLimitClause; virtual;
     /// determine if the SQL statement can be cached
     // - used by TSQLDBConnection.NewStatementPrepared() for handling cache
@@ -1785,7 +1822,8 @@ type
     function GetForceDateWithMS: boolean;
     procedure SetForceDateWithMS(value: boolean);
     /// raise an exception if Col is out of range according to fColumnCount
-    procedure CheckCol(Col: integer); {$ifdef HASINLINE}inline;{$endif}
+    procedure CheckCol(Col: integer);
+      {$ifdef HASINLINE}inline;{$endif}
     /// will set a Int64/Double/Currency/TDateTime/RawUTF8/TBlobData Dest variable
     // from a given column value
     // - internal conversion will use a temporary Variant and ColumnToVariant method
@@ -2008,7 +2046,7 @@ type
     // - if Expanded is true, JSON data is an array of objects, for direct use
     // with any Ajax or .NET client:
     // & [ {"col1":val11,"col2":"val12"},{"col1":val21,... ]
-    // - if Expanded is false, JSON data is serialized (used in TSQLTableJSON)
+    // - if Expanded is false, JSON data is serialized (used in TOrmTableJSON)
     // & { "FieldCount":1,"Values":["col1","col2",val11,"val12",val21,..] }
     // - BLOB field value is saved as Base64, in the '"\uFFF0base64encodedbinary"'
     // format and contains true BLOB data
@@ -2172,7 +2210,8 @@ type
     // - typical use is:
     // ! var Row: Variant;
     // ! (...)
-    // !  with MyConnProps.Execute('select * from table where name=?',[aName]) do begin
+    // !  with MyConnProps.Execute('select * from table where name=?',[aName]) do
+    // !  begin
     // !    Row := RowDaa;
     // !    while Step do
     // !      writeln(Row.FirstName,Row.BirthDate);
@@ -2212,14 +2251,14 @@ type
     // - if Expanded is true, JSON data is an array of objects, for direct use
     // with any Ajax or .NET client:
     // & [ {"col1":val11,"col2":"val12"},{"col1":val21,... ]
-    // - if Expanded is false, JSON data is serialized (used in TSQLTableJSON)
+    // - if Expanded is false, JSON data is serialized (used in TOrmTableJSON)
     // & { "FieldCount":1,"Values":["col1","col2",val11,"val12",val21,..] }
     // - BLOB field value is saved as Base64, in the '"\uFFF0base64encodedbinary"'
     // format and contains true BLOB data
     // - similar to corresponding TSQLRequest.Execute method in the
     // mormot.db.raw.sqlite3 unit
     // - returns the number of row data returned (excluding field names)
-    // - warning: TSQLRestStorageExternal.EngineRetrieve in mORMotDB unit
+    // - warning: TRestStorageExternal.EngineRetrieve in mORMotDB unit
     // expects the Expanded=true format to return '[{...}]'#10
     function FetchAllToJSON(JSON: TStream; Expanded: boolean): PtrInt;
     // Append all rows content as a CSV stream
@@ -2238,7 +2277,7 @@ type
     // - if Expanded is true, JSON data is an array of objects, for direct use
     // with any Ajax or .NET client:
     // & [ {"col1":val11,"col2":"val12"},{"col1":val21,... ]
-    // - if Expanded is false, JSON data is serialized (used in TSQLTableJSON)
+    // - if Expanded is false, JSON data is serialized (used in TOrmTableJSON)
     // & { "FieldCount":1,"Values":["col1","col2",val11,"val12",val21,..] }
     // - BLOB field value is saved as Base64, in the '"\uFFF0base64encodedbinary"'
     // format and contains true BLOB data
@@ -2258,7 +2297,7 @@ type
     // - will save one data row in optimized binary format (if not in Null)
     // - virtual method called by FetchAllToBinary()
     // - follows the format expected by TSQLDBProxyStatement
-    procedure ColumnsToBinary(W: TFileBufferWriter; Null: pointer;
+    procedure ColumnsToBinary(W: TBufferWriter; Null: pointer;
       const ColTypes: TSQLDBFieldTypeDynArray); virtual;
     /// low-level access to the Timer used for last DB operation
     property SQLLogTimer: TPrecisionTimer read fSQLLogTimer;
@@ -2320,7 +2359,9 @@ type
   // when multiple connections may break stability, consume too much resources
   // and/or decrease performance
   TSQLDBConnectionPropertiesThreadSafeThreadingMode = (
-    tmThreadPool, tmMainConnection, tmBackgroundThread);
+    tmThreadPool,
+    tmMainConnection,
+    tmBackgroundThread);
 
   /// connection properties which will implement an internal Thread-Safe
   // connection pool
@@ -2362,7 +2403,7 @@ type
     // - this method shall be called from the thread about to be terminated: e.g.
     // if you call it from the main thread, it may fail to release resources
     // - within the mORMot server, mORMotDB unit will call this method
-    // for every terminating thread created for TSQLRestServerNamedPipeResponse
+    // for every terminating thread created for TRestServerNamedPipeResponse
     // or TSQLHttpServer multi-thread process
     procedure EndCurrentThread; virtual;
     /// set this property if you want to disable the per-thread connection pool
@@ -2647,8 +2688,11 @@ begin
   result := 0;
   L := Length(aSQL);
   if aStripSemicolon then
-    while (L > 0) and (aSQL[L] in [#1..' ', ';']) do
-      if (aSQL[L] = ';') and (L > 5) and IdemPChar(@aSQL[L - 3], 'END') then
+    while (L > 0) and
+          (aSQL[L] in [#1..' ', ';']) do
+      if (aSQL[L] = ';') and
+         (L > 5) and
+         IdemPChar(@aSQL[L - 3], 'END') then
         break
       else // allows 'END;' at the end of a statement
         dec(L);    // trim ' ' or ';' right (last ';' could be found incorrect)
@@ -2662,13 +2706,16 @@ begin
     if P <> nil then
       repeat
         B := i;
-        while (i < L) and (P[i] <> '?') do
+        while (i < L) and
+              (P[i] <> '?') do
         begin
           if P[i] = '''' then
           begin
             repeat // ignore chars inside ' quotes
               inc(i);
-            until (i = L) or ((P[i] = '''') and (P[i + 1] <> ''''));
+            until (i = L) or
+                  ((P[i] = '''') and
+                   (P[i + 1] <> ''''));
             if i = L then
               break;
           end;
@@ -2713,7 +2760,8 @@ begin
   ndx := 0;
   L := Length(aSQL);
   s := pointer(aSQL);
-  if (s = nil) or (PosExChar('?', aSQL) = 0) then
+  if (s = nil) or
+     (PosExChar('?', aSQL) = 0) then
     exit;
   // calculate ? parameters count, check for ;
   while s^ <> #0 do
@@ -2746,7 +2794,8 @@ begin
           else
             break;
       until false;
-    end else if (c = ';') and not AllowSemicolon then
+    end else if (c = ';') and
+                not AllowSemicolon then
       exit; // complex expression can not be prepared
     inc(s);
   end;
@@ -2832,7 +2881,8 @@ begin
               if s[1] = '''' then
                 dec(L); // double ' into single '
             end
-            else if (c = '"') or (c = '\') then
+            else if (c = '"') or
+                    (c = '\') then
               inc(L); // escape \ before "
             dec(vl);
           until vl = 0;
@@ -2866,7 +2916,8 @@ begin
               if s[1] = '''' then
                 goto _dq; // double ' into single '
             end
-            else if (c = '"') or (c = '\') then
+            else if (c = '"') or
+                    (c = '\') then
             begin
               d^ := '\'; // escape \ before "
               inc(d);
@@ -2914,7 +2965,9 @@ var
 begin
   msg := FormatUTF8(Format, Args);
   {$ifndef SYNDB_SILENCE}
-  if (length(Args) > 0) and (Args[0].VType = vtObject) and (Args[0].VObject <> nil) then
+  if (length(Args) > 0) and
+     (Args[0].VType = vtObject) and
+     (Args[0].VObject <> nil) then
     if Args[0].VObject.InheritsFrom(TSQLDBStatement) then
     begin
       fStatement := TSQLDBStatement(Args[0].VObject);
@@ -3054,7 +3107,7 @@ var
   Query: ISQLDBStatement;
   i, maxParam: integer;
   Types: TSQLParamTypeDynArray;
-  Nulls: TSQLFieldBits;
+  Nulls: TFieldBits;
   Values: TRawUTF8DynArray;
   GenericSQL: RawUTF8;
 begin
@@ -3070,7 +3123,7 @@ begin
     if i in Nulls then
       Query.BindNull(i + 1)
     else
-      case Types[i] of // returned sftInteger,sftFloat,sftUTF8Text,sftBlob,sftUnknown
+      case Types[i] of // returned oftInteger,oftFloat,oftUTF8Text,oftBlob,oftUnknown
         sptInteger:
           Query.Bind(i + 1, GetInt64(pointer(Values[i])));
         sptFloat:
@@ -3269,12 +3322,15 @@ function TSQLDBConnectionProperties.IsCachable(P: PUTF8Char): boolean;
 var
   NoWhere: boolean;
 begin // cachable if with ? parameter or SELECT without WHERE clause
-  if (P <> nil) and fUseCache then
+  if (P <> nil) and
+     fUseCache then
   begin
     while P^ in [#1..' '] do
       inc(P);
     NoWhere := IdemPChar(P, 'SELECT ');
-    if NoWhere or not (IdemPChar(P, 'CREATE ') or IdemPChar(P, 'ALTER ')) then
+    if NoWhere or
+       not (IdemPChar(P, 'CREATE ') or
+            IdemPChar(P, 'ALTER ')) then
     begin
       result := true;
       while P^ <> #0 do
@@ -3289,7 +3345,8 @@ begin // cachable if with ? parameter or SELECT without WHERE clause
         end
         else if P^ = '?' then
           exit
-        else if (P^ = ' ') and IdemPChar(P + 1, 'WHERE ') then
+        else if (P^ = ' ') and
+                IdemPChar(P + 1, 'WHERE ') then
           NoWhere := false;
         inc(P);
       end;
@@ -3306,7 +3363,8 @@ begin
   with Column do
   begin
     FormatUTF8('% [%', [ColumnName, ColumnTypeNative], result);
-    if (ColumnLength <> 0) or (Column.ColumnPrecision <> 0) or
+    if (ColumnLength <> 0) or
+       (Column.ColumnPrecision <> 0) or
        (Column.ColumnScale <> 0) then
       result := FormatUTF8('% % % %]',
         [result, ColumnLength, ColumnPrecision, ColumnScale])
@@ -3324,7 +3382,8 @@ begin // 'Name: RawUTF8 index 20 read fName write fName;';
   begin
     FormatUTF8('property %: %',
       [ColumnName, SQLDBFIELDTYPE_TO_DELPHITYPE[ColumnType]], result);
-    if (ColumnType = ftUTF8) and (ColumnLength > 0) then
+    if (ColumnType = ftUTF8) and
+       (ColumnLength > 0) then
       result := FormatUTF8('% index %', [result, ColumnLength]);
     result := FormatUTF8('% read f% write f%;', [result, ColumnName, ColumnName]);
   end;
@@ -3337,14 +3396,14 @@ class function TSQLDBConnectionProperties.IsSQLKeyword(aDB: TSQLDBDefinition;
   aWord: RawUTF8): boolean;
 const
   /// CSV of the known reserved keywords per database engine, in alphabetic order
-  DB_KEYWORDS_CSV: array[TSQLDBDefinition] of PUTF8Char =(  // dUnknown
-    '',
-  // dDefault = ODBC / SQL-92 keywords (always checked first)
-    'absolute,action,ada,add,all,allocate,alter,and,any,are,as,asc,assertion,at,authorization,'
-    + 'avg,begin,between,bit,bit_length,both,by,cascade,cascaded,case,cast,catalog,char,'
-    + 'char_length,character,character_length,check,close,coalesce,collate,collation,'
-    + 'column,commit,connect,connection,constraint,constraints,continue,convert,'
-    + 'corresponding,count,create,cross,current,current_date,current_time,' +
+  DB_KEYWORDS_CSV: array[TSQLDBDefinition] of PUTF8Char = (
+    '',  // dUnknown
+    // dDefault = ODBC / SQL-92 keywords (always checked first)
+    'absolute,action,ada,add,all,allocate,alter,and,any,are,as,asc,assertion,at,authorization,' +
+    'avg,begin,between,bit,bit_length,both,by,cascade,cascaded,case,cast,catalog,char,' +
+    'char_length,character,character_length,check,close,coalesce,collate,collation,' +
+    'column,commit,connect,connection,constraint,constraints,continue,convert,' +
+    'corresponding,count,create,cross,current,current_date,current_time,' +
     'current_timestamp,current_user,cursor,date,day,deallocate,dec,decimal,declare,' +
     'default,deferrable,deferred,delete,desc,describe,descriptor,diagnostics,disconnect,' +
     'distinct,domain,double,drop,else,end,end-exec,escape,except,exception,exec,execute,' +
@@ -3362,14 +3421,14 @@ const
     'translation,trim,true,union,unique,unknown,update,upper,usage,user,using,value,values,' +
     'varchar,varying,view,when,whenever,where,with,work,write,year,zone',
   // dOracle specific keywords (in addition to dDefault)
-    'access,audit,cluster,comment,compress,exclusive,file,identified,increment,initial,'
-    + 'lock,long,maxextents,minus,mode,noaudit,nocompress,nowait,number,offline,online,'
-    + 'pctfree',
+    'access,audit,cluster,comment,compress,exclusive,file,identified,increment,initial,' +
+    'lock,long,maxextents,minus,mode,noaudit,nocompress,nowait,number,offline,online,' +
+    'pctfree',
   // dMSSQL specific keywords (in addition to dDefault)
-    'admin,after,aggregate,alias,array,asensitive,asymmetric,atomic,backup,before,binary,'
-    + 'blob,boolean,breadth,break,browse,bulk,call,called,cardinality,checkpoint,class,clob,'
-    + 'clustered,collect,completion,compute,condition,constructor,contains,containstable,'
-    + 'corr,covar_pop,covar_samp,cube,cume_dist,current_catalog,' +
+    'admin,after,aggregate,alias,array,asensitive,asymmetric,atomic,backup,before,binary,' +
+    'blob,boolean,breadth,break,browse,bulk,call,called,cardinality,checkpoint,class,clob,' +
+    'clustered,collect,completion,compute,condition,constructor,contains,containstable,' +
+    'corr,covar_pop,covar_samp,cube,cume_dist,current_catalog,' +
     'current_default_transform_group,current_path,current_role,current_schema,' +
     'current_transform_group_for_type,cycle,data,database,dbcc,deny,depth,deref,destroy,' +
     'destructor,deterministic,dictionary,disk,distributed,dump,dynamic,each,element,' +
@@ -3396,17 +3455,17 @@ const
     'xmlexists,xmlforest,xmliterate,xmlnamespaces,xmlparse,xmlpi,xmlquery,xmlserialize,' +
     'xmltable,xmltext,xmlvalidate',
   // dJet specific keywords (in addition to dDefault)
-    'longtext,memo,money,note,number,oleobject,owneraccess,parameters,percent,pivot,short,'
-    + 'single,singlefloat,stdev,stdevp,string,tableid,text,top,transform,unsignedbyte,var,'
-    + 'varbinary,varp,yesno',
+    'longtext,memo,money,note,number,oleobject,owneraccess,parameters,percent,pivot,short,' +
+    'single,singlefloat,stdev,stdevp,string,tableid,text,top,transform,unsignedbyte,var,' +
+    'varbinary,varp,yesno',
   // dMySQL specific keywords (in addition to dDefault)
-    'accessible,analyze,asensitive,auto_increment,before,bigint,binary,blob,call,change,'
-    + 'condition,database,databases,day_hour,day_microsecond,day_minute,day_second,'
-    + 'delayed,deterministic,distinctrow,div,dual,each,elseif,enclosed,enum,escaped,exit,'
-    + 'explain,float4,float8,force,fulltext,general,high_priority,hour_microsecond,'
-    + 'hour_minute,hour_second,if,ignore,ignore_server_ids,infile,inout,int1,int2,int3,int4,'
-    + 'int8,iterate,keys,kill,leave,limit,linear,linear,lines,load,localtime,localtimestamp,'
-    + 'lock,long,longblob,longtext,loop,low_priority,master_heartbeat_period,' +
+    'accessible,analyze,asensitive,auto_increment,before,bigint,binary,blob,call,change,' +
+    'condition,database,databases,day_hour,day_microsecond,day_minute,day_second,' +
+    'delayed,deterministic,distinctrow,div,dual,each,elseif,enclosed,enum,escaped,exit,' +
+    'explain,float4,float8,force,fulltext,general,high_priority,hour_microsecond,' +
+    'hour_minute,hour_second,if,ignore,ignore_server_ids,infile,inout,int1,int2,int3,int4,' +
+    'int8,iterate,keys,kill,leave,limit,linear,linear,lines,load,localtime,localtimestamp,' +
+    'lock,long,longblob,longtext,loop,low_priority,master_heartbeat_period,' +
     'master_ssl_verify_server_cert,master_ssl_verify_server_cert,maxvalue,' +
     'mediumblob,mediumint,mediumtext,middleint,minute_microsecond,minute_second,mod,' +
     'modifies,no_write_to_binlog,optimize,optionally,out,outfile,purge,range,range,' +
@@ -3417,13 +3476,13 @@ const
     'tinyint,tinytext,trigger,undo,unlock,unsigned,use,utc_date,utc_time,utc_timestamp,' +
     'varbinary,varcharacter,while,x509,xor,year_month,zerofillaccessible',
   // dSQLite keywords (dDefault is not added to this list)
-    'abort,after,and,attach,before,cluster,conflict,copy,database,delete,delimiters,detach,'
-    + 'each,explain,fail,from,glob,ignore,insert,instead,isnull,limit,not,notnull,offset,or,'
-    + 'pragma,raise,replace,row,select,statement,temp,trigger,vacuum,where',
+    'abort,after,and,attach,before,cluster,conflict,copy,database,delete,delimiters,detach,' +
+    'each,explain,fail,from,glob,ignore,insert,instead,isnull,limit,not,notnull,offset,or,' +
+    'pragma,raise,replace,row,select,statement,temp,trigger,vacuum,where',
   // dFirebird specific keywords (in addition to dDefault)
-    'active,after,ascending,base_name,before,blob,cache,check_point_length,computed,'
-    + 'conditional,containing,cstring,currency,database,debug,descending,deterministic,do,'
-    + 'entry_point,exit,file,filter,function,gdscode,gen_id,generator,' +
+    'active,after,ascending,base_name,before,blob,cache,check_point_length,computed,' +
+    'conditional,containing,cstring,currency,database,debug,descending,deterministic,do,' +
+    'entry_point,exit,file,filter,function,gdscode,gen_id,generator,' +
     'group_commit_wait_time,if,inactive,input_type,log_buffer_size,logfile,manual,' +
     'maximum_segment,merge,message,module_name,num_log_buffers,output_type,over,' +
     'overflow,page,page_size,pages,parameter,parent,password,plan,post_event,protected,' +
@@ -3431,46 +3490,46 @@ const
     'returning_values,returns,segment,shadow,shared,singular,snapshot,sort,stability,' +
     'start,starting,starts,statistics,sub_type,suspend,trigger,type,variable,wait,while',
   // dNexusDB specific keywords (in addition to dDefault)
-    'abs,achar,assert,astring,autoinc,blob,block,blocksize,bool,boolean,byte,bytearray,'
-    + 'ceiling,chr,datetime,dword,empty,exp,floor,grow,growsize,ignore,image,initial,'
-    + 'initialsize,kana,largeint,locale,log,money,nullstring,nvarchar,percent,power,rand,'
-    + 'round,shortint,sort,string,symbols,text,tinyint,top,type,use,width,word',
+    'abs,achar,assert,astring,autoinc,blob,block,blocksize,bool,boolean,byte,bytearray,' +
+    'ceiling,chr,datetime,dword,empty,exp,floor,grow,growsize,ignore,image,initial,' +
+    'initialsize,kana,largeint,locale,log,money,nullstring,nvarchar,percent,power,rand,' +
+    'round,shortint,sort,string,symbols,text,tinyint,top,type,use,width,word',
   // dPostgreSQL specific keywords (in addition to dDefault)
-    'abort,access,admin,after,aggregate,also,always,analyse,analyze,array,assignment,'
-    + 'asymmetric,backward,before,bigint,binary,boolean,cache,called,chain,characteristics,'
-    + 'checkpoint,class,cluster,comment,committed,concurrently,configuration,content,'
-    + 'conversion,copy,cost,createdb,createrole,createuser,csv,current_role,cycle,database,'
-    + 'defaults,definer,delimiter,delimiters,dictionary,disable,discard,do,document,each,'
-    + 'enable,encoding,encrypted,enum,excluding,exclusive,explain,family,force,forward,'
-    + 'freeze,function,granted,greatest,handler,header,hold,if,ilike,immutable,implicit,'
-    + 'including,increment,indexes,inherit,inherits,inout,instead,invoker,isnull,'
-    + 'lancompiler,large,least,limit,listen,load,localtime,localtimestamp,location,lock,'
-    + 'login,mapping,maxvalue,minvalue,mode,move,new,nocreatedb,nocreaterole,nocreateuser,'
-    + 'noinherit,nologin,nosuperuser,nothing,notify,notnull,nowait,nulls,object,off,offset,'
-    + 'oids,old,operator,out,overlay,owned,owner,parser,password,placing,plans,prepared,'
-    + 'procedural,quote,reassign,recheck,reindex,release,rename,repeatable,replace,replica,'
-    + 'reset,restart,returning,returns,role,row,rule,savepoint,search,security,sequence,'
-    + 'serializable,setof,share,show,similar,simple,stable,standalone,start,statement,'
-    + 'statistics,stdin,stdout,storage,strict,strip,superuser,symmetric,sysid,system,'
-    + 'tablespace,temp,template,text,treat,trigger,truncate,trusted,type,uncommitted,'
-    + 'unencrypted,unlisten,until,vacuum,valid,validator,verbose,version,volatile,'
-    + 'whitespace,without,xml,xmlattributes,xmlconcat,xmlelement,xmlforest,xmlparse,xmlpi,'
-    + 'xmlroot,xmlserialize,yes',
+    'abort,access,admin,after,aggregate,also,always,analyse,analyze,array,assignment,' +
+    'asymmetric,backward,before,bigint,binary,boolean,cache,called,chain,characteristics,' +
+    'checkpoint,class,cluster,comment,committed,concurrently,configuration,content,' +
+    'conversion,copy,cost,createdb,createrole,createuser,csv,current_role,cycle,database,' +
+    'defaults,definer,delimiter,delimiters,dictionary,disable,discard,do,document,each,' +
+    'enable,encoding,encrypted,enum,excluding,exclusive,explain,family,force,forward,' +
+    'freeze,function,granted,greatest,handler,header,hold,if,ilike,immutable,implicit,' +
+    'including,increment,indexes,inherit,inherits,inout,instead,invoker,isnull,' +
+    'lancompiler,large,least,limit,listen,load,localtime,localtimestamp,location,lock,' +
+    'login,mapping,maxvalue,minvalue,mode,move,new,nocreatedb,nocreaterole,nocreateuser,' +
+    'noinherit,nologin,nosuperuser,nothing,notify,notnull,nowait,nulls,object,off,offset,' +
+    'oids,old,operator,out,overlay,owned,owner,parser,password,placing,plans,prepared,' +
+    'procedural,quote,reassign,recheck,reindex,release,rename,repeatable,replace,replica,' +
+    'reset,restart,returning,returns,role,row,rule,savepoint,search,security,sequence,' +
+    'serializable,setof,share,show,similar,simple,stable,standalone,start,statement,' +
+    'statistics,stdin,stdout,storage,strict,strip,superuser,symmetric,sysid,system,' +
+    'tablespace,temp,template,text,treat,trigger,truncate,trusted,type,uncommitted,' +
+    'unencrypted,unlisten,until,vacuum,valid,validator,verbose,version,volatile,' +
+    'whitespace,without,xml,xmlattributes,xmlconcat,xmlelement,xmlforest,xmlparse,xmlpi,' +
+    'xmlroot,xmlserialize,yes',
   // dDB2 specific keywords (in addition to dDefault)
-    'activate,document,dssize,dynamic,each,editproc,elseif,enable,encoding,encryption,'
-    + 'ending,erase,every,excluding,exclusive,exit,explain,fenced,fieldproc,file,final,free,'
-    + 'function,general,generated,graphic,handler,hash,hashed_value,hint,hold,hours,if,'
-    + 'including,inclusive,increment,inf,infinity,inherit,inout,integrity,isobid,iterate,jar,'
-    + 'java,keep,label,lateral,lc_ctype,leave,linktype,localdate,locale,localtime,'
-    + 'localtimestamp,locator,locators,lock,lockmax,locksize,long,loop,maintained,'
-    + 'materialized,maxvalue,microsecond,microseconds,minutes,minvalue,mode,modifies,'
-    + 'months,nan,new,new_table,nextval,nocache,nocycle,nodename,nodenumber,nomaxvalue,'
-    + 'nominvalue,noorder,normalized,nulls,numparts,obid,old,old_table,optimization,'
-    + 'optimize,out,over,overriding,package,padded,pagesize,parameter,part,partition,'
-    + 'partitioned,partitioning,partitions,password,path,piecesize,plan,prevval,priqty,'
-    + 'program,psid,query,queryno,range,rank,reads,recovery,referencing,refresh,release,'
-    + 'rename,repeat,reset,resignal,restart,result,result_set_locator,return,returns,role,'
-    + 'round_ceilingadd,round_downafter,round_flooralias,round_half_downall,' +
+    'activate,document,dssize,dynamic,each,editproc,elseif,enable,encoding,encryption,' +
+    'ending,erase,every,excluding,exclusive,exit,explain,fenced,fieldproc,file,final,free,' +
+    'function,general,generated,graphic,handler,hash,hashed_value,hint,hold,hours,if,' +
+    'including,inclusive,increment,inf,infinity,inherit,inout,integrity,isobid,iterate,jar,' +
+    'java,keep,label,lateral,lc_ctype,leave,linktype,localdate,locale,localtime,' +
+    'localtimestamp,locator,locators,lock,lockmax,locksize,long,loop,maintained,' +
+    'materialized,maxvalue,microsecond,microseconds,minutes,minvalue,mode,modifies,' +
+    'months,nan,new,new_table,nextval,nocache,nocycle,nodename,nodenumber,nomaxvalue,' +
+    'nominvalue,noorder,normalized,nulls,numparts,obid,old,old_table,optimization,' +
+    'optimize,out,over,overriding,package,padded,pagesize,parameter,part,partition,' +
+    'partitioned,partitioning,partitions,password,path,piecesize,plan,prevval,priqty,' +
+    'program,psid,query,queryno,range,rank,reads,recovery,referencing,refresh,release,' +
+    'rename,repeat,reset,resignal,restart,result,result_set_locator,return,returns,role,' +
+    'round_ceilingadd,round_downafter,round_flooralias,round_half_downall,' +
     'round_half_evenallocate,round_half_upallow,round_upalter,routineand,' +
     'row_numberas,rowany,rownumberasensitive,rowsassociate,rowsetasutime,rrnat,' +
     'runattributes,savepointaudit,schemaauthorization,scratchpadaux,scrollauxiliary,' +
@@ -3494,13 +3553,15 @@ const
     '');
 var
   db: TSQLDBDefinition;
-begin // search using fast binary lookup in the alphabetic ordered arrays
+begin
+  // search using fast binary lookup in the alphabetic ordered arrays
   if DB_KEYWORDS[dDefault] = nil then
     for db := Low(DB_KEYWORDS) to high(DB_KEYWORDS) do
       CSVToRawUTF8DynArray(DB_KEYWORDS_CSV[db], DB_KEYWORDS[db]);
   aWord := Trim(LowerCase(aWord));
-  if (aDB = dSQLite) or (FastFindPUTF8CharSorted(pointer(DB_KEYWORDS[dDefault]),
-    high(DB_KEYWORDS[dDefault]), pointer(aWord)) < 0) then
+  if (aDB = dSQLite) or
+     (FastFindPUTF8CharSorted(pointer(DB_KEYWORDS[dDefault]),
+       high(DB_KEYWORDS[dDefault]), pointer(aWord)) < 0) then
     if aDB <= dDefault then
       result := false
     else
@@ -3701,7 +3762,8 @@ begin
   SQL := SQLGetTableNames;
   if SQL <> '' then
   try
-    if FilterTableViewSchemaName and (fForcedSchemaName <> '') then
+    if FilterTableViewSchemaName and
+       (fForcedSchemaName <> '') then
       checkschema := UpperCase(fForcedSchemaName) + '.';
     with Execute(SQL, []) do
     begin
@@ -3709,7 +3771,8 @@ begin
       while Step do
       begin
         table := trim(ColumnUTF8(0));
-        if (checkschema = '') or IdemPChar(pointer(table), pointer(checkschema)) then
+        if (checkschema = '') or
+           IdemPChar(pointer(table), pointer(checkschema)) then
           AddSortedRawUTF8(Tables, count, table);
       end;
       SetLength(Tables, count);
@@ -3728,7 +3791,8 @@ begin
   SQL := SQLGetViewNames;
   if SQL <> '' then
   try
-    if FilterTableViewSchemaName and (fForcedSchemaName <> '') then
+    if FilterTableViewSchemaName and
+       (fForcedSchemaName <> '') then
       checkschema := UpperCase(fForcedSchemaName) + '.';
     with Execute(SQL, []) do
     begin
@@ -3736,7 +3800,8 @@ begin
       while Step do
       begin
         table := trim(ColumnUTF8(0));
-        if (checkschema = '') or IdemPChar(pointer(table), pointer(checkschema)) then
+        if (checkschema = '') or
+           IdemPChar(pointer(table), pointer(checkschema)) then
           AddSortedRawUTF8(Views, count, table);
       end;
       SetLength(Views, count);
@@ -3821,8 +3886,9 @@ end;
 
 function TSQLDBConnectionProperties.SQLFullTableName(const aTableName: RawUTF8): RawUTF8;
 begin
-  if (aTableName <> '') and (fForcedSchemaName <> '') and (PosExChar('.',
-    aTableName) = 0) then
+  if (aTableName <> '') and
+     (fForcedSchemaName <> '') and
+     (PosExChar('.', aTableName) = 0) then
     result := fForcedSchemaName + '.' + aTableName
   else
     result := aTableName;
@@ -3962,7 +4028,7 @@ begin
         ' order by ORDINAL_POSITION';
     dFirebird:
       begin
-        if (package = '') then
+        if package = '' then
           result :=
             'select a.rdb$parameter_name, b.rdb$field_type || coalesce(b.rdb$field_sub_type, '''') as rdb$field_type,' +
             ' b.rdb$field_length, b.rdb$field_precision, b.rdb$field_scale,' +
@@ -4090,11 +4156,12 @@ begin
   case DBMS of
     dFirebird:
       begin
-        if (aDefaultPageSize <> 8192) or (aDefaultPageSize <> 16384) then
+        if (aDefaultPageSize <> 8192) or
+           (aDefaultPageSize <> 16384) then
           aDefaultPageSize := 4096;
-        FormatUTF8('create database ''%'' user ''sysdba'' password ''masterkey'''
-          + ' page_size % default character set utf8;', [aDatabaseName,
-          aDefaultPageSize], result);
+        FormatUTF8('create database ''%'' user ''sysdba'' password ''masterkey''' +
+          ' page_size % default character set utf8;',
+          [aDatabaseName, aDefaultPageSize], result);
       end;
   else
     result := '';
@@ -4132,7 +4199,8 @@ function TSQLDBConnectionProperties.ColumnTypeNativeToDB(const aNativeType:
   begin
     //assert(StrComp(PCHARS[DECIMAL],'DECIMAL')=0);
     ndx := IdemPCharArray(pointer(aNativeType), PCHARS);
-    if (aScale = 0) and (ndx in [DECIMAL, NUMERIC]) then
+    if (aScale = 0) and
+       (ndx in [DECIMAL, NUMERIC]) then
       result := ftInt64
     else
       result := Types[ndx];
@@ -4240,7 +4308,8 @@ function TSQLDBConnectionProperties.SQLIso8601ToDate(const Iso8601: RawUTF8): Ra
   function TrimTInIso: RawUTF8;
   begin
     result := Iso8601;
-    if (length(result) > 10) and (result[11] = 'T') then
+    if (length(result) > 10) and
+       (result[11] = 'T') then
       result[11] := ' '; // 'T' -> ' '
   end;
 
@@ -4312,7 +4381,8 @@ begin
     result := fSQLCreateField[aField.DBType];
   if aField.NonNullable or aField.Unique or aField.PrimaryKey then
     result := result + ' NOT NULL';
-  if aField.Unique and not aField.PrimaryKey then
+  if aField.Unique and
+     not aField.PrimaryKey then
     result := result + ' UNIQUE'; // see http://www.w3schools.com/sql/sql_unique.asp
   if aField.PrimaryKey then
     case DBMS of
@@ -4343,7 +4413,9 @@ var
   IndexName, FieldsCSV, ColsDesc, Owner, Table: RawUTF8;
 begin
   result := '';
-  if (self = nil) or (aTableName = '') or (high(aFieldNames) < 0) then
+  if (self = nil) or
+     (aTableName = '') or
+     (high(aFieldNames) < 0) then
     exit;
   if aUnique then
     result := 'UNIQUE ';
@@ -4408,7 +4480,8 @@ begin
         EndQuoteChar := '`';
       end;
   end;
-  if UseQuote and (PosEx(BeginQuoteChar, aTableName) = 0) then
+  if UseQuote and
+     (PosEx(BeginQuoteChar, aTableName) = 0) then
     result := BeginQuoteChar + aTableName + EndQuoteChar
   else
     result := aTableName;
@@ -4491,7 +4564,8 @@ var
     f, r, p, len: integer;
     tmp: TTextWriterStackBuffer;
   begin
-    if (fDBMS <> dFireBird) and (rowcount = prevrowcount) then
+    if (fDBMS <> dFireBird) and
+       (rowcount = prevrowcount) then
       exit;
     prevrowcount := rowcount;
     with TTextWriter.CreateOwnedStream(tmp) do
@@ -4622,10 +4696,12 @@ var
   Query: ISQLDBStatement;
 begin
   maxf := length(FieldNames);     // e.g. 2 fields
-  if (Props = nil) or (FieldNames = nil) or (TableName = '') or (length(FieldValues)
-    <> maxf) then
-    raise ESQLDBException.CreateUTF8('Invalid %.MultipleValuesInsert(%) call', [self,
-      TableName]);
+  if (Props = nil) or
+     (FieldNames = nil) or
+     (TableName = '') or
+     (length(FieldValues) <> maxf) then
+    raise ESQLDBException.CreateUTF8('Invalid %.MultipleValuesInsert(%) call',
+      [self, TableName]);
   batchRowCount := 0;
   paramCountLimit := 0;
   case Props.fDBMS of
@@ -4689,8 +4765,8 @@ begin
       end; // exception leaves Query=nil to raise exception
     end;
     if Query = nil then
-      raise ESQLDBException.CreateUTF8('%.MultipleValuesInsert: Query=nil for [%]',
-        [self, SQL]);
+      raise ESQLDBException.CreateUTF8(
+        '%.MultipleValuesInsert: Query=nil for [%]', [self, SQL]);
     try
       p := 1;
       for i := 1 to prevrowcount do
@@ -4719,10 +4795,13 @@ var
   v: RawUTF8;
 begin
   maxf := length(FieldNames);     // e.g. 2 fields
-  if (Props = nil) or (FieldNames = nil) or (TableName = '') or
-     (length(FieldValues) <> maxf) or (Props.fDBMS <> dFirebird) then
-    raise ESQLDBException.CreateUTF8('Invalid %.MultipleValuesInsertFirebird(%,%)',
-      [self, Props, TableName]);
+  if (Props = nil) or
+     (FieldNames = nil) or
+     (TableName = '') or
+     (length(FieldValues) <> maxf) or
+     (Props.fDBMS <> dFirebird) then
+    raise ESQLDBException.CreateUTF8(
+      'Invalid %.MultipleValuesInsertFirebird(%,%)', [self, Props, TableName]);
   sqllenwitoutvalues := 3 * maxf + 24;
   dec(maxf);
   for f := 0 to maxf do
@@ -4762,7 +4841,8 @@ begin
         for f := 0 to maxf do
         begin
           v := FieldValues[f, r]; // includes single quotes (#39)
-          if (v = '') or (v = 'null') then
+          if (v = '') or
+             (v = 'null') then
             W.AddShort('null')
           else if FieldTypes[f] = ftDate then
             if v = #39#39 then
@@ -4836,7 +4916,8 @@ end;
 function TSQLDBConnectionProperties.SQLSelectAll(const aTableName: RawUTF8;
   const aFields: TSQLDBColumnDefineDynArray; aExcludeTypes: TSQLDBFieldTypes): RawUTF8;
 begin
-  if (self = nil) or (aTableName = '') then
+  if (self = nil) or
+     (aTableName = '') then
     result := ''
   else
     result := 'select ' + FieldsFromList(aFields, aExcludeTypes) + ' from ' +
@@ -4857,9 +4938,11 @@ begin
     else if result[1] = 'T' then
       Delete(result, 1, 1);
     L := length(result);
-    if (L > 20) and IdemPropName('ConnectionProperties', @result[L - 19], 20) then
+    if (L > 20) and
+       IdemPropName('ConnectionProperties', @result[L - 19], 20) then
       SetLength(result, L - 20);
-    if (L > 5) and IdemPropName('OleDB', pointer(result), 5) then
+    if (L > 5) and
+       IdemPropName('OleDB', pointer(result), 5) then
       Delete(result, 1, 5);
   end;
 end;
@@ -4885,7 +4968,7 @@ begin
   result := StringReplaceAll(fDatabaseName, PassWord, '***');
 end;
 
-function TSQLDBConnectionProperties.SQLLimitClause(AStmt: TSynTableStatement):
+function TSQLDBConnectionProperties.SQLLimitClause(AStmt: TSelectStatement):
   TSQLDBDefinitionLimitClause;
 begin
   result := DB_SQLLIMITCLAUSE[DBMS];
@@ -5009,7 +5092,8 @@ procedure TSQLDBStatement.Bind(Param: Integer; ParamType: TSQLDBFieldType;
 var
   tmp: RawUTF8;
 begin
-  if not ValueAlreadyUnquoted and (Value = 'null') then
+  if not ValueAlreadyUnquoted and
+     (Value = 'null') then
     // bind null (ftUTF8 should be '"null"')
     BindNull(Param, IO)
   else
@@ -5033,9 +5117,11 @@ begin
           BindDateTime(Param, Iso8601ToDateTime(tmp), IO);
         end;
       ftUTF8:
-        if (fConnection <> nil) and fConnection.fProperties.StoreVoidStringAsNull and
-          ((Value = '') or // check if '' or '""' should be stored as null
-           ((PInteger(Value)^ and $ffffff = $2727) and not ValueAlreadyUnquoted)) then
+        if (fConnection <> nil) and
+           fConnection.fProperties.StoreVoidStringAsNull and
+           ((Value = '') or // check if '' or '""' should be stored as null
+            ((PInteger(Value)^ and $ffffff = $2727) and
+             not ValueAlreadyUnquoted)) then
           BindNull(Param, IO, ftUTF8)
         else
         begin
@@ -5054,8 +5140,10 @@ end;
 function VariantIsBlob(const V: variant): boolean;
 begin
   with TVarData(V) do
-    result := (VType = varNull) or ((VType = varString) and (VString <> nil) and
-      (PCardinal(VString)^ and $ffffff = JSON_BASE64_MAGIC));
+    result := (VType = varNull) or
+              ((VType = varString) and
+               (VString <> nil) and
+               (PCardinal(VString)^ and $ffffff = JSON_BASE64_MAGIC));
 end;
 
 procedure TSQLDBStatement.Bind(const Params: array of const; IO: TSQLDBParamInOutType);
@@ -5172,19 +5260,21 @@ begin
         BindDateTime(Param, VDate, IO);
       varCurrency:
         BindCurrency(Param, VCurrency, IO);
-      varOleStr: // handle special case if was bound explicitely as WideString
+      varOleStr:
+        // handle special case if was bound explicitely as WideString
         BindTextW(Param, WideString(VAny), IO);
-    {$ifdef HASVARUSTRING}
+      {$ifdef HASVARUSTRING}
       varUString:
         if DataIsBlob then
           raise ESQLDBException.CreateUTF8(
             '%.BindVariant: BLOB should not be UnicodeString', [self])
         else
           BindTextU(Param, UnicodeStringToUtf8(UnicodeString(VAny)), IO);
-    {$endif}
+      {$endif}
       varString:
         if DataIsBlob then
-          if (VAny <> nil) and (PInteger(VAny)^ and $00ffffff = JSON_BASE64_MAGIC) then
+          if (VAny <> nil) and
+             (PInteger(VAny)^ and $00ffffff = JSON_BASE64_MAGIC) then
             // recognized as Base64 encoded text
             BindBlob(Param, Base64ToBin(PAnsiChar(VAny) + 3,
               length(RawByteString(VAny)) - 3))
@@ -5193,11 +5283,11 @@ begin
             BindBlob(Param, RawByteString(VAny), IO)
         else
           // direct bind of AnsiString as UTF-8 value
-        {$ifdef HASCODEPAGE}
+          {$ifdef HASCODEPAGE}
           BindTextU(Param, AnyAnsiToUTF8(RawByteString(VAny)), IO);
-        {$else} // on older Delphi, we assume AnsiString = RawUTF8
+          {$else} // on older Delphi, we assume AnsiString = RawUTF8
           BindTextU(Param, RawUTF8(VAny), IO);
-        {$endif}
+          {$endif}
     else
       if VType = varByRef or varVariant then
         BindVariant(Param, PVariant(VPointer)^, DataIsBlob, IO)
@@ -5212,10 +5302,15 @@ end;
 procedure TSQLDBStatement.BindArray(Param: Integer; ParamType: TSQLDBFieldType;
   const Values: TRawUTF8DynArray; ValuesCount: integer);
 begin
-  if (Param <= 0) or (ParamType in [ftUnknown, ftNull]) or (ValuesCount <= 0) or
-    (length(Values) < ValuesCount) or (fConnection = nil) or
-    (fConnection.fProperties.BatchSendingAbilities * [cCreate, cUpdate, cDelete] = []) then
-    raise ESQLDBException.CreateUTF8('Invalid call to %.BindArray(Param=%,Type=%)',
+  if (Param <= 0) or
+     (ParamType in [ftUnknown, ftNull]) or
+     (ValuesCount <= 0) or
+     (length(Values) < ValuesCount) or
+     (fConnection = nil) or
+     (fConnection.fProperties.BatchSendingAbilities *
+      [cCreate, cUpdate, cDelete] = []) then
+    raise ESQLDBException.CreateUTF8(
+      'Invalid call to %.BindArray(Param=%,Type=%)',
       [self, Param, ToText(ParamType)^]);
 end;
 
@@ -5248,8 +5343,10 @@ end;
 
 procedure TSQLDBStatement.CheckCol(Col: integer);
 begin
-  if (self = nil) or (cardinal(Col) >= cardinal(fColumnCount)) then
-    raise ESQLDBException.CreateUTF8('Invalid call to %.Column*(Col=%)', [self, Col]);
+  if (self = nil) or
+     (cardinal(Col) >= cardinal(fColumnCount)) then
+    raise ESQLDBException.CreateUTF8(
+      'Invalid call to %.Column*(Col=%)', [self, Col]);
 end;
 
 function TSQLDBStatement.GetForceBlobAsNull: boolean;
@@ -5520,7 +5617,8 @@ function TSQLDBStatement.ParamToVariant(Param: Integer; var Value: Variant;
   CheckIsOutParameter: boolean = true): TSQLDBFieldType;
 begin
   dec(Param); // start at #1
-  if (self = nil) or (cardinal(Param) >= cardinal(fParamCount)) then
+  if (self = nil) or
+     (cardinal(Param) >= cardinal(fParamCount)) then
     raise ESQLDBException.CreateUTF8('%.ParamToVariant(%)', [self, Param]);
   // overridden method should fill Value with proper data
   result := ftUnknown;
@@ -5569,7 +5667,8 @@ begin
     fSQLLogTimer.Pause;
     {$endif}
     ReleaseRows;
-    if (result = 0) and W.Expand then
+    if (result = 0) and
+       W.Expand then
     begin
       // we want the field names at least, even with no data (RowCount=0)
       W.Expand := false; //  {"FieldCount":2,"Values":["col1","col2"]}
@@ -5599,7 +5698,9 @@ var
   V: TSQLVar;
 begin
   result := 0;
-  if (Dest = nil) or (self = nil) or (ColumnCount = 0) then
+  if (Dest = nil) or
+     (self = nil) or
+     (ColumnCount = 0) then
     exit;
   fForceBlobAsNull := true;
   if Tab then
@@ -5699,7 +5800,7 @@ begin
   end;
 end;
 
-procedure TSQLDBStatement.ColumnsToBinary(W: TFileBufferWriter; Null: pointer;
+procedure TSQLDBStatement.ColumnsToBinary(W: TBufferWriter; Null: pointer;
   const ColTypes: TSQLDBFieldTypeDynArray);
 var
   F: integer;
@@ -5751,13 +5852,13 @@ function TSQLDBStatement.FetchAllToBinary(Dest: TStream; MaxRowCount: cardinal;
 var
   F, FMax, FieldSize, NullRowSize: integer;
   StartPos: Int64;
-  W: TFileBufferWriter;
+  W: TBufferWriter;
   ft: TSQLDBFieldType;
   ColTypes: TSQLDBFieldTypeDynArray;
   Null: TByteDynArray;
 begin
   result := 0;
-  W := TFileBufferWriter.Create(Dest);
+  W := TBufferWriter.Create(Dest);
   try
     W.WriteVarUInt32(FETCHALLTOBINARY_MAGIC);
     FMax := ColumnCount;
@@ -5771,7 +5872,9 @@ begin
       begin
         W.Write(ColumnName(F));
         ft := ColumnType(F, @FieldSize);
-        if (ft = ftUnknown) and (currentRow = 0) and Step then
+        if (ft = ftUnknown) and
+           (currentRow = 0) and
+           Step then
           ft := ColumnType(F, @FieldSize); // e.g. SQLite3 -> fetch and guess
         ColTypes[F] := ft;
         W.Write1(ord(ft));
@@ -5782,7 +5885,8 @@ begin
       NullRowSize := 0;
       // save all data rows
       StartPos := W.TotalWritten;
-      if (currentRow = 1) or Step then // Step may already be done (e.g. TQuery.Open)
+      if (currentRow = 1) or
+         Step then // Step may already be done (e.g. TQuery.Open)
         repeat
           // save row position in DataRowPosition[] (if any)
           if DataRowPosition <> nil then
@@ -5813,7 +5917,8 @@ begin
           // then write data values
           ColumnsToBinary(W, pointer(Null), ColTypes);
           inc(result);
-          if (MaxRowCount > 0) and (result >= MaxRowCount) then
+          if (MaxRowCount > 0) and
+             (result >= MaxRowCount) then
             break;
         until not Step;
       ReleaseRows;
@@ -5858,7 +5963,7 @@ end;
 
 function TSQLDBStatement.ColumnString(Col: integer): string;
 begin
-  Result := UTF8ToString(ColumnUTF8(Col));
+  result := UTF8ToString(ColumnUTF8(Col));
 end;
 
 function TSQLDBStatement.ColumnString(const ColName: RawUTF8): string;
@@ -5933,7 +6038,7 @@ end;
 
 function TSQLDBStatement.Instance: TSQLDBStatement;
 begin
-  Result := Self;
+  result := Self;
 end;
 
 function TSQLDBStatement.SQLLogBegin(level: TSynLogInfo): TSynLog;
@@ -6013,9 +6118,9 @@ end;
 function TSQLDBStatement.GetSQLCurrent: RawUTF8;
 begin
   if fSQLPrepared <> '' then
-    Result := fSQLPrepared
+    result := fSQLPrepared
   else
-    Result := fSQL;
+    result := fSQL;
 end;
 
 function TSQLDBStatement.GetSQLWithInlinedParams: RawUTF8;
@@ -6031,20 +6136,24 @@ begin
 end;
 
 function GotoNextParam(P: PUTF8Char): PUTF8Char;
-  {$ifdef HASINLINE} inline; {$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 var
   c: AnsiChar;
 begin
   repeat
     c := P^;
-    if (c = #0) or (c = '?') then
+    if (c = #0) or
+       (c = '?') then
       break;
-    if (c = '''') and (P[1] <> '''') then
+    if (c = '''') and
+       (P[1] <> '''') then
     begin
       repeat // ignore ? inside ' quotes
         inc(P);
         c := P^;
-      until (c = #0) or ((c = '''') and (P[1] <> ''''));
+      until (c = #0) or
+            ((c = '''') and
+             (P[1] <> ''''));
       if c = #0 then
         break;
     end;
@@ -6066,7 +6175,8 @@ begin
     maxSize := 0
   else
     maxSize := fConnection.fProperties.fLoggedSQLMaxSize;
-  if (integer(maxSize) < 0) or (PosExChar('?', fSQL) = 0) then
+  if (integer(maxSize) < 0) or
+     (PosExChar('?', fSQL) = 0) then
     // maxsize=-1 -> log statement without any parameter value (just ?)
     exit;
   P := pointer(fSQL);
@@ -6091,7 +6201,9 @@ begin
         maxAllowed := maxInt;
       AddParamValueAsText(num, W, maxAllowed);
       inc(num);
-    until (P^ = #0) or ((maxSize > 0) and (W.TextLength >= maxSize));
+    until (P^ = #0) or
+          ((maxSize > 0) and
+           (W.TextLength >= maxSize));
     W.SetText(fSQLWithInlinedParams);
   finally
     W.Free;
@@ -6135,7 +6247,8 @@ begin
         AppendUnicode(VString, length(UnicodeString(VString)));
       {$endif}
     else
-      if (ft = ftDate) and (cardinal(VType) in [varDouble, varDate]) then
+      if (ft = ftDate) and
+         (cardinal(VType) in [varDouble, varDate]) then
         Dest.AddDateTime(vdate)
       else
         Dest.AddVariant(v);
@@ -6183,15 +6296,17 @@ begin
   try
     L := length(aSQL);
     if StripSemicolon then
-      if (L > 5) and (aSQL[L] = ';') and // avoid syntax error for some drivers
-        not IdemPChar(@aSQL[L - 4], ' END') then
+      if (L > 5) and
+         (aSQL[L] = ';') and // avoid syntax error for some drivers
+         not IdemPChar(@aSQL[L - 4], ' END') then
         fSQL := copy(aSQL, 1, L - 1)
       else
         fSQL := aSQL
     else
       fSQL := aSQL;
     fExpectResults := ExpectResults;
-    if (fConnection <> nil) and not fConnection.IsConnected then
+    if (fConnection <> nil) and
+       not fConnection.IsConnected then
       fConnection.Connect;
   finally
     Connection.InternalProcess(speNonActive);
@@ -6221,13 +6336,14 @@ function TSQLDBStatement.ColumnsToSQLInsert(const TableName: RawUTF8;
 var
   F, size: integer;
 begin
-  Result := '';
-  if (self = nil) or (TableName = '') then
+  result := '';
+  if (self = nil) or
+     (TableName = '') then
     exit;
   SetLength(Fields, ColumnCount);
   if Fields = nil then
     exit;
-  Result := 'insert into ' + TableName + ' (';
+  result := 'insert into ' + TableName + ' (';
   for F := 0 to high(Fields) do
   begin
     Fields[F].Name := ColumnName(F);
@@ -6240,13 +6356,13 @@ begin
         raise ESQLDBException.CreateUTF8('%.ColumnsToSQLInsert: Invalid column %',
           [self, Fields[F].Name]);
     end;
-    Result := Result + Fields[F].Name + ',';
+    result := result + Fields[F].Name + ',';
   end;
-  Result[length(Result)] := ')';
-  Result := Result + ' values (';
+  result[length(result)] := ')';
+  result := result + ' values (';
   for F := 0 to high(Fields) do
-    Result := Result + '?,'; // MUCH faster with a prepared statement
-  Result[length(Result)] := ')';
+    result := result + '?,'; // MUCH faster with a prepared statement
+  result[length(result)] := ')';
 end;
 
 procedure TSQLDBStatement.BindFromRows(const Fields: TSQLDBFieldTypeDynArray;
@@ -6254,7 +6370,9 @@ procedure TSQLDBStatement.BindFromRows(const Fields: TSQLDBFieldTypeDynArray;
 var
   F: integer;
 begin
-  if (self <> nil) and (Fields <> nil) and (Rows <> nil) then
+  if (self <> nil) and
+     (Fields <> nil) and
+     (Rows <> nil) then
     for F := 0 to high(Fields) do
       if Rows.ColumnNull(F) then
         BindNull(F + 1)
@@ -6301,7 +6419,8 @@ end;
 
 procedure TSQLDBConnection.InternalProcess(Event: TOnSQLDBProcessEvent);
 begin
-  if (self = nil) or not Assigned(OnProcess) then
+  if (self = nil) or
+     not Assigned(OnProcess) then
     exit;
   case Event of // thread-safe handle of speActive/peNonActive nested calls
     speActive:
@@ -6402,7 +6521,8 @@ end;
 function TSQLDBConnection.IsOutdated(tix: Int64): boolean;
 begin
   result := false;
-  if (self = nil) or (fProperties.fConnectionTimeOutTicks = 0) then
+  if (self = nil) or
+     (fProperties.fConnectionTimeOutTicks = 0) then
     exit;
   if fLastAccessTicks < 0 then
   begin // was forced by ClearConnectionPool
@@ -6432,7 +6552,8 @@ var
   Current: TDateTime;
 begin
   Current := NowUTC; // so won't conflict with any potential time zone change
-  if (fServerTimestampOffset = 0) and (fProperties.fSQLGetServerTimestamp <> '') then
+  if (fServerTimestampOffset = 0) and
+     (fProperties.fSQLGetServerTimestamp <> '') then
   begin
     with fProperties do
       with Execute(fSQLGetServerTimestamp, []) do
@@ -6446,7 +6567,9 @@ end;
 
 function TSQLDBConnection.GetLastErrorWasAboutConnection: boolean;
 begin
-  result := (self <> nil) and (Properties <> nil) and (fErrorMessage <> '') and
+  result := (self <> nil) and
+            (Properties <> nil) and
+            (fErrorMessage <> '') and
     Properties.ExceptionIsAboutConnection(fErrorException, fErrorMessage);
 end;
 
@@ -6510,7 +6633,8 @@ begin
   // first check if could be retrieved from cache
   cachedSQL := aSQL;
   ToCache := fProperties.IsCachable(Pointer(aSQL));
-  if ToCache and (fCache <> nil) then
+  if ToCache and
+     (fCache <> nil) then
   begin
     ndx := fCache.IndexOf(cachedSQL);
     if ndx >= 0 then
@@ -6577,7 +6701,8 @@ begin
       else
         result := nil;
     end
-    else if RaiseExceptionOnError and (fErrorException <> nil) then
+    else if RaiseExceptionOnError and
+            (fErrorException <> nil) then
       // propagate error not related to connection (e.g. SQL syntax error)
       raise fErrorException.Create(UTF8ToString(fErrorMessage));
   end
@@ -6618,7 +6743,9 @@ var
   i, n: integer;
 begin
   result := 0;
-  if (self = nil) or (Rows = nil) or (Rows.ColumnCount = 0) then
+  if (self = nil) or
+     (Rows = nil) or
+     (Rows.ColumnCount = 0) then
     exit;
   aTableName := Properties.SQLTableName(TableName);
   if WithinTransaction then
@@ -6721,7 +6848,8 @@ begin // caller made fConnectionPool.Safe.Lock
     if result >= 0 then
     begin
       conn := fConnectionPool.List[result];
-      if (conn.fThreadID = id) and not conn.IsOutdated(tix) then
+      if (conn.fThreadID = id) and
+         not conn.IsOutdated(tix) then
         exit;
     end;
     result := 0;
@@ -6821,9 +6949,12 @@ function TSQLDBStatementWithParams.CheckParam(Param: Integer; NewType:
   TSQLDBFieldType; IO: TSQLDBParamInOutType; ArrayCount: integer): PSQLDBParam;
 begin
   result := CheckParam(Param, NewType, IO);
-  if (NewType in [ftUnknown, ftNull]) or (fConnection = nil) or
-     (fConnection.fProperties.BatchSendingAbilities * [cCreate, cUpdate, cDelete] = []) then
-    raise ESQLDBException.CreateUTF8('Invalid call to %.BindArray(Param=%,Type=%)',
+  if (NewType in [ftUnknown, ftNull]) or
+     (fConnection = nil) or
+     (fConnection.fProperties.BatchSendingAbilities *
+       [cCreate, cUpdate, cDelete] = []) then
+    raise ESQLDBException.CreateUTF8(
+      'Invalid call to %.BindArray(Param=%,Type=%)',
       [self, Param, ToText(NewType)^]);
   SetLength(result^.VArray, ArrayCount);
   result^.VInt64 := ArrayCount;
@@ -6881,7 +7012,8 @@ end;
 procedure TSQLDBStatementWithParams.BindTextS(Param: Integer;
   const Value: string; IO: TSQLDBParamInOutType);
 begin
-  if (Value = '') and (fConnection <> nil) and
+  if (Value = '') and
+     (fConnection <> nil) and
      fConnection.fProperties.StoreVoidStringAsNull then
     CheckParam(Param, ftNull, IO)
   else
@@ -6891,9 +7023,9 @@ end;
 procedure TSQLDBStatementWithParams.BindTextU(Param: Integer;
   const Value: RawUTF8; IO: TSQLDBParamInOutType);
 begin
-  if (Value = '') and (fConnection <> nil) and
-     fConnection.fProperties.StoreVoidStringAsNull
-    then
+  if (Value = '') and
+     (fConnection <> nil) and
+     fConnection.fProperties.StoreVoidStringAsNull then
     CheckParam(Param, ftNull, IO)
   else
     CheckParam(Param, ftUTF8, IO)^.VData := Value;
@@ -6902,7 +7034,8 @@ end;
 procedure TSQLDBStatementWithParams.BindTextP(Param: Integer; Value: PUTF8Char;
   IO: TSQLDBParamInOutType);
 begin
-  if (Value = nil) and (fConnection <> nil) and
+  if (Value = nil) and
+     (fConnection <> nil) and
      fConnection.fProperties.StoreVoidStringAsNull then
     CheckParam(Param, ftNull, IO)
   else
@@ -6912,7 +7045,8 @@ end;
 procedure TSQLDBStatementWithParams.BindTextW(Param: Integer; const Value:
   WideString; IO: TSQLDBParamInOutType);
 begin
-  if (Value = '') and (fConnection <> nil) and
+  if (Value = '') and
+     (fConnection <> nil) and
      fConnection.fProperties.StoreVoidStringAsNull then
     CheckParam(Param, ftNull, IO)
   else
@@ -6925,9 +7059,10 @@ function TSQLDBStatementWithParams.ParamToVariant(Param: Integer;
 begin
   inherited ParamToVariant(Param, Value); // raise exception if Param incorrect
   dec(Param); // start at #1
-  if CheckIsOutParameter and (fParams[Param].VInOut = paramIn) then
-    raise ESQLDBException.CreateUTF8('%.ParamToVariant expects an [In]Out parameter',
-      [self]);
+  if CheckIsOutParameter and
+     (fParams[Param].VInOut = paramIn) then
+    raise ESQLDBException.CreateUTF8(
+      '%.ParamToVariant expects an [In]Out parameter', [self]);
   // OleDB provider should have already modified the parameter in-place, i.e.
   // in our fParams[] buffer, especialy for TEXT parameters (OleStr/WideString)
   // -> we have nothing to do but return the current value! :)
@@ -7021,9 +7156,11 @@ begin
   p := CheckParam(Param, ParamType, paramIn);
   p^.VInt64 := ValuesCount;
   p^.VArray := Values; // immediate COW reference-counted assignment
-  if (ParamType = ftDate) and (ChangeFirstChar <> 'T') then
+  if (ParamType = ftDate) and
+     (ChangeFirstChar <> 'T') then
     for i := 0 to ValuesCount - 1 do // fix e.g. for PostgreSQL
-      if (p^.VArray[i] <> '') and (p^.VArray[i][1] = '''') then
+      if (p^.VArray[i] <> '') and
+         (p^.VArray[i][1] = '''') then
       begin
         v.From(PUTF8Char(pointer(p^.VArray[i])) + 1, length(p^.VArray[i]) - 2);
         p^.VArray[i] := v.FullText({expanded=}true, ChangeFirstChar, '''');
@@ -7041,7 +7178,8 @@ begin
     fConnection.Properties.StoreVoidStringAsNull;
   with CheckParam(Param, ftUTF8, paramIn, length(Values))^ do
     for i := 0 to high(Values) do
-      if StoreVoidStringAsNull and (Values[i] = '') then
+      if StoreVoidStringAsNull and
+         (Values[i] = '') then
         VArray[i] := 'null'
       else
         QuotedStr(Values[i], '''', VArray[i]);
@@ -7090,7 +7228,8 @@ begin
       if length(VArray) <= fParamsArrayCount then
         SetLength(VArray, NextGrow(fParamsArrayCount));
       VInt64 := fParamsArrayCount;
-      if (VType = ftDate) and (aValues[i].VType = vtExtended) then
+      if (VType = ftDate) and
+         (aValues[i].VType = vtExtended) then
         VArray[fParamsArrayCount] := // direct binding of TDateTime value
           Connection.Properties.SQLDateToIso8601Quoted(aValues[i].VExtended^)
       else
@@ -7098,7 +7237,8 @@ begin
         VarRecToUTF8(aValues[i], VArray[fParamsArrayCount]);
         case VType of
           ftUTF8:
-            if (VArray[fParamsArrayCount] = '') and (fConnection <> nil) and
+            if (VArray[fParamsArrayCount] = '') and
+               (fConnection <> nil) and
               fConnection.Properties.StoreVoidStringAsNull then
               VArray[fParamsArrayCount] := 'null'
             else
@@ -7143,7 +7283,8 @@ begin
               ftUTF8:
                 begin
                   U := Rows.ColumnUTF8(F);
-                  if (U = '') and (fConnection <> nil) and
+                  if (U = '') and
+                     (fConnection <> nil) and
                      fConnection.Properties.StoreVoidStringAsNull then
                     VArray[fParamsArrayCount] := 'null'
                   else

@@ -92,12 +92,30 @@ type
   // - cExceptionRaised is a pseudo-command, used only for sending an exception
   // to the client in case of execution problem on the server side
   TSQLDBProxyConnectionCommand = (
-    cGetToken,cGetDBMS,
-    cConnect, cDisconnect, cTryStartTransaction, cCommit, cRollback,
+    cGetToken,
+    cGetDBMS,
+    cConnect,
+    cDisconnect,
+    cTryStartTransaction,
+    cCommit,
+    cRollback,
     cServerTimestamp,
-    cGetFields, cGetIndexes, cGetTableNames, cGetForeignKeys,
-    cExecute, cExecuteToBinary, cExecuteToJSON, cExecuteToExpandedJSON,
-    cQuit, cExceptionRaised);
+    cGetFields,
+    cGetIndexes,
+    cGetTableNames,
+    cGetForeignKeys,
+    cExecute,
+    cExecuteToBinary,
+    cExecuteToJSON,
+    cExecuteToExpandedJSON,
+    cQuit,
+    cExceptionRaised);
+
+  /// server-side process flags for TSQLDBProxyConnectionCommandExecute.Force
+  TSQLDBProxyConnectionCommandExecuteForce = set of (
+    fBlobAsNull,
+    fDateWithMS,
+    fNoUpdateCount);
 
   /// structure to embedd all needed parameters to execute a SQL statement
   // - used for cExecute, cExecuteToBinary, cExecuteToJSON and cExecuteToExpandedJSON
@@ -116,7 +134,7 @@ type
     // ISQLDBStatement properties
     // - fNoUpdateCount avoids to call ISQLDBStatement.UpdateCount method, e.g.
     // for performance reasons
-    Force: set of (fBlobAsNull, fDateWithMS, fNoUpdateCount);
+    Force: TSQLDBProxyConnectionCommandExecuteForce;
   end;
 
 
@@ -321,7 +339,7 @@ type
     // - will save one data row in optimized binary format (if not in Null)
     // - virtual method called by FetchAllToBinary()
     // - follows the format expected by TSQLDBProxyStatement
-    procedure ColumnsToBinary(W: TFileBufferWriter; Null: pointer;
+    procedure ColumnsToBinary(W: TBufferWriter; Null: pointer;
       const ColTypes: TSQLDBFieldTypeDynArray); override;
 
     /// read-only access to the number of data rows stored
@@ -352,7 +370,7 @@ type
     // - if Expanded is true, JSON data is an array of objects, for direct use
     // with any Ajax or .NET client:
     // & [ {"col1":val11,"col2":"val12"},{"col1":val21,... ]
-    // - if Expanded is false, JSON data is serialized (used in TSQLTableJSON)
+    // - if Expanded is false, JSON data is serialized (used in TOrmTableJSON)
     // & { "FieldCount":1,"Values":["col1","col2",val11,"val12",val21,..] }
     // - BLOB field value is saved as Base64, in the '"\uFFF0base64encodedbinary"'
     // format and contains true BLOB data
@@ -575,8 +593,10 @@ type
   protected
     fKeepAliveMS: cardinal;
     fURI: TURI;
-    function GetServer: RawByteString; {$ifdef HASINLINE}inline;{$endif}
-    function GetPort: RawByteString;   {$ifdef HASINLINE}inline;{$endif}
+    function GetServer: RawByteString;
+      {$ifdef HASINLINE}inline;{$endif}
+    function GetPort: RawByteString;
+      {$ifdef HASINLINE}inline;{$endif}
     /// you could inherit from it and set your custom fProtocol instance
     procedure SetInternalProperties; override;
     procedure SetServerName(const aServerName: RawUTF8);
@@ -757,7 +777,8 @@ begin
     finally
       LeaveCriticalSection(fLock);
     end;
-    if result or (tix > endTrial) then
+    if result or
+       (tix > endTrial) then
       break;
     SleepHiRes(1);
     tix := GetTickCount64;
@@ -793,13 +814,13 @@ function TSQLDBRemoteConnectionProtocol.HandleInput(const input: RawByteString):
 begin
   result := input;
   SymmetricEncrypt(REMOTE_MAGIC, result);
-  result := SynLZDecompress(result);
+  result := AlgoSynLZ.Decompress(result);
 end;
 
 function TSQLDBRemoteConnectionProtocol.HandleOutput(const output: RawByteString):
   RawByteString;
 begin
-  result := SynLZCompress(output);
+  result := AlgoSynLZ.Compress(output);
   SymmetricEncrypt(REMOTE_MAGIC, result);
 end;
 
@@ -836,9 +857,11 @@ begin
     raise ESQLDBRemote.CreateUTF8('%.RemoteProcessMessage(connection=nil)', [self]);
   msgInput := HandleInput(Input);
   header := pointer(msgInput);
-  if (header = nil) or (header.Magic <> REMOTE_MAGIC) then
+  if (header = nil) or
+     (header.Magic <> REMOTE_MAGIC) then
     raise ESQLDBRemote.CreateUTF8('Wrong %.RemoteProcessMessage() input', [self]);
-  if (Authenticate <> nil) and (Authenticate.UsersCount > 0) and
+  if (Authenticate <> nil) and
+     (Authenticate.UsersCount > 0) and
      not (header.Command in [cGetToken, cGetDBMS]) then
     if not Authenticate.SessionExists(header.SessionID) then
       raise ESQLDBRemote.Create('You do not have the right to be here');
@@ -852,7 +875,8 @@ begin
       cGetDBMS:
         begin
           session := 0;
-          if (Authenticate <> nil) and (Authenticate.UsersCount > 0) then
+          if (Authenticate <> nil) and
+             (Authenticate.UsersCount > 0) then
           begin
             GetNextItem(PUTF8Char(O), #1, user);
             session := Authenticate.CreateSession(user, PCardinal(O)^);
@@ -1087,7 +1111,8 @@ begin // use our optimized RecordLoadSave/DynArrayLoadSave binary serialization
   ProcessMessage(fProtocol.HandleOutput(msgInput), msgRaw);
   msgOutput := fProtocol.HandleInput(msgRaw);
   outheader := pointer(msgOutput);
-  if (outheader = nil) or (outheader.Magic <> REMOTE_MAGIC) then
+  if (outheader = nil) or
+     (outheader.Magic <> REMOTE_MAGIC) then
     raise ESQLDBRemote.CreateUTF8('Wrong %.Process() returned content', [self]);
   O := pointer(msgOutput);
   inc(O, sizeof(header));
@@ -1208,7 +1233,8 @@ begin
   endTrial := GetTickCount64 + fProxy.StartTransactionTimeOut;
   repeat
     fProxy.Process(cTryStartTransaction, self, started);
-    if started or (GetTickCount64 > endTrial) then
+    if started or
+       (GetTickCount64 > endTrial) then
       break;
     SleepHiRes(10); // retry every 10 ms
   until false;
@@ -1371,7 +1397,7 @@ begin
     WR.Add('}');
 end;
 
-procedure TSQLDBProxyStatementAbstract.ColumnsToBinary(W: TFileBufferWriter;
+procedure TSQLDBProxyStatementAbstract.ColumnsToBinary(W: TBufferWriter;
   Null: pointer; const ColTypes: TSQLDBFieldTypeDynArray);
 begin
   W.Write(fDataCurrentRowValuesStart, fDataCurrentRowValuesSize);
@@ -1379,7 +1405,8 @@ end;
 
 function TSQLDBProxyStatementAbstract.ColumnData(Col: integer): pointer;
 begin
-  if (fDataCurrentRowValues <> nil) and (cardinal(Col) < cardinal(fColumnCount)) then
+  if (fDataCurrentRowValues <> nil) and
+     (cardinal(Col) < cardinal(fColumnCount)) then
     result := fDataCurrentRowValues[Col]
   else
     result := nil;
@@ -1388,7 +1415,8 @@ end;
 function TSQLDBProxyStatementAbstract.ColumnType(Col: integer;
   FieldSize: PInteger): TSQLDBFieldType;
 begin
-  if (fDataRowCount > 0) and (cardinal(Col) < cardinal(fColumnCount)) then
+  if (fDataRowCount > 0) and
+     (cardinal(Col) < cardinal(fColumnCount)) then
     if GetBitPtr(pointer(fDataCurrentRowNull), Col) then
       result := ftNull
     else
@@ -1405,7 +1433,8 @@ end;
 function TSQLDBProxyStatementAbstract.IntColumnType(Col: integer;
   out Data: PByte): TSQLDBFieldType;
 begin
-  if (cardinal(Col) >= cardinal(fColumnCount)) or (fDataCurrentRowValues = nil) then
+  if (cardinal(Col) >= cardinal(fColumnCount)) or
+     (fDataCurrentRowValues = nil) then
     result := ftUnknown
   else
   begin
@@ -1568,7 +1597,8 @@ end;
 procedure TSQLDBProxyStatement.ParamsToCommand(
   var Input: TSQLDBProxyConnectionCommandExecute);
 begin
-  if (fColumnCount > 0) or (fDataInternalCopy <> '') then
+  if (fColumnCount > 0) or
+     (fDataInternalCopy <> '') then
     raise ESQLDBRemote.CreateUTF8('Invalid %.ExecutePrepared* call', [self]);
   Input.SQL := fSQL;
   if length(fParams) <> fParamCount then // strip to only needed memory
@@ -1626,7 +1656,8 @@ end;
 function TSQLDBProxyStatement.FetchAllToBinary(Dest: TStream;
   MaxRowCount: cardinal; DataRowPosition: PCardinalDynArray): cardinal;
 begin
-  if (MaxRowCount > 0) and (MaxRowCount < cardinal(fDataRowCount)) then
+  if (MaxRowCount > 0) and
+     (MaxRowCount < cardinal(fDataRowCount)) then
   begin
     result := inherited FetchAllToBinary(Dest, MaxRowCount, DataRowPosition);
     exit;
@@ -1642,7 +1673,7 @@ function TSQLDBProxyStatement.Step(SeekFirst: boolean): boolean;
 begin // retrieve one row of data from TSQLDBStatement.FetchAllToBinary() format
   if SeekFirst then
     fCurrentRow := 0;
-  if (cardinal(fCurrentRow) >= cardinal(fDataRowCount)) then
+  if cardinal(fCurrentRow) >= cardinal(fDataRowCount) then
   begin
     result := false; // no data was retrieved
     exit;
@@ -1669,7 +1700,8 @@ begin
   inherited Create(nil);
   IntHeaderProcess(Data, DataLen);
   Reader := fDataRowReaderOrigin;
-  if (DataRowPosition <> nil) and (DataRowPosition^ <> nil) then
+  if (DataRowPosition <> nil) and
+     (DataRowPosition^ <> nil) then
   begin
     fRowData := DataRowPosition^; // fast copy-on-write
     if not IgnoreColumnDataSize then
@@ -1701,7 +1733,8 @@ function TSQLDBProxyStatementRandomAccess.GotoRow(Index: integer;
 var
   Reader: PByte;
 begin
-  result := (cardinal(Index) < cardinal(fDataRowCount)) and (fColumnCount > 0);
+  result := (cardinal(Index) < cardinal(fDataRowCount)) and
+            (fColumnCount > 0);
   if not result then
     if RaiseExceptionOnWrongIndex then
       raise ESQLDBRemote.CreateUTF8('Invalid %.GotoRow(%)', [self, Index])
@@ -1767,7 +1800,8 @@ function TSQLDBServerAbstract.Process(Ctxt: THttpServerRequest): cardinal;
 var
   o: RawByteString;
 begin
-  if (Ctxt.Method <> 'POST') or (Ctxt.InContent = '') or
+  if (Ctxt.Method <> 'POST') or
+     (Ctxt.InContent = '') or
      not IdemPropNameU(trim(Ctxt.InContentType), BINARY_CONTENT_TYPE) then
   begin
     result := HTTP_NOTFOUND;

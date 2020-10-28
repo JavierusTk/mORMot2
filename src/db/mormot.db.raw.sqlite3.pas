@@ -35,10 +35,6 @@ uses
   mormot.core.log,
   mormot.db.core;
 
-{$define WITHLOG}
-// if defined, logging will be generated - set by default since it won't hurt
-
-
 { ************ Raw SQLite3 API Constants and Functions }
 
 {$ifdef BSD}
@@ -372,7 +368,7 @@ type
   /// map the matchinfo function returned BLOB value
   // - i.e. the default 'pcx' layout, for both FTS3 and FTS4
   // - see http://www.sqlite.org/fts3.html#matchinfo
-  // - used for the FTS3/FTS4 ranking of results by TSQLRest.FTSMatch method
+  // - used for the FTS3/FTS4 ranking of results by TRest.FTSMatch method
   // and the internal RANK() function as proposed in
   // http://www.sqlite.org/fts3.html#appendix_a
   TFTSMatchInfo = packed record
@@ -539,7 +535,7 @@ type
   // implementation. The purpose of this superclass is to define certain fields
   // that are common to all module implementations. This structure therefore
   // contains a pInstance field, which will be used to store a class instance
-  // handling the virtual table as a pure Delphi class: the TSQLVirtualTableModule
+  // handling the virtual table as a pure class: the TOrmVirtualTableModule
   // class will use it internaly
   TSQLite3VTab = record
     /// The module for this virtual table
@@ -555,7 +551,7 @@ type
     // the string will be automatically freed by sqlite3.free() and the zErrMsg
     // field will be zeroed.
     zErrMsg: PUTF8Char;
-    /// this will be used to store a Delphi class instance handling the Virtual Table
+    /// this will be used to store a class instance handling the Virtual Table
     pInstance: TObject;
   end;
 
@@ -571,12 +567,12 @@ type
   // - This superclass exists in order to define fields of the cursor that are
   // common to all implementationsThis structure therefore contains a pInstance
   // field, which will be used to store a class instance handling the virtual
-  // table as a pure Delphi class: the TSQLVirtualTableModule class will use
+  // table as a pure class: the TOrmVirtualTableModule class will use
   // it internaly
   TSQLite3VTabCursor = record
     /// Virtual table of this cursor
     pVtab: PSQLite3VTab;
-    /// this will be used to store a Delphi class instance handling the cursor
+    /// this will be used to store a class instance handling the cursor
     pInstance: TObject;
   end;
 
@@ -983,7 +979,11 @@ type
   // - stmClose callback is invoked when a database connection closes. The
   // P argument is a pointer to the database connection object and the X
   // argument is unused.
-  TSQLTraceMask = set of (stmStmt, stmProfile, stmRow, stmClose);
+  TSQLTraceMask = set of (
+    stmStmt,
+    stmProfile,
+    stmRow,
+    stmClose);
 
   /// Callback function registered by sqlite3.trace_v2()
   // - the Trace argument has one of the TSQLTraceMask items set, to indicate
@@ -1029,8 +1029,8 @@ type
   // (TSQLite3LibrayStatic) or with an external library (TSQLite3LibraryDynamic)
   // - a global sqlite3: TSQLite3Library will be defined in this unit, so
   // you should call sqlite3.open() instead of sqlite3_open() for instance
-  // - if your project refers to SynSQLite3Static unit, it will initialize a
-  // TSQLite3LibrayStatic instance
+  // - if your project refers to mormot.db.raw.sqlite3.static unit, it will
+  // initialize a TSQLite3LibrayStatic instance
   TSQLite3Library = class
   protected
     fUseInternalMM: boolean;
@@ -1079,7 +1079,7 @@ type
 
     ///  specify the encryption key on a newly opened database connection
     // - Assigned(key)=false if encryption is not available for this .dll
-    // - SynSQLite3Static will use its own internal encryption format
+    // - mormot.db.raw.sqlite3.static will use its own internal encryption format
     // - key/keylen may be a JSON-serialized TSynSignerParams object, or will use
     // AES-OFB-128 after SHAKE_128 with rounds=1000 and a fixed salt on plain password text
     key: function(DB: TSQLite3DB; key: pointer; keyLen: Integer): integer; cdecl;
@@ -1097,12 +1097,12 @@ type
     // associated with the sqlite3 object prior to attempting to close the object
     // (sqlite3.next_stmt() interface can be used for this task)
     // - if invoked while a transaction is open, the transaction is automatically rolled back
-    //  - SynSQLite3Static will use its own internal function for handling properly
-    // its own encryption format
+    // - mormot.db.raw.sqlite3.static will use its own internal function for
+    // handling properly its own encryption format
     close: function(DB: TSQLite3DB): integer; cdecl;
 
     /// Return the version of the SQLite database engine, in ascii format
-    // - currently returns '3.33.0', when used with our SynSQLite3Static unit
+    // - currently returns '3.33.0', when used with our mormot.db.raw.sqlite3.static unit
     // - if an external SQLite3 library is used, version may vary
     // - you may use the VersionText property (or Version for full details) instead
     libversion: function: PUTF8Char; cdecl;
@@ -1943,15 +1943,15 @@ type
 
 
 /// an internal function which calls Freemem(p)
-// - can be used to free some PUTF8Char pointer allocated by Delphi Getmem()
+// - can be used to free some PUTF8Char pointer allocated by the RTL Getmem()
 procedure sqlite3InternalFree(p: pointer); cdecl;
 
 /// an internal function which calls TObject(p).Free
-// - can be used to free some Delphi class instance
+// - can be used to free some class instance
 procedure sqlite3InternalFreeObject(p: pointer); cdecl;
 
 /// an internal function which calls RawByteString(p) := ''
-// - can be used to free some Delphi class instance
+// - can be used to free some class instance
 // - use a local tmp: pointer variable to prepare the reference count, e.g.
 // !  tmp := nil;
 // !  RawUTF8(tmp) := Text; // fast COW assignment
@@ -1965,7 +1965,7 @@ procedure ErrorWrongNumberOfArgs(Context: TSQLite3FunctionContext);
 function CheckNumberOfArgs(Context: TSQLite3FunctionContext; expected,sent: integer): boolean;
 
 /// create a TSQLite3Module.pzErr UTF-8 text buffer according to the given
-// Delphi exception
+// Exception class
 procedure ExceptionToSqlite3Err(E: Exception; var pzErr: PUTF8Char);
 
 /// set a TSQLVar into a SQlite3 result context
@@ -2053,10 +2053,35 @@ type
   /// the main possible return codes, including error codes
   TSQLite3ErrorCode = (
     secUnknown,
-    secOK,secERROR,secINTERNAL,secPERM,secABORT,secBUSY,secLOCKED,secNOMEM,
-    secREADONLY,secINTERRUPT,secIOERR,secCORRUPT,secNOTFOUND,secFULL,secCANTOPEN,
-    secPROTOCOL,secEMPTY,secSCHEMA,secTOOBIG,secCONSTRAINT,secMISMATCH,secMISUSE,
-    secNOLFS,secAUTH,secFORMAT,secRANGE,secNOTADB, secROW,secDONE);
+    secOK,
+    secERROR,
+    secINTERNAL,
+    secPERM,
+    secABORT,
+    secBUSY,
+    secLOCKED,
+    secNOMEM,
+    secREADONLY,
+    secINTERRUPT,
+    secIOERR,
+    secCORRUPT,
+    secNOTFOUND,
+    secFULL,
+    secCANTOPEN,
+    secPROTOCOL,
+    secEMPTY,
+    secSCHEMA,
+    secTOOBIG,
+    secCONSTRAINT,
+    secMISMATCH,
+    secMISUSE,
+    secNOLFS,
+    secAUTH,
+    secFORMAT,
+    secRANGE,
+    secNOTADB,
+    secROW,
+    secDONE);
 
   /// custom SQLite3 dedicated Exception type
   ESQLite3Exception = class(ESynException)
@@ -2096,8 +2121,8 @@ var
   // - you should call sqlite3.open() instead of sqlite3_open() for instance
   // - points either to the statically linked sqlite3.obj, or to an external
   // library (e.g. sqlite3.dll under Windows)
-  // - your project should use EITHER SynSQLite3Static unit OR create a
-  // TSQLite3LibraryDynamic instance:
+  // - your project should use EITHER mormot.db.raw.sqlite3.static unit
+  // OR create a TSQLite3LibraryDynamic instance:
   // ! FreeAndNil(sqlite3); // release any previous instance
   // ! sqlite3 := TSQLite3LibraryDynamic.Create;
   // - caller should free the sqlite3 instance only with
@@ -2128,7 +2153,9 @@ type
   // before that data has been written to the disk surface. On the other hand,
   // some operations are as much as 50 or more times faster with synchronous OFF.
   TSQLSynchronousMode = (
-    smOff, smNormal, smFull);
+    smOff,
+    smNormal,
+    smFull);
 
   /// available file-level database connection locking-mode
   // - lmNormal locking-mode (the default unless overridden at compile-time using
@@ -2146,7 +2173,8 @@ type
   // - lmExclusive gives much better write performance, and could be used when
   // needed, in case of a heavy loaded mORMot server
   TSQLLockingMode = (
-    lmNormal, lmExclusive);
+    lmNormal,
+    lmExclusive);
 
   /// available Run-Time limit categories
   // - as expected by sqlite3.limit() function and TSQLDatabase.Limit property
@@ -2167,9 +2195,17 @@ type
   // - lcVariableNumber The maximum number of parameters in an SQL statement.
   // - lcTriggerDepth The maximum depth of recursion for triggers.
   TSQLLimitCategory = (
-    lcLength, lcSQLLength, lcColumn, lcExprDepth, lcCompoundSelect,
-    lcVDBEop, lcFunctionArg, lcAttached, lcLikePatternLength,
-    lcVariableNumber, lcTriggerDepth);
+    lcLength,
+    lcSQLLength,
+    lcColumn,
+    lcExprDepth,
+    lcCompoundSelect,
+    lcVDBEop,
+    lcFunctionArg,
+    lcAttached,
+    lcLikePatternLength,
+    lcVariableNumber,
+    lcTriggerDepth);
 
   {$M+}
   TSQLDatabase = class;
@@ -2278,11 +2314,11 @@ type
     // - if Expand is true, JSON data is an array of objects, for direct use
     // with any Ajax or .NET client:
     // & [ {"col1":val11,"col2":"val12"},{"col1":val21,... ]
-    // - if Expand is false, JSON data is serialized (used in TSQLTableJSON)
+    // - if Expand is false, JSON data is serialized (used in TOrmTableJSON)
     // & { "FieldCount":1,"Values":["col1","col2",val11,"val12",val21,..] }
     // - BLOB field value is saved as Base64, in the '"\uFFF0base64encodedbinary"'
     // format and contains true BLOB data (no conversion into TEXT, as with
-    // TSQLTableDB) - so will work for sftBlob, sftBlobDynArray and sftBlobRecord
+    // TOrmTableDB) - so will work for sftBlob, sftBlobDynArray and sftBlobRecord
     // - returns the number of data rows added to JSON (excluding the headers)
     function Execute(aDB: TSQLite3DB; const aSQL: RawUTF8; JSON: TStream;
       Expand: boolean = false): PtrInt; overload;
@@ -2392,7 +2428,7 @@ type
     function FieldA(Col: integer): WinAnsiString;
     /// return a field RawUnicode encoded text value, first Col is 0
     function FieldW(Col: integer): RawUnicode;
-    /// return a field as a blob value (RawByteString/TSQLRawBlob is an AnsiString),
+    /// return a field as a blob value (RawByteString/RawBlob is an AnsiString),
     // first Col is 0
     function FieldBlob(Col: integer): RawByteString;
     /// return a field as a TStream blob value, first Col is 0
@@ -2588,10 +2624,8 @@ type
     fBackupBackgroundInProcess: TSQLDatabaseBackupThread;
     fBackupBackgroundLastTime: RawUTF8;
     fBackupBackgroundLastFileName: TFileName;
-    {$ifdef WITHLOG}
     fLogResultMaximumSize: integer;
     fLog: TSynLogClass;
-    {$endif WITHLOG}
     /// store TSQLDataBaseSQLFunction instances
     fSQLFunctions: TSynObjectList;
     function GetUseCache: boolean;
@@ -2821,7 +2855,7 @@ type
     // - database is closed, VACCUUMed, copied, then reopened: it's very fast for
     // small databases, but is blocking and should be an issue
     // - if you use some virtual tables, they won't be restored after backup:
-    // this method would probably fail e.g. in the context of mORMot.pas
+    // this method would probably fail e.g. in the context of our ORM
     function Backup(const BackupFileName: TFileName): boolean;
     /// backup of the opened Database into an external file name
     // - this method will use the SQLite Online Backup API and a dedicated
@@ -2846,10 +2880,10 @@ type
     // - if only one connection to the database does exist (e.g. if you use only
     // one TSQLDataBase instance on the same database file), any modification
     // to the source database during the background process will be included in
-    // the backup - so this method will work perfectly e.g. for mORMot.pas
+    // the backup - so this method will work perfectly e.g. for our ORM
     // - if specified, a password will be used to cypher BackupFileName on disk
-    // (it will work only with SynSQLite3Static) - you can uncypher the resulting
-    // encrypted database file later via ChangeSQLEncryptTablePassWord()
+    // (it will work only with mormot.db.raw.sqlite3.static) - you can uncypher
+    // the resulting encrypted database file via ChangeSQLEncryptTablePassWord()
     // - returns TRUE if backup started as expected, or FALSE in case of error
     // (e.g. if there is already another backup started, if the source or
     // destination databases are locked or invalid, or if the sqlite3.dll is too
@@ -2914,16 +2948,14 @@ type
     // - see TSQLLimitCategory for a details of all available limits
     // - see @http://www.sqlite.org/c3ref/limit.html
     property Limit[Category: TSQLLimitCategory]: integer read GetLimit write SetLimit;
-    {$ifdef WITHLOG}
     /// access to the log class associated with this SQLite3 database engine
-    // - can be customized, e.g. by overriden TSQLRestServerDB.SetLogClass()
+    // - can be customized, e.g. by overriden TRestServerDB.SetLogClass()
     property Log: TSynLogClass read fLog write fLog;
     /// sets a maximum size (in bytes) to be logged as sllResult rows
     // - by default, is set to 512 bytes, which sounds a good compromise
     // since it does not make sense to log all the JSON content retrieved from
     // the database engine, when a huge SELECT is executed
     property LogResultMaximumSize: integer read fLogResultMaximumSize write fLogResultMaximumSize;
-    {$endif WITHLOG}
     /// this integer pointer (if not nil) is incremented when any SQL statement
     // changes the database contents (i.e. any not SELECT statement)
     // - this pointer is thread-safe updated, inside a critical section
@@ -2937,7 +2969,7 @@ type
     /// if this property is set, all ExecuteJSON() responses will be cached
     // - cache is flushed on any write access to the DB (any not SELECT statement)
     // - cache is consistent only if ExecuteJSON() Expand parameter is constant
-    // - cache is used by TSQLDataBase.ExecuteJSON() and TSQLTableDB.Create()
+    // - cache is used by TSQLDataBase.ExecuteJSON() and TOrmTableDB.Create()
     property UseCache: boolean read GetUseCache write SetUseCache;
     /// return TRUE if a Transaction begun
     property TransactionActive: boolean read fTransactionActive;
@@ -3005,7 +3037,7 @@ type
     // - set to a number of Mega Bytes value of memory for the mapping
     // - expects a SQLite3 engine version >= 3.7.17
     // - Memory-Mapped I/O is NOT compatible with password encryption as
-    // implemented in our SynSQLite3Static unit
+    // implemented in our mormot.db.raw.sqlite3.static unit
     property MemoryMappedMB: cardinal read GetMemoryMappedMB write SetMemoryMappedMB;
     /// retrieve or set the user_version stored in the SQLite3 database file
     // - user-version is a 32-bit signed integer stored in the database header
@@ -3063,8 +3095,14 @@ type
   // - you can use (Sender.Step in backupAnyStep), to check for normal step,
   // or (Sender.Step in backupFinished) to check for process end
   TSQLDatabaseBackupEventStep = (
-    backupNone, backupStart, backupSuccess, backupFailure,
-    backupStepOk, backupStepBusy, backupStepLocked, backupStepSynLz);
+    backupNone,
+    backupStart,
+    backupSuccess,
+    backupFailure,
+    backupStepOk,
+    backupStepBusy,
+    backupStepLocked,
+    backupStepSynLz);
 
   /// background thread used for TSQLDatabase.BackupBackground() process
   TSQLDatabaseBackupThread = class(TThread)
@@ -3122,14 +3160,12 @@ const
   backupFinished = [backupSuccess,backupFailure];
 
 
-{$ifdef WITHLOG}
 var
   /// the TSynLog class used for logging for all our mormot.db.raw.sqlite3 related functions
   // - you may override it with TSQLLog, if available from mORMot.pas
   // - since not all exceptions are handled specificaly by this unit, you
   // may better use a common TSynLog class for the whole application or module
-  SynSQLite3Log: TSynLogClass = TSynLog;
-{$endif WITHLOG}
+  SQLite3Log: TSynLogClass = TSynLog;
 
 
 /// check from the file beginning if sounds like a valid SQLite3 file
@@ -3169,9 +3205,6 @@ implementation
 
 { ************ Raw SQLite3 API Constants and Functions }
 
-const
-  NULCHAR: AnsiChar = #0;
-
 function SQLVarToSQlite3Context(const Res: TSQLVar;
   Context: TSQLite3FunctionContext): boolean;
 var
@@ -3205,10 +3238,8 @@ begin
   else
     begin
       sqlite3.result_null(Context);
-      {$ifdef WITHLOG}
-      SynSQLite3Log.DebuggerNotify(sllWarning, 'SQLVarToSQlite3Context(%)', [ord
-        (Res.VType)]);
-      {$endif}
+      SQLite3Log.DebuggerNotify(sllWarning, 'SQLVarToSQlite3Context(%)',
+        [ord(Res.VType)]);
       result := false; // not handled type (will set null value)
       exit;
     end;
@@ -3248,9 +3279,8 @@ begin
       end;
   else
     begin
-    {$ifdef WITHLOG}
-      SynSQLite3Log.DebuggerNotify(sllWarning, 'SQlite3ValueToSQLVar(%)', [ValueType]);
-    {$endif}
+      SQLite3Log.DebuggerNotify(sllWarning, 'SQlite3ValueToSQLVar(%)',
+        [ValueType]);
       Res.VType := ftUnknown;
     end;
   end;
@@ -3383,7 +3413,8 @@ end;
 
 function sqlite3_check(DB: TSQLite3DB; aResult: integer; const SQL: RawUTF8): integer;
 begin
-  if (DB = 0) or (aResult in SQLITE_ERRORS) then // possible error codes
+  if (DB = 0) or
+     (aResult in SQLITE_ERRORS) then // possible error codes
     raise ESQLite3Exception.Create(DB, aResult, SQL);
   result := aResult;
 end;
@@ -3535,11 +3566,7 @@ begin
     res := SQLITE_INTERNAL;
   end;
   if res <> SQLITE_OK then
-  begin
-    {$ifdef WITHLOG}
-    SynSQLite3Log.Add.Log(sllError, 'SQLITE_CONFIG_MALLOC failed as %', [res]);
-    {$endif}
-  end
+    SQLite3Log.Add.Log(sllError, 'SQLITE_CONFIG_MALLOC failed as %', [res])
   else
     fUseInternalMM := true;
 end;
@@ -3594,7 +3621,8 @@ const
 
 function TSQLite3LibraryDynamic.GetLibraryName: TFileName;
 begin
-  if (self = nil) or (fLoader = nil) then
+  if (self = nil) or
+     (fLoader = nil) then
     result := ''
   else
     result := fLoader.LibraryPath;
@@ -3629,9 +3657,7 @@ begin
       [self, LibraryName, vers]);
   end; // some APIs like config() key() or trace() may not be available
   inherited Create; // set fVersionNumber/fVersionText
-  {$ifdef WITHLOG}
-  SynSQLite3Log.Add.Log(sllInfo, 'Loaded external % version %', [LibraryName, Version]);
-  {$endif}
+  SQLite3Log.Add.Log(sllInfo, 'Loaded external % version %', [LibraryName, Version]);
 end;
 
 destructor TSQLite3LibraryDynamic.Destroy;
@@ -3709,7 +3735,8 @@ begin
   begin
     Iso8601ToDateTimePUTF8CharVar(s1, s1Len, V1);
     Iso8601ToDateTimePUTF8CharVar(s2, s2Len, V2);
-    if (V1 = 0) or (V2 = 0) then
+    if (V1 = 0) or
+       (V2 = 0) then
       // any invalid date -> compare as UTF-8 strings
       result := UTF8ILComp(s1, s2, s1Len, s2Len)
     else if SameValue(V1, V2, 1 / MSecsPerDay) then
@@ -4070,7 +4097,8 @@ end;
 
 procedure TSQLDataBase.Rollback;
 begin
-  if (self = nil) or not fTransactionActive then
+  if (self = nil) or
+     not fTransactionActive then
     exit;
   Execute('ROLLBACK TRANSACTION;');
   fTransactionActive := false;
@@ -4096,7 +4124,8 @@ end;
 
 procedure TSQLDataBase.Commit;
 begin
-  if (Self <> nil) and fTransactionActive then
+  if (Self <> nil) and
+     fTransactionActive then
   try
     Execute('COMMIT TRANSACTION;');
   finally
@@ -4112,12 +4141,10 @@ begin
   inherited Create; // initialize fSafe
   if sqlite3 = nil then
     raise ESQLite3Exception.CreateUTF8('%.Create: No SQLite3 libray available' +
-      ' - you shall either add SynSQLite3Static to your project uses clause, ' +
+      ' - you shall either add mormot.db.raw.sqlite3.static to your project uses clause, ' +
       'or run sqlite3 := TSQLite3LibraryDynamic.Create(..)', [self]);
-  {$ifdef WITHLOG}
-  fLog := SynSQLite3Log; // leave fLog=nil if no Logging wanted
+  fLog := SQLite3Log; // leave fLog=nil if no Logging wanted
   fLogResultMaximumSize := 512;
-  {$endif}
   if SysUtils.Trim(aFileName) = '' then
     raise ESQLite3Exception.CreateUTF8('%.Create('''')', [self]);
   if aOpenV2Flags = 0 then
@@ -4144,14 +4171,10 @@ begin
 end;
 
 destructor TSQLDataBase.Destroy;
-{$ifdef WITHLOG}
 var
   FPCLog: ISynLog;
 begin
   FPCLog := fLog.Enter('Destroy %', [fFileNameWithoutPath], self);
-{$else}
-begin
-{$endif}
   if DB <> 0 then
   try
     Rollback; // any unfinished transaction is rollbacked
@@ -4185,31 +4208,28 @@ end;
 function TSQLDataBase.SQLShouldBeLogged(const aSQL: RawUTF8): boolean;
 begin
   result := false;
-  {$ifdef WITHLOG}
-  if (self = nil) or (fLog = nil) or not (sllSQL in fLog.Family.Level) then
+  if (self = nil) or
+     (fLog = nil) or
+     not (sllSQL in fLog.Family.Level) then
     exit;
-  if not IdemPChar(pointer(aSQL), 'PRAGMA ') or (PosEx('=', aSQL) > 0) then
+  if not IdemPChar(pointer(aSQL), 'PRAGMA ') or
+     (PosEx('=', aSQL) > 0) then
     result := true;
-  {$endif WITHLOG}
 end;
 
 procedure TSQLDataBase.ExecuteAll(const aSQL: RawUTF8);
 var
   R: TSQLRequest;
-  {$ifdef WITHLOG}
   log: ISynLog;
-  {$endif WITHLOG}
 begin
   if self = nil then
     exit; // avoid GPF in case of call from a static-only server
-  {$ifdef WITHLOG}
   if SQLShouldBeLogged(aSQL) then
   begin
     log := fLog.Enter(self, 'ExecuteAll');
     if log <> nil then
       log.Log(sllSQL, aSQL, self, 4096);
   end;
-  {$endif WITHLOG}
   LockAndFlushCache; // don't trust aSQL -> assume modify -> inc(InternalState^)
   try
     R.ExecuteAll(DB, aSQL);
@@ -4231,30 +4251,26 @@ begin
     R.Execute(DB, aSQL);
   finally
     UnLock;
-    {$ifdef WITHLOG}
     fLog.Add.Log(sllSQL, '% % %', [Timer.Stop, FileNameWithoutPath, aSQL], self);
-    {$endif WITHLOG}
   end;
 end;
 
 function TSQLDataBase.Execute(const aSQL: RawUTF8; var ID: TInt64DynArray): integer;
 var
   R: TSQLRequest;
-{$ifdef WITHLOG}   log: ISynLog; {$endif}
+  log: ISynLog;
 begin
   if self = nil then
   begin
     result := 0;
     exit; // avoid GPF in case of call from a static-only server
   end;
-  {$ifdef WITHLOG}
   if SQLShouldBeLogged(aSQL) then
   begin
     log := fLog.Enter(self, 'Execute');
     if log <> nil then
       log.Log(sllSQL, aSQL, self, 2048);
   end;
-  {$endif}
   Lock(aSQL);
   try
     result := R.Execute(DB, aSQL, ID);
@@ -4276,11 +4292,9 @@ begin
     R.Execute(DB, aSQL, ID);
   finally
     UnLock;
-    {$ifdef WITHLOG}
     if not NoLog then
       fLog.Add.Log(sllSQL, '% % returned % for %', [Timer.Stop,
         FileNameWithoutPath, ID, aSQL], self);
-    {$endif}
   end;
 end;
 
@@ -4297,11 +4311,9 @@ begin
     R.Execute(DB, aSQL, ID);
   finally
     UnLock;
-    {$ifdef WITHLOG}
     if not NoLog then
       fLog.Add.Log(sllSQL, '% % returned [%] for %', [Timer.Stop,
         FileNameWithoutPath, ID, aSQL], self);
-    {$endif}
   end;
 end;
 
@@ -4311,7 +4323,8 @@ var
   Timer: TPrecisionTimer;
 begin
   result := false;
-  if (self = nil) or (DB = 0) then
+  if (self = nil) or
+     (DB = 0) then
     exit; // avoid GPF in case of call from a static-only server
   Timer.Start;
   Lock(aSQL); // run one statement -> we can trust IsCacheable()
@@ -4319,16 +4332,15 @@ begin
     result := R.ExecuteNoException(DB, aSQL);
   finally
     UnLock;
-    {$ifdef WITHLOG}
     fLog.Add.Log(sllSQL, '% % % = %', [Timer.Stop, FileNameWithoutPath, aSQL,
       BOOL_STR[result]], self);
-    {$endif}
   end;
 end;
 
 function TSQLDataBase.ExecuteNoExceptionInt64(const aSQL: RawUTF8): Int64;
 begin
-  if (self = nil) or (DB = 0) then
+  if (self = nil) or
+     (DB = 0) then
     result := 0
   else
   try
@@ -4340,7 +4352,8 @@ end;
 
 function TSQLDataBase.ExecuteNoExceptionUTF8(const aSQL: RawUTF8): RawUTF8;
 begin
-  if (self = nil) or (DB = 0) then
+  if (self = nil) or
+     (DB = 0) then
     result := ''
   else
   try
@@ -4371,10 +4384,8 @@ begin
       aResultCount^ := Count;
   finally
     UnLockJSON(result, Count);
-    {$ifdef WITHLOG}
     fLog.Add.Log(sllSQL, '% % returned % bytes %', [Timer.Stop,
       FileNameWithoutPath, length(result), aSQL], self);
-    {$endif}
   end;
 end;
 
@@ -4392,16 +4403,15 @@ begin
     result := R.Execute(DB, aSQL, Values);
   finally
     UnLock;
-    {$ifdef WITHLOG}
     fLog.Add.Log(sllSQL, '% % returned % rows %', [Timer.Stop,
       FileNameWithoutPath, length(Values), aSQL], self);
-    {$endif}
   end;
 end;
 
 function TSQLDataBase.LastInsertRowID: Int64;
 begin
-  if (self = nil) or (DB = 0) then
+  if (self = nil) or
+     (DB = 0) then
     result := 0
   else
   try
@@ -4414,7 +4424,8 @@ end;
 
 function TSQLDataBase.LastChangeCount: integer;
 begin
-  if (self = nil) or (DB = 0) then
+  if (self = nil) or
+     (DB = 0) then
     result := 0
   else
   try
@@ -4427,7 +4438,9 @@ end;
 
 function TSQLDataBase.TotalChangeCount: integer;
 begin
-  if (self = nil) or (DB = 0) or not Assigned(sqlite3.total_changes) then
+  if (self = nil) or
+     (DB = 0) or
+     not Assigned(sqlite3.total_changes) then
     result := 0
   else
   try
@@ -4457,7 +4470,8 @@ var
   R: TSQLRequest;
   n: integer;
 begin
-  if (self = nil) or (fDB = 0) then
+  if (self = nil) or
+     (fDB = 0) then
     exit; // avoid GPF in case of call from a static-only server
   Lock;
   try
@@ -4477,7 +4491,8 @@ end;
 
 function TSQLDataBase.GetUseCache: boolean;
 begin
-  result := (self <> nil) and (fCache <> nil);
+  result := (self <> nil) and
+            (fCache <> nil);
 end;
 
 procedure TSQLDataBase.SetUseCache(const Value: boolean);
@@ -4492,14 +4507,16 @@ end;
 
 function IsCacheable(const aSQL: RawUTF8): boolean;
 begin
-  result := isSelect(pointer(aSQL)) and (PosEx(SQLDATABASE_NOCACHE, aSQL) = 0);
+  result := isSelect(pointer(aSQL)) and
+            (PosEx(SQLDATABASE_NOCACHE, aSQL) = 0);
 end;
 
 procedure TSQLDataBase.Lock(const aSQL: RawUTF8);
 begin
   if self = nil then
     exit; // avoid GPF in case of call from a static-only server
-  if (aSQL = '') or IsCacheable(aSQL) then
+  if (aSQL = '') or
+     IsCacheable(aSQL) then
     fSafe.Lock
   else // on non-concurent calls, is very fast
     LockAndFlushCache; // INSERT UPDATE DELETE statements need to flush cache
@@ -4547,13 +4564,11 @@ begin
       result := fCache.Find(aSQL, aResultCount); // try to get JSON result from cache
       if result <> '' then
       begin
-        {$ifdef WITHLOG}
         if fLog <> nil then
         begin
           fLog.Add.Log(sllSQL, 'from cache % %', [FileNameWithoutPath, aSQL], self);
           fLog.Add.Log(sllResult, result, self, fLogResultMaximumSize);
         end;
-        {$endif}
         fSafe.UnLock; // found in cache -> leave critical section
       end;
     end
@@ -4576,10 +4591,8 @@ procedure TSQLDataBase.UnLockJSON(const aJSONResult: RawUTF8; aResultCount: PtrI
 begin
   if self <> nil then
   try
-    {$ifdef WITHLOG}
     if fLog <> nil then
       fLog.Add.Log(sllResult, aJSONResult, self, fLogResultMaximumSize);
-    {$endif}
     fCache.Add(aJSONResult, aResultCount); // no-op if Reset was made just before
   finally
     fSafe.UnLock; // on non-concurent calls, this API is very fast
@@ -4587,14 +4600,10 @@ begin
 end;
 
 function TSQLDataBase.Backup(const BackupFileName: TFileName): boolean;
-{$ifdef WITHLOG}
 var
   Log: ISynLog;
 begin
   Log := fLog.Enter('Backup % -> %', [fFileNameWithoutPath, BackupFileName], self);
-{$else}
-begin
-{$endif}
   if self = nil then
   begin
     result := false;
@@ -4605,21 +4614,15 @@ begin
   LockAndFlushCache;
   try
     try
-    {$ifdef WITHLOG}
       if Log <> nil then
         Log.Log(sllTrace, 'close', self);
-    {$endif}
       DBClose;
-    {$ifdef WITHLOG}
       if Log <> nil then
         Log.Log(sllTrace, 'copy file', self);
-    {$endif}
       result := CopyFile(fFileName, BackupFileName, false);
     finally
-    {$ifdef WITHLOG}
       if Log <> nil then
         Log.Log(sllTrace, 'reopen', self);
-    {$endif}
       DBOpen;
     end;
   finally
@@ -4629,7 +4632,8 @@ end;
 
 function TSQLDataBase.GetBackupBackgroundInProcess: boolean;
 begin
-  result := (self <> nil) and (fBackupBackgroundInProcess <> nil);
+  result := (self <> nil) and
+            (fBackupBackgroundInProcess <> nil);
 end;
 
 function TSQLDataBase.GetSQLite3Library: TSQLite3Library;
@@ -4645,13 +4649,13 @@ var
   Backup: TSQLite3Backup;
 begin
   result := false;
-  if (self = nil) or (BackupFileName = '') or
-     not Assigned(sqlite3.backup_init) or (fBackupBackgroundInProcess <> nil) then
+  if (self = nil) or
+     (BackupFileName = '') or
+     not Assigned(sqlite3.backup_init) or
+     (fBackupBackgroundInProcess <> nil) then
     exit;
-  {$ifdef WITHLOG}
   fLog.Add.Log(sllDB,'BackupBackground("%") started on %',
     [BackupFileName, FileNameWithoutPath],self);
-  {$endif}
   if FileExists(BackupFileName) then
     if not DeleteFile(BackupFileName) then
       exit;
@@ -4677,13 +4681,13 @@ function TSQLDataBase.BackupBackgroundToDB(BackupDB: TSQLDatabase;
 var Backup: TSQLite3Backup;
 begin
   result := false;
-  if (self = nil) or (BackupDB = nil) or not Assigned(sqlite3.backup_init) or
+  if (self = nil) or
+     (BackupDB = nil) or
+     not Assigned(sqlite3.backup_init) or
      (fBackupBackgroundInProcess <> nil) then
     exit;
-  {$ifdef WITHLOG}
   fLog.Add.Log(sllDB,'BackupBackgroundToDB("%") started on %',
     [BackupDB.FileName,FileNameWithoutPath],self);
-  {$endif}
   Backup := sqlite3.backup_init(BackupDB.DB, 'main', DB, 'main');
   if Backup = 0 then
     exit;
@@ -4739,19 +4743,17 @@ begin
 end;
 
 function TSQLDataBase.DBClose: integer;
-{$ifdef WITHLOG}
 var log: ISynLog;
-{$endif}
 begin
   result := SQLITE_OK;
-  if (self=nil) or (fDB=0) then
+  if (self=nil) or
+     (fDB=0) then
     exit;
-  {$ifdef WITHLOG}
   log := fLog.Enter(self,'DBClose');
   if log<>nil then
     log.Log(sllDB,'closing [%] %',[FileName, KB(GetFileSize)],self);
-  {$endif}
-  if (sqlite3 = nil) or not Assigned(sqlite3.close) then
+  if (sqlite3 = nil) or
+     not Assigned(sqlite3.close) then
     raise ESQLite3Exception.CreateUTF8('%.DBClose called with no sqlite3 global',[self]);
   if fBackupBackgroundInProcess<>nil then
     BackupBackgroundWaitUntilFinished;
@@ -4761,19 +4763,17 @@ begin
 end;
 
 function TSQLDataBase.EnableCustomTokenizer: integer;
-{$ifdef WITHLOG}
 var log: ISynLog;
-{$endif}
 begin
   result := SQLITE_OK;
-  if (self=nil) or (fDB=0) then
+  if (self=nil) or
+     (fDB=0) then
     exit;
-  {$ifdef WITHLOG}
   log := fLog.Enter;
   if log<>nil then
     log.Log(sllDB,'Enable custom tokenizer for [%]',[FileName],self);
-  {$endif}
-  if (sqlite3=nil) or not Assigned(sqlite3.db_config) then
+  if (sqlite3=nil) or
+     not Assigned(sqlite3.db_config) then
     raise ESQLite3Exception.CreateUTF8(
       '%.EnableCustomTokenizer called with no sqlite3 engine',[self]);
   result := sqlite3.db_config(fDB, SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER, 1);
@@ -4783,22 +4783,20 @@ function TSQLDataBase.DBOpen: integer;
 var
   utf8: RawUTF8;
   i: integer;
-{$ifdef WITHLOG}
   log: ISynLog;
 begin
   log := fLog.Enter('DBOpen %', [fFileNameWithoutPath], self);
-{$else}
-begin
-{$endif WITHLOG}
   if fDB <> 0 then
     raise ESQLite3Exception.Create('DBOpen called twice');
   // open the database with the proper API call
-  if (sqlite3 = nil) or not Assigned(sqlite3.open) then
+  if (sqlite3 = nil) or
+     not Assigned(sqlite3.open) then
     raise ESQLite3Exception.Create('DBOpen called with no sqlite3 global');
   utf8 := StringToUTF8(fFileName);
   {$ifdef LINUX}
   // for WAL to work under Linux - see http://www.sqlite.org/vfs.html
-  if assigned(sqlite3.open_v2) and (fPassword = '') then
+  if assigned(sqlite3.open_v2) and
+     (fPassword = '') then
   begin
     result := sqlite3.open_v2(pointer(utf8), fDB, fOpenV2Flags, 'unix-excl');
     if result <> SQLITE_OK then // may be 'unix-excl' is not supported by the library
@@ -4813,17 +4811,17 @@ begin
     result := sqlite3.open(pointer(utf8), fDB);
   if result <> SQLITE_OK then
   begin
-  {$ifdef WITHLOG}
     if log <> nil then
       log.Log(sllError, 'sqlite3_open ("%") failed with error % (%): %', [utf8,
         sqlite3_resultToErrorText(result), result, sqlite3.errmsg(fDB)]);
-  {$endif WITHLOG}
     sqlite3.close(fDB); // should always be closed, even on failure
     fDB := 0;
     exit;
   end;
   // initialize optional encryption (if supported by the compiled engine)
-  if Assigned(sqlite3.key) and (fPassword <> '') and (fFileName <> '') and
+  if Assigned(sqlite3.key) and
+     (fPassword <> '') and
+     (fFileName <> '') and
      (fFileName <> SQLITE_MEMORY_DATABASE_NAME) then
     sqlite3.key(fDB, pointer(fPassword), length(fPassword));
   // tune up execution context (before accessing the database)
@@ -4890,20 +4888,17 @@ begin
   sqlite3.create_function(DB, 'JSONGET', 2, SQLITE_ANY, nil, InternalJsonGet, nil, nil);
   sqlite3.create_function(DB, 'JSONHAS', 2, SQLITE_ANY, nil, InternalJsonHas, nil, nil);
   sqlite3.create_function(DB, 'JSONSET', 3, SQLITE_ANY, nil, InternalJsonSet, nil, nil);
-  // reallocate all TSQLDataBaseSQLFunction for re-Open (TSQLRestServerDB.Backup)
+  // reallocate all TSQLDataBaseSQLFunction for re-Open (TRestServerDB.Backup)
   for i := 0 to fSQLFunctions.Count - 1 do
     TSQLDataBaseSQLFunction(fSQLFunctions.List[i]).CreateFunction(DB);
-{$ifdef WITHLOG}
   i := CacheSize;
   if i < 0 then
     i := (-i) shr 10
   else
     i := PageSize * CacheSize;
   if log <> nil then
-    log.Log(sllDB,
-      '"%" database file (%) opened with PageSize=% CacheSize=% (%)', [FileName,
-      KB(GetFileSize), PageSize, CacheSize, KB(i)], self);
-{$endif}
+    log.Log(sllDB, '"%" database file (%) opened with PageSize=% CacheSize=% (%)',
+      [FileName, KB(GetFileSize), PageSize, CacheSize, KB(i)], self);
 end;
 
 function TSQLDataBase.GetUserVersion: cardinal;
@@ -5004,7 +4999,8 @@ end;
 
 procedure TSQLDataBase.SetBusyTimeout(const ms: Integer);
 begin
-  if (self = nil) or (fDB = 0) then
+  if (self = nil) or
+     (fDB = 0) then
     exit;
   sqlite3.busy_timeout(DB, ms);
   fBusyTimeout := ms;
@@ -5012,7 +5008,9 @@ end;
 
 function TSQLDataBase.GetLimit(Category: TSQLLimitCategory): integer;
 begin
-  if (self = nil) or (fDB = 0) or not Assigned(sqlite3.limit) then
+  if (self = nil) or
+     (fDB = 0) or
+     not Assigned(sqlite3.limit) then
     result := 0
   else
     result := sqlite3.limit(fDB, ord(Category), -1);
@@ -5020,7 +5018,8 @@ end;
 
 procedure TSQLDataBase.SetLimit(Category: TSQLLimitCategory; Value: integer);
 begin
-  if (self <> nil) and Assigned(sqlite3.limit) then
+  if (self <> nil) and
+     Assigned(sqlite3.limit) then
     sqlite3.limit(fDB, ord(Category), Value);
 end;
 
@@ -5031,17 +5030,16 @@ begin
   if InternalState <> nil then
     inc(InternalState^);
   if fCache.Reset then
-   {$ifdef WITHLOG}
     if fLog <> nil then
       fLog.Add.Log(sllCache, '% cache flushed', [FileNameWithoutPath], self);
-    {$endif}
 end;
 
 procedure TSQLDataBase.RegisterSQLFunction(aFunction: TSQLDataBaseSQLFunction);
 var
-  i: integer;
+  i: PtrInt;
 begin
-  if (self = nil) or (aFunction = nil) then
+  if (self = nil) or
+     (aFunction = nil) then
     exit;
   for i := 0 to fSQLFunctions.Count - 1 do
     with TSQLDataBaseSQLFunction(fSQLFunctions.List[i]) do
@@ -5051,11 +5049,9 @@ begin
         aFunction.Free;
         exit; // already registered with the same name and parameters count
       end;
-  {$ifdef WITHLOG}
   if fLog <> nil then
-    fLog.Add.Log(sllDB, '% RegisterSQLFunction("%") %', [FileNameWithoutPath,
-      aFunction.FunctionName], self);
-  {$endif}
+    fLog.Add.Log(sllDB, '% RegisterSQLFunction("%") %',
+      [FileNameWithoutPath, aFunction.FunctionName], self);
   fSQLFunctions.Add(aFunction);
   if DB <> 0 then
     // DB already opened -> register this custom function
@@ -5236,10 +5232,12 @@ end;
 function TSQLRequest.ExecuteNoException(aDB: TSQLite3DB; const aSQL: RawUTF8): boolean;
 begin // avoid sqlite3_check() calls for no ESQLite3Exception
   result := false;
-  if (aDB <> 0) and (aSQL <> '') then
+  if (aDB <> 0) and
+     (aSQL <> '') then
   try
     if not (Prepare(aDB, aSQL, {noexcept=}true) in SQLITE_ERRORS) and
-       (Request <> 0) and not (sqlite3.step(Request) in SQLITE_ERRORS) then
+       (Request <> 0) and
+       not (sqlite3.step(Request) in SQLITE_ERRORS) then
       result := true;
   finally
     Close; // always release statement, even if done normally in Execute
@@ -5350,7 +5348,8 @@ begin
           break;
       end;
     until false;
-    if (result = 0) and W.Expand then
+    if (result = 0) and
+       W.Expand then
     begin
       // we want the field names at least, even with no data: we allow RowCount=0
       W.Expand := false; //  {"FieldCount":2,"Values":["col1","col2"]}
@@ -5589,7 +5588,8 @@ begin
   begin
     result := sqlite3.prepare_v2(RequestDB, pointer(SQL), length(SQL) + 1,
       fRequest, fNextSQL);
-    while (result = SQLITE_OK) and (Request = 0) do // comment or white-space
+    while (result = SQLITE_OK) and
+          (Request = 0) do // comment or white-space
       result := sqlite3.prepare_v2(RequestDB, fNextSQL, -1, fRequest, fNextSQL);
     fFieldCount := sqlite3.column_count(fRequest);
     if not NoExcept then
@@ -5604,13 +5604,16 @@ end;
 
 function TSQLRequest.PrepareNext: integer;
 begin
-  if (Request = 0) or (fNextSQL^ = #0) then
+  if (Request = 0) or
+     (fNextSQL^ = #0) then
     result := SQLITE_DONE
   else
   begin
     Close; // free previous statement
     result := sqlite3.prepare_v2(RequestDB, fNextSQL, -1, fRequest, fNextSQL);
-    while (result = SQLITE_OK) and (Request = 0) and (fNextSQL^ <> #0) do
+    while (result = SQLITE_OK) and
+          (Request = 0) and
+          (fNextSQL^ <> #0) do
       // comment or white-space -> ignore
       result := sqlite3.prepare_v2(RequestDB, fNextSQL, -1, fRequest, fNextSQL);
     fFieldCount := sqlite3.column_count(fRequest);
@@ -5748,7 +5751,7 @@ begin
   end;
   if fPosition > fSize then
     fPosition := fSize;
-  Result := fPosition;
+  result := fPosition;
 end;
 
 procedure TSQLBlobStream.ChangeRow(RowID: Int64);
@@ -5815,8 +5818,11 @@ begin
   item := sqlite3.value_blob(argv[1]);
   itemLen := sqlite3.value_bytes(argv[1]);
   caller := sqlite3.user_data(Context);
-  if (P <> nil) and (PLen > 0) and (item <> nil) and (itemLen > 0) and (caller
-    <> nil) then
+  if (P <> nil) and
+     (PLen > 0) and
+     (item <> nil) and
+     (itemLen > 0) and
+     (caller <> nil) then
     with caller.fDummyDynArray do
     try // temporary allocate all dynamic array content
       try
@@ -5851,7 +5857,7 @@ end;
 
 procedure TSQLStatementCached.Init(aDB: TSQLite3DB);
 begin
-  Caches.InitSpecific(TypeInfo(TSQLStatementCacheDynArray), Cache, djRawUTF8, @Count);
+  Caches.InitSpecific(TypeInfo(TSQLStatementCacheDynArray), Cache, ptRawUTF8, @Count);
   DB := aDB;
 end;
 
@@ -5942,7 +5948,8 @@ begin
     fStepPageNumber := 1
   else
     fStepPageNumber := StepPageNumber;
-  if (cardinal(StepSleepMS) <= 1000) and (StepPageNumber > 0) then
+  if (cardinal(StepSleepMS) <= 1000) and
+     (StepPageNumber > 0) then
     fStepSleepMS := StepSleepMS;
   fOnProgress := OnProgress;
   fStepSynLzCompress := SynLzCompress;
@@ -5952,18 +5959,14 @@ begin
 end;
 
 procedure TSQLDatabaseBackupThread.Execute;
-{$ifdef WITHLOG}
 var
   log: ISynLog;
-{$endif}
 
   procedure NotifyProgressAndContinue(aStep: TSQLDatabaseBackupEventStep);
   begin
     fStep := aStep;
-    {$ifdef WITHLOG}
     if Assigned(log) then
       log.Log(sllTrace, '%', [self]);
-    {$endif}
     if Assigned(fOnProgress) then
       if not fOnProgress(self) then
         raise ESQLite3Exception.CreateUtf8('%.Execute aborted by OnProgress=false',
@@ -5975,10 +5978,8 @@ var
   fn, fn2: TFileName;
 begin
   fn := fDestDB.FileName;
-  {$ifdef WITHLOG}
   SetCurrentThreadName('% [%] [%]', [self, fSourceDB.FileName, fn]);
-  log := SynSQLite3Log.Enter(self, 'Execute');
-  {$endif}
+  log := SQLite3Log.Enter(self, 'Execute');
   try
     try
       NotifyProgressAndContinue(backupStart);
@@ -6029,11 +6030,9 @@ begin
           if not TSQLDatabase.BackupSynLZ(fn2, fn, true) then
             raise ESQLite3Exception.CreateUTF8('%.Execute: BackupSynLZ(%,%) failed',
               [self, fn, fn2]);
-          {$ifdef WITHLOG}
           if Assigned(log) then
-            log.Log(sllTrace, 'TSQLDatabase.BackupSynLZ into % %', [KB(FileSize(fn)),
-              fn], self);
-          {$endif}
+            log.Log(sllTrace, 'TSQLDatabase.BackupSynLZ into % %',
+              [KB(FileSize(fn)), fn], self);
         end;
         fSourceDB.fBackupBackgroundLastFileName := ExtractFileName(fn);
       end;
@@ -6059,10 +6058,8 @@ begin
         fOnProgress(self);
     end;
   end;
-  {$ifdef WITHLOG}
   log := nil;
-  SynSQLite3Log.Add.NotifyThreadEnded;
-  {$endif}
+  SQLite3Log.Add.NotifyThreadEnded;
 end;
 
 function IsSQLite3File(const FileName: TFileName; PageSize: PInteger): boolean;
@@ -6078,8 +6075,11 @@ begin
     result := (FileRead(F, Header, sizeof(Header)) = SizeOf(Header)) and
               (Header.d0 = SQLITE_FILE_HEADER128.Lo) and
               // don't check header 8..15 (may equal encrypted bytes 16..23)
-              (Header.b[21] = 64) and (Header.b[22] = 32) and (Header.b[23] = 32);
-    if result and (PageSize <> nil) then
+              (Header.b[21] = 64) and
+              (Header.b[22] = 32) and
+              (Header.b[23] = 32);
+    if result and
+       (PageSize <> nil) then
       // header bytes 16..23 are always stored unencrypted
       PageSize^ := Integer(Header.b[16]) shl 8 + Header.b[17];
     FileClose(F);
@@ -6090,7 +6090,8 @@ function IsSQLite3FileEncrypted(const FileName: TFileName): boolean;
 var
   F: THandle;
   Header: THash256Rec;
-begin // see CodecEncrypt/CodecDecrypt in SynSQLite3Static
+begin
+  // see CodecEncrypt/CodecDecrypt in mormot.db.raw.sqlite3.static
   result := false;
   F := FileOpen(FileName, fmOpenRead or fmShareDenyNone);
   if F <= 0 then
@@ -6100,7 +6101,9 @@ begin // see CodecEncrypt/CodecDecrypt in SynSQLite3Static
      // header bytes 16..23 are stored unencrypted
      (Header.d0 = SQLITE_FILE_HEADER128.Lo) and
      (Header.d1 <> SQLITE_FILE_HEADER128.Hi) and
-     (Header.b[21] = 64) and (Header.b[22] = 32) and (Header.b[23] = 32) then
+     (Header.b[21] = 64) and
+     (Header.b[22] = 32) and
+     (Header.b[23] = 32) then
     result := true;
   FileClose(F);
 end;

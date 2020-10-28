@@ -5,9 +5,6 @@
   Windows API calls for FPC/Delphi, as used by mormot.core.os.pas
 }
 
-uses
-  messages;
-
 
 { ****************** Unicode, Time, File process }
 
@@ -129,6 +126,11 @@ begin
   result := Windows.GetModuleHandle(lpModuleName); // call either A or W API
 end;
 
+function PostMessage(hWnd: HWND; Msg: UINT; wParam: WPARAM; lParam: LPARAM): BOOL;
+begin
+  result := Windows.PostMessage(hWnd, Msg, wParam, lParam); // call either A or W API
+end;
+
 function ExpandEnvVars(const aStr: string): string;
 // adapted from http://delphidabbler.com/articles?article=6
 var
@@ -212,10 +214,12 @@ begin
   PInt64Rec(@FileId).lo := lp.nFileIndexLow;
   PInt64Rec(@FileId).hi := lp.nFileIndexHigh;
   if LastWriteAccess <> 0 then
-    if (FileCreateDateTime = 0) or (FileCreateDateTime > LastWriteAccess) then
+    if (FileCreateDateTime = 0) or
+       (FileCreateDateTime > LastWriteAccess) then
       FileCreateDateTime := LastWriteAccess;
   if lastreadaccess <> 0 then
-    if (FileCreateDateTime = 0) or (FileCreateDateTime > lastreadaccess) then
+    if (FileCreateDateTime = 0) or
+       (FileCreateDateTime > lastreadaccess) then
       FileCreateDateTime := lastreadaccess;
 end;
 
@@ -261,7 +265,8 @@ var
 begin
   r.V := Offset;
   r.L := SetFilePointer(Handle, R.L, @R.H, Origin);
-  if (r.Li = -1) and (GetLastError <> 0) then
+  if (r.Li = -1) and
+     (GetLastError <> 0) then
     result := -1
   else
     result := r.V;
@@ -397,8 +402,8 @@ var s: AnsiString;
       FThreadID: LongWord; // thread ID (-1 indicates caller thread)
       FFlags: LongWord;    // reserved for future use, must be zero
     end;
-    {$endif}
-    {$endif}
+    {$endif MSWINDOWS}
+    {$endif ISDELPHIXE2}
 begin
   if not IsDebuggerPresent then
     exit;
@@ -473,7 +478,8 @@ type
 function ExceptionInheritsFrom(E: TClass; const Name: ShortString): boolean;
 begin
   result := true;
-  while (E <> nil) and (E <> Exception) do
+  while (E <> nil) and
+        (E <> Exception) do
     if PropNameEquals(PPointer(PtrInt(E) + vmtClassName)^, @Name) then
       exit
     else
@@ -555,7 +561,8 @@ begin
   try
     _RawLogException := nil; // disable nested exception
     ctxt.ECode := Exc.ExceptionCode;
-    if (Exc.ExceptionCode = cDelphiException) and (Exc.ExceptObject <> nil) then
+    if (Exc.ExceptionCode = cDelphiException) and
+       (Exc.ExceptObject <> nil) then
     begin
       if Exc.ExceptObject.InheritsFrom(Exception) then
         ctxt.EClass := PPointer(Exc.ExceptObject)^
@@ -634,6 +641,9 @@ end;
 {$endif WITH_RAISEPROC}
 
 {$endif NOEXCEPTIONINTERCEPT}
+
+const
+  STUB_SIZE = 65536; // 16*4 KB (4 KB = memory granularity)
 
 type
   TProcessMemoryCounters = record
@@ -730,7 +740,8 @@ var
 begin
   Len := FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM or FORMAT_MESSAGE_ARGUMENT_ARRAY,
     nil, error, 0, Buffer{%H-}, SizeOf(Buffer), nil);
-  while (Len > 0) and (ord(Buffer[Len - 1]) in [0..32, ord('.')]) do
+  while (Len > 0) and
+        (ord(Buffer[Len - 1]) in [0..32, ord('.')]) do
     dec(Len);
   RawUnicodeToUtf8(Buffer, Len, result);
 end;
@@ -850,7 +861,8 @@ begin
         Data.Timestamp := Now^;
       FileTimeToInt64(ftkrn, pkrn);
       FileTimeToInt64(ftusr, pusr);
-      if (PrevKernel <> 0) and (fDiffTotal > 0) then
+      if (PrevKernel <> 0) and
+         (fDiffTotal > 0) then
       begin
         Data.Kernel := ((pkrn - PrevKernel) * 100) / fDiffTotal;
         Data.User := ((pusr - PrevUser) * 100) / fDiffTotal;
@@ -981,9 +993,12 @@ begin
     aDriveFolderOrFile := SysUtils.UpperCase(
       ExtractFileDrive(ExeVersion.ProgramFilePath));
   dn := SynUnicode(aDriveFolderOrFile);
-  if (dn <> '') and (dn[2] = ':') and (dn[3] = #0) then
+  if (dn <> '') and
+     (dn[2] = ':') and
+     (dn[3] = #0) then
     dn := dn + '\';
-  if (aVolumeName <> nil) and (aVolumeName^ = '') then
+  if (aVolumeName <> nil) and
+     (aVolumeName^ = '') then
   begin
     tmp[0] := #0;
     GetVolumeInformationW(pointer(dn), tmp, MAX_PATH, nil, dummy, flags, nil, 0);
@@ -1169,7 +1184,8 @@ begin
             aRelease := dwFileVersionLS shr 16;
           end;
           aBuild := word(dwFileVersionLS);
-          if (dwFileDateLS <> 0) and (dwFileDateMS <> 0) then
+          if (dwFileDateLS <> 0) and
+             (dwFileDateMS <> 0) then
           begin
             FileTime.dwLowDateTime := dwFileDateLS; // built date from version info
             FileTime.dwHighDateTime := dwFileDateMS;
@@ -1231,7 +1247,7 @@ const
   CSIDL_LOCAL_APPDATA = $001C; // local non roaming user folder
   CSIDL_COMMON_APPDATA = $0023;
   CSIDL_COMMON_DOCUMENTS = $002E;
-  csidl: array[TSystemPath] of integer =(
+  csidl: array[TSystemPath] of integer = (
     // spCommonData,       spUserData,          spCommonDocuments
     CSIDL_COMMON_APPDATA, CSIDL_LOCAL_APPDATA, CSIDL_COMMON_DOCUMENTS,
     // spUserDocuments, spTempFolder, spLog
@@ -1510,7 +1526,7 @@ end;
 
 const
   // lpMinimumApplicationAddress retrieved from Windows is very low ($10000)
-  // - i.e. maximum number of ID per table would be 65536 in TSQLRecord.GetID
+  // - i.e. maximum number of ID per table would be 65536 in TOrm.GetID
   // - so we'll force an higher and almost "safe" value as 1,048,576
   // (real value from runnning Windows is greater than $400000)
   MIN_PTR_VALUE = $100000;
@@ -1640,7 +1656,8 @@ begin
     if OSVersionInfo.wProductType <> VER_NT_WORKSTATION then
     begin // Server edition
       inc(Vers, 2); // e.g. wEight -> wServer2012
-      if (Vers = wServer2016) and (OSVersionInfo.dwBuildNumber >= 17763) then
+      if (Vers = wServer2016) and
+         (OSVersionInfo.dwBuildNumber >= 17763) then
         // https://stackoverflow.com/q/53393150
         Vers := wServer2019_64;
     end;
@@ -1692,7 +1709,8 @@ begin
     if prodver = '' then
       prodver := reg.ReadString('BIOSVersion');
   end;
-  if ({%H-}prod = '') or ({%H-}prodver = '') then
+  if ({%H-}prod = '') or
+     ({%H-}prodver = '') then
   begin
     if reg.ReadOpen(wrLocalMachine, 'Hardware\Description\System', true) then
     begin

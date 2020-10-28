@@ -108,6 +108,14 @@ type
   // - filled from ACCEPT-ENCODING: header value
   THttpSocketCompressSet = set of 0..31;
 
+  /// map the presence of some HTTP headers for THttpSocket.HeaderFlags
+  THttpSocketHeaderFlags = set of (
+    hfTransferChuked,
+    hfConnectionClose,
+    hfConnectionUpgrade,
+    hfConnectionKeepAlive,
+    hfHasRemoteIP);
+
   /// parent of THttpClientSocket and THttpServerSocket classes
   // - contain properties for implementing HTTP/1.1 using the Socket API
   // - handle chunking of body content
@@ -163,8 +171,7 @@ type
     /// same as HeaderGetValue('X-POWERED-BY'), but retrieved during Request
     XPoweredBy: RawUTF8;
     /// map the presence of some HTTP headers, but retrieved during Request
-    HeaderFlags: set of (transferChuked, connectionClose, connectionUpgrade,
-      connectionKeepAlive, hasRemoteIP);
+    HeaderFlags: THttpSocketHeaderFlags;
     /// retrieve the HTTP headers into Headers[] and fill most properties below
     // - only relevant headers are retrieved, unless HeadersUnFiltered is set
     procedure GetHeader(HeadersUnFiltered: boolean = false);
@@ -296,7 +303,9 @@ var
   compressible: boolean;
   OutContentTypeP: PUTF8Char absolute OutContentType;
 begin
-  if (integer(Accepted) <> 0) and (OutContentType <> '') and (Handled <> nil) then
+  if (integer(Accepted) <> 0) and
+     (OutContentType <> '') and
+     (Handled <> nil) then
   begin
     OutContentLen := length(OutContent);
     case IdemPCharArray(OutContentTypeP, ['TEXT/', 'IMAGE/', 'APPLICATION/']) of
@@ -314,7 +323,8 @@ begin
       if i in Accepted then
         with Handled[i] do
           if (CompressMinSize = 0) or // 0 here means "always" (e.g. for encryption)
-             (compressible and (OutContentLen >= CompressMinSize)) then
+             (compressible and
+              (OutContentLen >= CompressMinSize)) then
           begin
             // compression of the OutContent + update header
             result := Func(OutContent, true);
@@ -352,12 +362,14 @@ procedure GetTrimmed(P: PUTF8Char; out result: RawUTF8);
 var
   B: PUTF8Char;
 begin
-  while (P^ > #0) and (P^ <= ' ') do
+  while (P^ > #0) and
+        (P^ <= ' ') do
     inc(P);
   B := P;
   while P^ <> #0 do
     inc(P);
-  while (P > B) and (P[-1] <= ' ') do
+  while (P > B) and
+        (P[-1] <= ' ') do
     dec(P);
   FastSetString(result, B, P - B);
 end;
@@ -406,7 +418,8 @@ begin
       SockSend(['Content-Encoding: ', OutContentEncoding]);
   end;
   SockSend(['Content-Length: ', length(OutContent)]); // needed even 0
-  if (OutContentType <> '') and (OutContentType <> STATICFILE_CONTENT_TYPE) then
+  if (OutContentType <> '') and
+     (OutContentType <> STATICFILE_CONTENT_TYPE) then
     SockSend(['Content-Type: ', OutContentType]);
 end;
 
@@ -426,10 +439,11 @@ begin
   Upgrade := '';
   ContentLength := -1;
   ServerInternalState := 0;
-  fSndBufLen := 0; // SockSend() internal buffer is used when adding headers
+  fSndBufLen := 0; // SockSend() used as headers temp buffer to avoid getmem
   repeat
     P := @line;
-    if (SockIn <> nil) and not HeadersUnFiltered then
+    if (SockIn <> nil) and
+       not HeadersUnFiltered then
     begin
       {$I-}
       readln(SockIn^, line);
@@ -445,8 +459,9 @@ begin
       SockRecvLn(s);
       if s = '' then
         break;
-      P := pointer(s); // set P=nil below to store in Headers[]
+      P := pointer(s);
     end;
+    // note: set P=nil below to store in Headers[]
     case IdemPCharArray(P, ['CONTENT-', 'TRANSFER-ENCODING: CHUNKED',
       'CONNECTION: ', 'ACCEPT-ENCODING:', 'UPGRADE:', 'SERVER-INTERNALSTATE:',
       'X-POWERED-BY:']) of
@@ -483,23 +498,23 @@ begin
           P := nil;
         end;
       1:
-        include(HeaderFlags, transferChuked);
+        include(HeaderFlags, hfTransferChuked);
       2:
         case IdemPCharArray(P + 12, ['CLOSE', 'UPGRADE', 'KEEP-ALIVE']) of
           0:
-            include(HeaderFlags, connectionClose);
+            include(HeaderFlags, hfConnectionClose);
           1:
-            include(HeaderFlags, connectionUpgrade);
+            include(HeaderFlags, hfConnectionUpgrade);
           2:
             begin
-              include(HeaderFlags, connectionKeepAlive);
+              include(HeaderFlags, hfConnectionKeepAlive);
               if P[22] = ',' then
               begin
                 inc(P, 23);
                 if P^ = ' ' then
                   inc(P);
                 if IdemPChar(P, 'UPGRADE') then
-                  include(HeaderFlags, connectionUpgrade);
+                  include(HeaderFlags, hfConnectionUpgrade);
               end;
             end;
         else
@@ -519,7 +534,9 @@ begin
     else
       P := nil;
     end;
-    if (P = nil) or HeadersUnFiltered then // only store meaningful headers
+    if (P = nil) or
+       HeadersUnFiltered then
+      // store meaningful headers into SockSend() fSndBuf/fSndLen as temp buffer
       if {%H-}s = '' then
       begin
         len := StrLen(@line);
@@ -545,7 +562,7 @@ begin
   Content := '';
   {$I-}
   // direct read bytes, as indicated by Content-Length or Chunked
-  if transferChuked in HeaderFlags then
+  if hfTransferChuked in HeaderFlags then
   begin // we ignore the Length
     LContent := 0; // current read position in Content
     repeat
@@ -634,10 +651,11 @@ end;
 
 function THttpSocket.HeaderGetText(const aRemoteIP: RawUTF8): RawUTF8;
 begin
-  if (aRemoteIP <> '') and not (hasRemoteIP in HeaderFlags) then
+  if (aRemoteIP <> '') and
+     not (hfHasRemoteIP in HeaderFlags) then
   begin
     Headers := Headers + 'RemoteIP: ' + aRemoteIP + #13#10;
-    include(HeaderFlags, hasRemoteIP);
+    include(HeaderFlags, hfHasRemoteIP);
   end;
   result := Headers;
 end;

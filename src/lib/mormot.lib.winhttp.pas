@@ -73,12 +73,19 @@ type
   /// http.sys API 2.0 logging file supported layouts
   // - match low-level HTTP_LOGGING_TYPE as defined in HTTP 2.0 API
   THttpApiLoggingType = (
-    hltW3C, hltIIS, hltNCSA, hltRaw);
+    hltW3C,
+    hltIIS,
+    hltNCSA,
+    hltRaw);
 
   /// http.sys API 2.0 logging file rollover types
   // - match low-level HTTP_LOGGING_ROLLOVER_TYPE as defined in HTTP 2.0 API
   THttpApiLoggingRollOver = (
-    hlrSize, hlrDaily, hlrWeekly, hlrMonthly, hlrHourly);
+    hlrSize,
+    hlrDaily,
+    hlrWeekly,
+    hlrMonthly,
+    hlrHourly);
 
   /// http.sys API 2.0 logging option flags
   // - used to alter the default logging behavior
@@ -91,21 +98,46 @@ type
   // errors or success logging
   // - match low-level HTTP_LOGGING_FLAG_* constants as defined in HTTP 2.0 API
   THttpApiLoggingFlags = set of (
-    hlfLocalTimeRollover, hlfUseUTF8Conversion, hlfLogErrorsOnly, hlfLogSuccessOnly);
+    hlfLocalTimeRollover,
+    hlfUseUTF8Conversion,
+    hlfLogErrorsOnly,
+    hlfLogSuccessOnly);
 
   /// http.sys API 2.0 fields used for W3C logging
   // - match low-level HTTP_LOG_FIELD_* constants as defined in HTTP 2.0 API
   THttpApiLogFields = set of (
-    hlfDate, hlfTime, hlfClientIP, hlfUserName, hlfSiteName, hlfComputerName,
-    hlfServerIP, hlfMethod, hlfURIStem, hlfURIQuery, hlfStatus, hlfWIN32Status,
-    hlfBytesSent, hlfBytesRecv, hlfTimeTaken, hlfServerPort, hlfUserAgent,
-    hlfCookie, hlfReferer, hlfVersion, hlfHost, hlfSubStatus);
+    hlfDate,
+    hlfTime,
+    hlfClientIP,
+    hlfUserName,
+    hlfSiteName,
+    hlfComputerName,
+    hlfServerIP,
+    hlfMethod,
+    hlfURIStem,
+    hlfURIQuery,
+    hlfStatus,
+    hlfWIN32Status,
+    hlfBytesSent,
+    hlfBytesRecv,
+    hlfTimeTaken,
+    hlfServerPort,
+    hlfUserAgent,
+    hlfCookie,
+    hlfReferer,
+    hlfVersion,
+    hlfHost,
+    hlfSubStatus);
 
   /// http.sys API 2.0 fields used for server-side authentication
   // - as used by THttpApiServer.SetAuthenticationSchemes/AuthenticationSchemes
   // - match low-level HTTP_AUTH_ENABLE_* constants as defined in HTTP 2.0 API
   THttpApiRequestAuthentications = set of (
-    haBasic, haDigest, haNtlm, haNegotiate, haKerberos);
+    haBasic,
+    haDigest,
+    haNtlm,
+    haNegotiate,
+    haKerberos);
 
 type
   // HTTP version used
@@ -116,33 +148,96 @@ type
 
   // the req* values identify Request Headers, and resp* Response Headers
   THttpHeader = (
-    reqCacheControl, reqConnection, reqDate, reqKeepAlive,
-    reqPragma, reqTrailer, reqTransferEncoding, reqUpgrade, reqVia, reqWarning,
-    reqAllow, reqContentLength, reqContentType, reqContentEncoding,
-    reqContentLanguage, reqContentLocation, reqContentMd5, reqContentRange,
-    reqExpires, reqLastModified, reqAccept, reqAcceptCharset, reqAcceptEncoding,
-    reqAcceptLanguage, reqAuthorization, reqCookie, reqExpect, reqFrom, reqHost,
-    reqIfMatch, reqIfModifiedSince, reqIfNoneMatch, reqIfRange,
-    reqIfUnmodifiedSince, reqMaxForwards, reqProxyAuthorization, reqReferrer,
-    reqRange, reqTe, reqTranslate, reqUserAgent, respAcceptRanges = 20, respAge,
-    respEtag, respLocation, respProxyAuthenticate, respRetryAfter, respServer,
-    respSetCookie, respVary, respWwwAuthenticate);
+    reqCacheControl,
+    reqConnection,
+    reqDate,
+    reqKeepAlive,
+    reqPragma,
+    reqTrailer,
+    reqTransferEncoding,
+    reqUpgrade,
+    reqVia,
+    reqWarning,
+    reqAllow,
+    reqContentLength,
+    reqContentType,
+    reqContentEncoding,
+    reqContentLanguage,
+    reqContentLocation,
+    reqContentMd5,
+    reqContentRange,
+    reqExpires,
+    reqLastModified,
+    reqAccept,
+    reqAcceptCharset,
+    reqAcceptEncoding,
+    reqAcceptLanguage,
+    reqAuthorization,
+    reqCookie,
+    reqExpect,
+    reqFrom,
+    reqHost,
+    reqIfMatch,
+    reqIfModifiedSince,
+    reqIfNoneMatch,
+    reqIfRange,
+    reqIfUnmodifiedSince,
+    reqMaxForwards,
+    reqProxyAuthorization,
+    reqReferrer,
+    reqRange,
+    reqTe,
+    reqTranslate,
+    reqUserAgent,
+    respAcceptRanges = 20,
+    respAge,
+    respEtag,
+    respLocation,
+    respProxyAuthenticate,
+    respRetryAfter,
+    respServer,
+    respSetCookie,
+    respVary,
+    respWwwAuthenticate);
 
   THttpVerb = (
-    hvUnparsed, hvUnknown, hvInvalid,
-    hvOPTIONS, hvGET, hvHEAD, hvPOST, hvPUT, hvDELETE, hvTRACE, hvCONNECT,
+    hvUnparsed,
+    hvUnknown,
+    hvInvalid,
+    hvOPTIONS,
+    hvGET,
+    hvHEAD,
+    hvPOST,
+    hvPUT,
+    hvDELETE,
+    hvTRACE,
+    hvCONNECT,
     hvTRACK,  // used by Microsoft Cluster Server for a non-logged trace
-    hvMOVE, hvCOPY, hvPROPFIND, hvPROPPATCH, hvMKCOL, hvLOCK, hvUNLOCK, hvSEARCH,
+    hvMOVE,
+    hvCOPY,
+    hvPROPFIND,
+    hvPROPPATCH,
+    hvMKCOL,
+    hvLOCK,
+    hvUNLOCK,
+    hvSEARCH,
     hvMaximum);
 
   THttpChunkType = (
-    hctFromMemory, hctFromFileHandle, hctFromFragmentCache);
+    hctFromMemory,
+    hctFromFileHandle,
+    hctFromFragmentCache);
 
   THttpServiceConfigID = (
-    hscIPListenList, hscSSLCertInfo, hscUrlAclInfo, hscMax);
+    hscIPListenList,
+    hscSSLCertInfo,
+    hscUrlAclInfo,
+    hscMax);
 
   THttpServiceConfigQueryType = (
-    hscQueryExact, hscQueryNext, hscQueryMax);
+    hscQueryExact,
+    hscQueryNext,
+    hscQueryMax);
 
   HTTP_URL_CONTEXT = HTTP_OPAQUE_ID;
 
@@ -284,22 +379,31 @@ type
   end;
 
   HTTP_REQUEST_INFO_TYPE = (
-    HttpRequestInfoTypeAuth, HttpRequestInfoTypeChannelBind,
-    HttpRequestInfoTypeSslProtocol, HttpRequestInfoTypeSslTokenBindingDraft,
-    HttpRequestInfoTypeSslTokenBinding, HttpRequestInfoTypeRequestTiming,
-    HttpRequestInfoTypeTcpInfoV0, HttpRequestInfoTypeRequestSizing,
-    HttpRequestInfoTypeQuicStats, HttpRequestInfoTypeTcpInfoV1);
+    HttpRequestInfoTypeAuth,
+    HttpRequestInfoTypeChannelBind,
+    HttpRequestInfoTypeSslProtocol,
+    HttpRequestInfoTypeSslTokenBindingDraft,
+    HttpRequestInfoTypeSslTokenBinding,
+    HttpRequestInfoTypeRequestTiming,
+    HttpRequestInfoTypeTcpInfoV0,
+    HttpRequestInfoTypeRequestSizing,
+    HttpRequestInfoTypeQuicStats,
+    HttpRequestInfoTypeTcpInfoV1);
 
   // about Authentication in HTTP Version 2.0
   // see https://msdn.microsoft.com/en-us/library/windows/desktop/aa364452
   HTTP_AUTH_STATUS = (
-    HttpAuthStatusSuccess, HttpAuthStatusNotAuthenticated,
+    HttpAuthStatusSuccess,
+    HttpAuthStatusNotAuthenticated,
     HttpAuthStatusFailure);
 
   HTTP_REQUEST_AUTH_TYPE = (
-    HttpRequestAuthTypeNone, HttpRequestAuthTypeBasic,
-    HttpRequestAuthTypeDigest, HttpRequestAuthTypeNTLM,
-    HttpRequestAuthTypeNegotiate, HttpRequestAuthTypeKerberos);
+    HttpRequestAuthTypeNone,
+    HttpRequestAuthTypeBasic,
+    HttpRequestAuthTypeDigest,
+    HttpRequestAuthTypeNTLM,
+    HttpRequestAuthTypeNegotiate,
+    HttpRequestAuthTypeKerberos);
 
   SECURITY_STATUS = ULONG;
 
@@ -383,7 +487,8 @@ type
 
   HTTP_RESPONSE_INFO_TYPE = (
     HttpResponseInfoTypeMultipleKnownHeaders,
-    HttpResponseInfoTypeAuthenticationProperty, HttpResponseInfoTypeQosProperty,
+    HttpResponseInfoTypeAuthenticationProperty,
+    HttpResponseInfoTypeQosProperty,
     HttpResponseInfoTypeChannelBind);
 
   HTTP_RESPONSE_INFO = record
@@ -440,7 +545,8 @@ type
   HTTP_PROPERTY_FLAGS = ULONG;
 
   HTTP_ENABLED_STATE = (
-    HttpEnabledStateActive, HttpEnabledStateInactive);
+    HttpEnabledStateActive,
+    HttpEnabledStateInactive);
 
   PHTTP_ENABLED_STATE = ^HTTP_ENABLED_STATE;
 
@@ -452,13 +558,15 @@ type
   PHTTP_STATE_INFO = ^HTTP_STATE_INFO;
 
   THTTP_503_RESPONSE_VERBOSITY = (
-    Http503ResponseVerbosityBasic, Http503ResponseVerbosityLimited,
+    Http503ResponseVerbosityBasic,
+    Http503ResponseVerbosityLimited,
     Http503ResponseVerbosityFull);
 
   PHTTP_503_RESPONSE_VERBOSITY = ^THTTP_503_RESPONSE_VERBOSITY;
 
   HTTP_QOS_SETTING_TYPE = (
-    HttpQosSettingTypeBandwidth, HttpQosSettingTypeConnectionLimit,
+    HttpQosSettingTypeBandwidth,
+    HttpQosSettingTypeConnectionLimit,
     HttpQosSettingTypeFlowRate // Windows Server 2008 R2 and Windows 7 only
   );
 
@@ -500,7 +608,8 @@ const
 
 type
   HTTP_SERVICE_CONFIG_TIMEOUT_KEY = (
-    IdleConnectionTimeout, HeaderWaitTimeout);
+    IdleConnectionTimeout,
+    HeaderWaitTimeout);
 
   PHTTP_SERVICE_CONFIG_TIMEOUT_KEY = ^HTTP_SERVICE_CONFIG_TIMEOUT_KEY;
 
@@ -576,7 +685,8 @@ type
 
   HTTP_SERVICE_BINDING_TYPE = (
     HttpServiceBindingTypeNone,
-    HttpServiceBindingTypeW, HttpServiceBindingTypeA);
+    HttpServiceBindingTypeW,
+    HttpServiceBindingTypeA);
 
   HTTP_SERVICE_BINDING_BASE = record
     BindingType: HTTP_SERVICE_BINDING_TYPE;
@@ -602,7 +712,8 @@ type
 
   HTTP_AUTHENTICATION_HARDENING_LEVELS = (
     HttpAuthenticationHardeningLegacy,
-    HttpAuthenticationHardeningMedium, HttpAuthenticationHardeningStrict);
+    HttpAuthenticationHardeningMedium,
+    HttpAuthenticationHardeningStrict);
 
 const
   HTTP_CHANNEL_BIND_PROXY = $1;
@@ -689,12 +800,17 @@ const
 
 type
   HTTP_LOGGING_TYPE = (
-    HttpLoggingTypeW3C, HttpLoggingTypeIIS,
-    HttpLoggingTypeNCSA, HttpLoggingTypeRaw);
+    HttpLoggingTypeW3C,
+    HttpLoggingTypeIIS,
+    HttpLoggingTypeNCSA,
+    HttpLoggingTypeRaw);
 
   HTTP_LOGGING_ROLLOVER_TYPE = (
-    HttpLoggingRolloverSize, HttpLoggingRolloverDaily, HttpLoggingRolloverWeekly,
-    HttpLoggingRolloverMonthly, HttpLoggingRolloverHourly);
+    HttpLoggingRolloverSize,
+    HttpLoggingRolloverDaily,
+    HttpLoggingRolloverWeekly,
+    HttpLoggingRolloverMonthly,
+    HttpLoggingRolloverHourly);
 
   HTTP_LOGGING_INFO = record
     Flags: HTTP_PROPERTY_FLAGS;
@@ -766,7 +882,8 @@ type
 
   HTTP_PROTECTION_LEVEL_TYPE = (
     HttpProtectionLevelUnrestricted,
-    HttpProtectionLevelEdgeRestricted, HttpProtectionLevelRestricted);
+    HttpProtectionLevelEdgeRestricted,
+    HttpProtectionLevelRestricted);
 
   HTTP_PROTECTION_LEVEL_INFO = record
     Flags: HTTP_PROPERTY_FLAGS;
@@ -1621,7 +1738,8 @@ begin
     P := Request.Headers.pUnknownHeaders;
     if P <> nil then
       for i := 1 to Request.Headers.UnknownHeaderCount do
-        if (P^.NameLength = L) and IdemPChar(P^.pName, Pointer(RemoteIPHeadUp)) then
+        if (P^.NameLength = L) and
+           IdemPChar(P^.pName, Pointer(RemoteIPHeadUp)) then
         begin
           FastSetString(RemoteIP, P^.pRawValue, P^.RawValueLength);
           break;
@@ -1629,7 +1747,8 @@ begin
         else
           inc(P);
   end;
-  if (RemoteIP = '') and (Request.Address.pRemoteAddress <> nil) then
+  if (RemoteIP = '') and
+     (Request.Address.pRemoteAddress <> nil) then
     RemoteIP := Request.Address.pRemoteAddress.IP(RemoteIPLocalHostAsVoidInServers);
   // compute headers length
   Lip := length(RemoteIP);
@@ -1831,7 +1950,8 @@ begin
   else
     i := IdemPCharArray(P, KNOWNHEADERS);
   // WebSockets need CONNECTION as unknown header
-  if (i >= 0) and (THttpHeader(i) <> reqConnection) then
+  if (i >= 0) and
+     (THttpHeader(i) <> reqConnection) then
     with Headers.KnownHeaders[THttpHeader(i)] do
     begin
       while P^ <> ':' do
@@ -1847,7 +1967,8 @@ begin
   else
   begin
     UnknownName := pointer(P);
-    while (P^ >= ' ') and (P^ <> ':') do
+    while (P^ >= ' ') and
+          (P^ <> ':') do
       inc(P);
     if P^ = ':' then
       with UnknownHeaders[Headers.UnknownHeaderCount] do
@@ -1912,7 +2033,8 @@ begin
   UserSize := 0;
   DomainSize := 0;
   LookupAccountSidW(nil, UserInfo^.Sid, nil, UserSize, nil, DomainSize, NameUse);
-  if (UserSize = 0) or (DomainSize = 0) then
+  if (UserSize = 0) or
+     (DomainSize = 0) then
     exit;
   SetLength(tmp, UserSize + DomainSize - 1);
   P := pointer(tmp);

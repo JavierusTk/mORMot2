@@ -126,13 +126,15 @@ type
     // maintain one single connection, by setting after Create:
     // ! aExternalDBProperties.ThreadingMode := tmMainConnection;
     // or by adding 'syndb_singleconnection=true' as URI property
-    constructor Create(const aServerName, aDatabaseName, aUserID, aPassWord: RawUTF8); override;
+    constructor Create(const aServerName, aDatabaseName,
+      aUserID, aPassWord: RawUTF8); override;
     /// initialize raw properties to connect to the ZEOS engine
     // - using Zeos' TZURL detailed class - see: src\core\ZURL.pas
     // - this gives all possibilities to add Properties before a connection is opened
     // - you can define the protocol by hand eg. "odbc_w"/"OleDB" and define TSQLDBDefinition
     // to describe the server syntax SynDB and the ORM use behind the abstract driver
-    constructor CreateWithZURL(const aURL: TZURL; aDBMS: TSQLDBDefinition; aOwnsURL: Boolean); virtual;
+    constructor CreateWithZURL(const aURL: TZURL; aDBMS: TSQLDBDefinition;
+      aOwnsURL: Boolean); virtual;
     /// finalize properties internal structures
     destructor Destroy; override;
     /// create a new connection
@@ -142,7 +144,8 @@ type
 
     /// retrieve the column/field layout of a specified table
     // - this overridden method will use ZDBC metadata to retrieve the information
-    procedure GetFields(const aTableName: RawUTF8; out Fields: TSQLDBColumnDefineDynArray); override;
+    procedure GetFields(const aTableName: RawUTF8;
+      out Fields: TSQLDBColumnDefineDynArray); override;
     /// get all table names
     // - this overridden method will use ZDBC metadata to retrieve the information
     // - PostgreSQL note: it was reported that some table names expects to be
@@ -257,7 +260,7 @@ type
     // - this overriden implementation will call fReultSet methods to avoid
     // creating most temporary variable
     procedure ColumnsToJSON(WR: TJSONWriter); override;
-    {$endif}
+    {$endif ZEOS72UP}
     /// gets a number of updates made by latest executed statement
     function UpdateCount: integer; override;
     /// Reset the previous prepared statement
@@ -310,7 +313,8 @@ type
     // value will be composed into your JSON. For real big JSON contents
     // it saves loads of space. e.g. if you import a JSON into a mongo cluster
     // you'll have a significant space difference if null's are simply ignored.
-    property JSONComposeOptions: TZJSONComposeOptions read fJSONComposeOptions write fJSONComposeOptions 
+    property JSONComposeOptions: TZJSONComposeOptions
+      read fJSONComposeOptions write fJSONComposeOptions
       default [jcoEndJSONObject];
   {$ifend}
   end;
@@ -337,6 +341,7 @@ const
   TableColColumnSizeIndex = 7;
   TableColColumnDecimalDigitsIndex = 9;
   IndexInfoColColumnNameIndex = 9;
+
 
 { ************  TSQLDBZeosConnection* and TSQLDBZeosStatement Classes }
 
@@ -367,7 +372,8 @@ begin
   end
   else
     fServerName := aServerName;
-  if (fServerName <> '') and (PosExChar(':', fServerName) = 0) then
+  if (fServerName <> '') and
+     (PosExChar(':', fServerName) = 0) then
     fServerName := fServerName + ':';
   if not IdemPChar(Pointer(aServerName), 'ZDBC:') then
     fServerName := 'zdbc:' + fServerName;
@@ -451,9 +457,13 @@ begin // return e.g. mysql://192.168.2.60:3306/world?username=root;password=dev
     //EH: switch off tds support in any kind -> deprecated and our 64bit lib isn't compiled with libiconv support
     //users permanently run into the encoding issues which can't be resolved using the dblib tds-types:
     //tdsNVarchar/tdsNText is defined but will never be used by DBLIB + SQLServer)
-    if {$IFDEF MSWINDOWS}(protocol <> 'ado') and (protocol <> 'oledb') and {$endif}
-       (protocol <> 'odbc_w') and (protocol <> 'odbc_a') then
-      {$IFDEF MSWINDOWS}
+    if {$ifdef MSWINDOWS}
+       (protocol <> 'ado') and
+       (protocol <> 'oledb') and
+       {$endif MSWINDOWS}
+       (protocol <> 'odbc_w') and
+       (protocol <> 'odbc_a') then
+      {$ifdef MSWINDOWS}
       FURL.Protocol := 'OleDB';
       {$else}
       FURL.Protocol := 'odbc_w'
@@ -531,7 +541,7 @@ begin // return e.g. mysql://192.168.2.60:3306/world?username=root;password=dev
       begin
         // see https://synopse.info/forum/viewtopic.php?pid=13260#p13260
         fURL.Properties.Add('NoTableInfoCache=true');
-        {$IFDEF ZEOS73UP}
+        {$ifdef ZEOS73UP}
         //fURL.Properties.Add(DSProps_BinaryWireResultMode+'=False');
         {$endif}
       end;
@@ -604,7 +614,7 @@ begin
   if result then
     meta.ClearCache; // we need to retrieve the actual metadata
   {$ifdef ZEOS72UP} // new since 7.2up
-  if Result and meta.GetDatabaseInfo.SupportsArrayBindings then
+  if result and meta.GetDatabaseInfo.SupportsArrayBindings then
   begin
     case GetDBMS of
       dPostgreSQL:
@@ -631,7 +641,7 @@ begin
     TableTypes[0] := 'TABLE';
     res := meta.GetTables('', '', '', TableTypes);
     n := 0;
-    while res.Next do      {$IFDEF ZEOS72UP}
+    while res.Next do      {$ifdef ZEOS72UP}
       AddSortedRawUTF8(Tables, n, res.GetUTF8String(TableNameIndex));
       {$else}
     AddSortedRawUTF8(Tables, n, SynUnicodeToUtf8(res.GetUnicodeString(TableNameIndex)));
@@ -662,11 +672,11 @@ begin
     sTableName := meta.GetIdentifierConvertor.ExtractQuote(UTF8ToString(TableName));
     sTableName := meta.AddEscapeCharToWildcards(sTableName); //do not use "like" search patterns ['_','%'] so they need to be escaped
     res := meta.GetColumns('', sSchema, sTableName, '');
-    FA.InitSpecific(TypeInfo(TSQLDBColumnDefineDynArray), Fields, djRawUTF8, @n, true);
+    FA.InitSpecific(TypeInfo(TSQLDBColumnDefineDynArray), Fields, ptRawUTF8, @n, true);
     FillCharFast(F, sizeof(F), 0);
     while res.Next do
     begin
-      {$IFDEF ZEOS72UP}
+      {$ifdef ZEOS72UP}
       F.ColumnName := res.GetUTF8String(ColumnNameIndex);
       F.ColumnTypeNative := res.GetUTF8String(TableColColumnTypeNameIndex);
       {$else}
@@ -684,7 +694,7 @@ begin
       res := meta.GetIndexInfo('', sSchema, sTableName, false, true);
       while res.Next do
       begin
-        {$IFDEF ZEOS72UP}
+        {$ifdef ZEOS72UP}
         F.ColumnName := res.GetUTF8String(IndexInfoColColumnNameIndex);
         {$else}
         F.ColumnName := SynUnicodeToUtf8(res.GetUnicodeString(IndexInfoColColumnNameIndex));
@@ -745,7 +755,8 @@ begin // return e.g. mysql://192.168.2.60:3306/world?username=root;password=dev
     result := result + '//' + aServerName;
   if aLibraryLocation <> '' then
   begin
-    if (aServerName <> '') and (aServerName[1] = '?') then
+    if (aServerName <> '') and
+       (aServerName[1] = '?') then
       result := result + ';LibLocation='
     else
       result := result + '?LibLocation=';
@@ -804,7 +815,8 @@ begin
   try
     inherited Disconnect; // flush any cached statement
   finally
-    if (fDatabase <> nil) and not fDatabase.IsClosed then
+    if (fDatabase <> nil) and
+       not fDatabase.IsClosed then
       fDatabase.Close;
   end;
 end;
@@ -827,7 +839,7 @@ var
 begin
   log := SynDBLog.Enter(self, 'StartTransaction');
   inherited StartTransaction;
-  {$IFDEF ZEOS73UP}
+  {$ifdef ZEOS73UP}
   fDatabase.StartTransaction; //returns the txn level
   {$ELSE}
   fDatabase.SetAutoCommit(false);
@@ -862,7 +874,8 @@ end;
 procedure TSQLDBZEOSStatement.Prepare(const aSQL: RawUTF8; ExpectResults: boolean);
 begin
   SQLLogBegin(sllDB);
-  if (fStatement <> nil) or (fResultSet <> nil) then
+  if (fStatement <> nil) or
+     (fResultSet <> nil) then
     raise ESQLDBZEOS.CreateUTF8('%.Prepare() shall be called once', [self]);
   inherited Prepare(aSQL, ExpectResults); // connect if necessary
   fStatement := (fConnection as TSQLDBZEOSConnection).fDatabase.
@@ -1036,12 +1049,14 @@ begin
   try
     if arrayBinding=nil then
   {$else}
-  if (fParamsArrayCount>0) and not fExpectResults then
+  if (fParamsArrayCount>0) and
+     not fExpectResults then
     raise ESQLDBZEOS.CreateUTF8('%.BindArray() not supported', [self])
   else
   {$endif ZEOS72UP}
     for i := fParamCount-1 downto 0 do // EG: downto minimize memallocs
-    with fParams[i] do begin
+    with fParams[i] do
+    begin
       if (Length(VArray) > 0) and
          (fConnection.Properties.DBMS = dPostgreSQL) then
       begin
@@ -1181,11 +1196,13 @@ function TSQLDBZEOSStatement.ColumnBlob(Col: Integer): RawByteString;
 var
   blob: IZBlob;
 begin
-  if (fResultSet = nil) or (cardinal(Col) >= cardinal(fColumnCount)) then
+  if (fResultSet = nil) or
+     (cardinal(Col) >= cardinal(fColumnCount)) then
     raise ESQLDBZEOS.CreateUTF8('%.ColumnBlob(%) ResultSet=%',
       [self, Col, fResultSet]);
   blob := fResultSet.GetBlob(Col + FirstDbcIndex);
-  if (blob = nil) or blob.IsEmpty then
+  if (blob = nil) or
+     blob.IsEmpty then
     result := ''
   else
     result := blob.GetString; // ZAnsiString = RawByteString
@@ -1193,7 +1210,8 @@ end;
 
 function TSQLDBZEOSStatement.ColumnCurrency(Col: Integer): currency;
 begin
-  if (fResultSet = nil) or (cardinal(Col) >= cardinal(fColumnCount)) then
+  if (fResultSet = nil) or
+     (cardinal(Col) >= cardinal(fColumnCount)) then
     raise ESQLDBZEOS.CreateUTF8('%.ColumnCurrency(%) ResultSet=%',
       [self, Col, fResultSet]);
   {$ifdef ZEOS72UP}
@@ -1205,7 +1223,8 @@ end;
 
 function TSQLDBZEOSStatement.ColumnDateTime(Col: Integer): TDateTime;
 begin
-  if (fResultSet = nil) or (cardinal(Col) >= cardinal(fColumnCount)) then
+  if (fResultSet = nil) or
+     (cardinal(Col) >= cardinal(fColumnCount)) then
     raise ESQLDBZEOS.CreateUTF8('%.ColumnDateTime(%) ResultSet=%',
       [self, Col, fResultSet]);
   result := fResultSet.GetTimestamp(Col + FirstDbcIndex);
@@ -1213,7 +1232,8 @@ end;
 
 function TSQLDBZEOSStatement.ColumnDouble(Col: Integer): double;
 begin
-  if (fResultSet = nil) or (cardinal(Col) >= cardinal(fColumnCount)) then
+  if (fResultSet = nil) or
+     (cardinal(Col) >= cardinal(fColumnCount)) then
     raise ESQLDBZEOS.CreateUTF8('%.ColumnDouble(%) ResultSet=%',
       [self, Col, fResultSet]);
   result := fResultSet.GetDouble(Col + FirstDbcIndex);
@@ -1221,7 +1241,8 @@ end;
 
 function TSQLDBZEOSStatement.ColumnInt(Col: Integer): Int64;
 begin
-  if (fResultSet = nil) or (cardinal(Col) >= cardinal(fColumnCount)) then
+  if (fResultSet = nil) or
+     (cardinal(Col) >= cardinal(fColumnCount)) then
     raise ESQLDBZEOS.CreateUTF8('%.ColumnInt(%) ResultSet=%',
       [self, Col, fResultSet]);
   result := fResultSet.GetLong(Col + FirstDbcIndex);
@@ -1229,14 +1250,16 @@ end;
 
 function TSQLDBZEOSStatement.ColumnNull(Col: Integer): boolean;
 begin
-  if (fResultSet = nil) or (cardinal(Col) >= cardinal(fColumnCount)) then
+  if (fResultSet = nil) or
+     (cardinal(Col) >= cardinal(fColumnCount)) then
     raise ESQLDBZEOS.CreateUTF8('%.ColumnNull(%) ResultSet=%', [self, Col, fResultSet]);
   result := fResultSet.IsNull(Col + FirstDbcIndex);
 end;
 
 function TSQLDBZEOSStatement.ColumnUTF8(Col: Integer): RawUTF8;
 begin
-  if (fResultSet = nil) or (cardinal(Col) >= cardinal(fColumnCount)) then
+  if (fResultSet = nil) or
+     (cardinal(Col) >= cardinal(fColumnCount)) then
     raise ESQLDBZEOS.CreateUTF8('%.ColumnUTF8(%) ResultSet=%',
       [self, Col, fResultSet]);
   {$ifdef ZEOS72UP}
@@ -1350,7 +1373,8 @@ begin // take care of the layout of internal ZDBC buffers for each provider
           else
             WriteIZBlob;
       else
-        raise ESQLDBException.CreateUTF8('%.ColumnsToJSON: invalid ColumnType(#% "%")=%',
+        raise ESQLDBException.CreateUTF8(
+          '%.ColumnsToJSON: invalid ColumnType(#% "%")=%',
           [self, col, fColumns[col].ColumnName, ord(fColumns[col].ColumnType)]);
       end;
     end;

@@ -65,8 +65,15 @@ type
   // - opKillCursors: notify database client is done with a cursor
   // - opMsg: new OP_MSG layout introduced in MongoDB 3.6
   TMongoOperation = (
-    opReply, opMsgOld, opUpdate, opInsert, opQuery, opGetMore,
-    opDelete, opKillCursors, opMsg);
+    opReply,
+    opMsgOld,
+    opUpdate,
+    opInsert,
+    opQuery,
+    opGetMore,
+    opDelete,
+    opKillCursors,
+    opMsg);
 
   /// define how an opUpdate operation will behave
   // - if mufUpsert is set, the database will insert the supplied object into
@@ -74,7 +81,8 @@ type
   // - if mufMultiUpdate is set, the database will update all matching objects
   // in the collection; otherwise (by default) only updates first matching doc
   TMongoUpdateFlag = (
-    mufUpsert, mufMultiUpdate);
+    mufUpsert,
+    mufMultiUpdate);
 
   /// define how a TMongoRequestUpdate message will behave
   TMongoUpdateFlags = set of TMongoUpdateFlag;
@@ -118,8 +126,13 @@ type
   // - if mqfPartial is set, it will get partial results from a mongos if
   // some shards are down (instead of throwing an error)
   TMongoQueryFlag = (
-    mqfTailableCursor = 1, mqfSlaveOk, mqfOplogReplay,
-    mqfNoCursorTimeout, mqfAwaitData, mqfExhaust, mqfPartial);
+    mqfTailableCursor = 1,
+    mqfSlaveOk,
+    mqfOplogReplay,
+    mqfNoCursorTimeout,
+    mqfAwaitData,
+    mqfExhaust,
+    mqfPartial);
 
   /// define how a TMongoRequestQuery message will behave
   TMongoQueryFlags = set of TMongoQueryFlag;
@@ -355,7 +368,10 @@ type
   // - mrfAwaitCapable is set when the server supports the AwaitData Query
   // option (always set since Mongod version 1.6)
   TMongoReplyCursorFlag = (
-    mrfCursorNotFound, mrfQueryFailure, mrfShardConfigStale, mrfAwaitCapable);
+    mrfCursorNotFound,
+    mrfQueryFailure,
+    mrfShardConfigStale,
+    mrfAwaitCapable);
 
   /// define a TMongoReplyCursor message execution content
   TMongoReplyCursorFlags = set of TMongoReplyCursorFlag;
@@ -495,7 +511,8 @@ type
     // !     i: integer;
     // ! ...
     // !   Reply.Init(ResponseMessage);
-    // !   for i := 0 to Reply.DocumentCount-1 do begin
+    // !   for i := 0 to Reply.DocumentCount-1 do
+    // !   begin
     // !      GmrfQueryFailureetDocument(i,doc);
     // !      writeln('Name: ',doc.Name,' FirstName: ',doc.FirstName);
     // !   end;
@@ -567,6 +584,7 @@ type
 
 /// ready-to-be displayed text of a TMongoOperation item
 function ToText(op: TMongoOperation): PShortString; overload;
+
 
 
 { ************ MongoDB Client Classes }
@@ -765,7 +783,10 @@ type
   // secondary members but if no secondary members are available, operations
   // read from the primary
   TMongoClientReplicaSetReadPreference = (
-    rpPrimary, rpPrimaryPreferred, rpSecondary, rpSecondaryPreferred);
+    rpPrimary,
+    rpPrimaryPreferred,
+    rpSecondary,
+    rpSecondaryPreferred);
 
   /// define Write Concern property of a MongoDB connection
   // - Write concern describes the guarantee that MongoDB provides when
@@ -802,8 +823,11 @@ type
   // comes at the cost of significant risks for data persistence and durability.
   // WARNING: Do not use wcErrorsIgnored write concern in normal operation.
   TMongoClientWriteConcern = (
-    wcAcknowledged, wcJournaled, wcReplicaAcknowledged,
-    wcUnacknowledged, wcErrorsIgnored);
+    wcAcknowledged,
+    wcJournaled,
+    wcReplicaAcknowledged,
+    wcUnacknowledged,
+    wcErrorsIgnored);
 
   /// remote access to a MongoDB server
   // - a single server can have several active connections, if some secondary
@@ -1253,7 +1277,8 @@ type
     // method performs an update that replaces ALL fields in the existing
     // document with the fields from the document - and the method returns TRUE
     // - you can optionally retrieve the _id value with the DocumentObjectID pointer
-    function Save(var Document: variant; DocumentObjectID: PBSONObjectID = nil): boolean; overload;
+    function Save(var Document: variant;
+      DocumentObjectID: PBSONObjectID = nil): boolean; overload;
     /// updates an existing document or inserts a new document, depending on
     // its document parameter, supplied as (extended) JSON and parameters
     // - supplied JSON could be either strict or in MongoDB Shell syntax:
@@ -1552,6 +1577,7 @@ implementation
 const
   WIRE_OPCODES: array[TMongoOperation] of integer = (
     1, 1000, 2001, 2002, 2004, 2005, 2006, 2007, 2013);
+
   CLIENT_OPCODES =
     [opUpdate, opInsert, opQuery, opGetMore, opDelete, opKillCursors];
 
@@ -1595,7 +1621,8 @@ end;
 
 procedure TMongoRequest.ToBSONDocument(var result: TBSONDocument);
 begin
-  if (fRequestID = 0) or (fRequestOpCode = opReply) then
+  if (fRequestID = 0) or
+     (fRequestOpCode = opReply) then
     raise EMongoException.CreateUTF8('No previous proper %.Create() call', [self]);
   if fBSONDocument = '' then
   begin
@@ -1953,7 +1980,8 @@ var
   b: PByte;
 begin
   result := length(Dest);
-  if (fReply = '') or (DocumentCount <= 0) then
+  if (fReply = '') or
+     (DocumentCount <= 0) then
     exit; // nothing to append
   SetLength(Dest, result + DocumentCount);
   Rewind;
@@ -1990,7 +2018,8 @@ begin
   if Dest.VarType <> DocVariantType.VarType then
     TDocVariant.New(Variant(Dest), JSON_OPTIONS_FAST);
   result := Dest.Count;
-  if (fReply = '') or (DocumentCount <= 0) then
+  if (fReply = '') or
+     (DocumentCount <= 0) then
     exit; // nothing to append
   inc(result, DocumentCount);
   Dest.Capacity := result;
@@ -2006,12 +2035,14 @@ procedure TMongoReplyCursor.FetchAllToJSON(W: TTextWriter; Mode: TMongoJSONMode;
 var
   b: PByte;
 begin
-  if (fReply = '') or (DocumentCount <= 0) then
+  if (fReply = '') or
+     (DocumentCount <= 0) then
   begin
     W.AddShort('null');
     exit;
   end;
-  if WithHeader and (Mode = modMongoShell) then
+  if WithHeader and
+     (Mode = modMongoShell) then
     W.Add('{ReplyHeader:{ResponseFlags:%,RequestID:%,ResponseTo:%,CursorID:%,' +
       'StartingFrom:%,NumberReturned:%,ReplyDocuments:[', [byte(ResponseFlags),
       requestID, responseTo, CursorID, StartingFrom, DocumentCount]);
@@ -2021,7 +2052,8 @@ begin
     inc(b, sizeof(integer)); // points to the "e_list" of "int32 e_list #0"
     BSONListToJSON(b, betDoc, W, Mode);
     W.Add(',');
-    if (MaxSize > 0) and (W.TextLength > MaxSize) then
+    if (MaxSize > 0) and
+       (W.TextLength > MaxSize) then
     begin
       W.AddShort('...');
       break;
@@ -2038,7 +2070,8 @@ var
   W: TTextWriter;
   tmp: TTextWriterStackBuffer;
 begin
-  if (fReply = '') or (DocumentCount <= 0) then
+  if (fReply = '') or
+     (DocumentCount <= 0) then
     result := 'null'
   else
   begin
@@ -2115,7 +2148,8 @@ end;
 
 function TMongoConnection.GetOpened: boolean;
 begin
-  result := (self <> nil) and (fSocket <> nil);
+  result := (self <> nil) and
+            (fSocket <> nil);
 end;
 
 procedure TMongoConnection.Close;
@@ -2190,7 +2224,9 @@ begin
     if ReturnAsJSONArray then
       W.Add(']');
     W.SetText(result);
-    if (result = '') or (result = '[]') or (result = '{}') then
+    if (result = '') or
+       (result = '[]') or
+       (result = '{}') then
       result := 'null';
   finally
     W.Free;
@@ -2221,7 +2257,8 @@ begin
     cursorID := main.CursorID;
     if cursorID <> 0 then
       if (Query.NumberToReturn = 0) or
-         ((Query.NumberToReturn > 0) and (count > 0)) then
+         ((Query.NumberToReturn > 0) and
+          (count > 0)) then
         repeat
           getMore := TMongoRequestGetMore.Create(
             Query.FullCollectionName, count, cursorID);
@@ -2239,7 +2276,9 @@ begin
           finally
             getMore.Free;
           end;
-        until ((Query.NumberToReturn > 0) and (count <= 0)) or (cursorID = 0);
+        until ((Query.NumberToReturn > 0) and
+               (count <= 0)) or
+              (cursorID = 0);
     if cursorID <> 0 then // if cursor not exhausted: need to kill it
       SendAndFree(TMongoRequestKillCursor.Create(
         Query.FullCollectionName, [cursorID]), true);
@@ -2291,12 +2330,14 @@ function TMongoConnection.Send(Request: TMongoRequest): boolean;
 var
   doc: TBSONDocument;
 begin
-  if not Opened and not Client.ReOpen then
+  if not Opened and
+     not Client.ReOpen then
     raise EMongoRequestException.Create('Send: Missing Open', self, Request);
   if Request = nil then
     raise EMongoRequestException.Create('Send(nil)', self);
   Request.ToBSONDocument(doc);
-  if (Client.LogRequestEvent <> sllNone) and (Client.Log <> nil) and
+  if (Client.LogRequestEvent <> sllNone) and
+     (Client.Log <> nil) and
      (Client.LogRequestEvent in Client.Log.Family.Level) then
     Client.Log.Log(Client.fLogRequestEvent, Request.ToJSON(modMongoShell), Request);
   result := fSocket.TrySndLow(pointer(doc), length(doc));
@@ -2354,7 +2395,8 @@ var
 begin
   GetReply(Request, reply);
   Result.Init(reply);
-  if (Client.LogReplyEvent <> sllNone) and (Client.Log <> nil) and
+  if (Client.LogReplyEvent <> sllNone) and
+     (Client.Log <> nil) and
      (Client.LogReplyEvent in Client.Log.Family.Level) then
     Client.Log.Log(Client.LogReplyEvent, Result.ToJSON(modMongoShell, True,
       Client.LogReplyEventMaxSize), Request);
@@ -2459,7 +2501,8 @@ end;
 
 function TMongoConnection.GetLocked: boolean;
 begin
-  result := (self <> nil) and (fLocked > 0);
+  result := (self <> nil) and
+            (fLocked > 0);
 end;
 
 
@@ -2523,7 +2566,8 @@ begin
     else
       WR.AddNull;
   end;
-  if (fError.Reply <> '') and WR.InheritsFrom(TTextWriter) then
+  if (fError.Reply <> '') and
+     WR.InheritsFrom(TTextWriter) then
     fError.FetchAllToJSON(TTextWriter(WR), modMongoShell, True);
   result := false; // log stack trace
 end;
@@ -2744,7 +2788,10 @@ function TMongoClient.OpenAuth(const DatabaseName, UserName, PassWord: RawUTF8;
 var
   digest: RawByteString;
 begin
-  if (self = nil) or (DatabaseName = '') or (UserName = '') or (PassWord = '') then
+  if (self = nil) or
+     (DatabaseName = '') or
+     (UserName = '') or
+     (PassWord = '') then
     raise EMongoException.CreateUTF8('Invalid %.OpenAuth("%") call',
       [self, DatabaseName]);
   result := fDatabases.GetObjectFrom(DatabaseName);
@@ -2757,7 +2804,8 @@ begin
       digest := PasswordDigest(UserName, PassWord);
       Auth(DatabaseName, UserName, digest, ForceMongoDBCR);
       with fGracefulReconnect do
-        if Enabled and (EncryptedDigest = '') then
+        if Enabled and
+           (EncryptedDigest = '') then
         begin
           ForcedDBCR := ForceMongoDBCR;
           User := UserName;
@@ -2800,15 +2848,21 @@ var
   end;
 
 begin // caller should have made fConnections[0].Open
-  if (self = nil) or (DatabaseName = '') or (UserName = '') or (Digest = '') then
-    raise EMongoException.CreateUTF8('Invalid %.Auth("%") call', [self, DatabaseName]);
-  if ForceMongoDBCR or (ServerBuildInfoNumber < 3000000) then
+  if (self = nil) or
+     (DatabaseName = '') or
+     (UserName = '') or
+     (Digest = '') then
+    raise EMongoException.CreateUTF8('Invalid %.Auth("%") call',
+      [self, DatabaseName]);
+  if ForceMongoDBCR or
+     (ServerBuildInfoNumber < 3000000) then
   begin
     // MONGODB-CR
     // http://docs.mongodb.org/meta-driver/latest/legacy/implement-authentication-in-driver
     bson := BSONVariant(['getnonce', 1]);
     err := fConnections[0].RunCommand(DatabaseName, bson, res);
-    if (err = '') and not _Safe(res)^.GetAsRawUTF8('nonce', nonce) then
+    if (err = '') and
+       not _Safe(res)^.GetAsRawUTF8('nonce', nonce) then
       err := 'missing returned nonce';
     if err <> '' then
       raise EMongoException.CreateUTF8('%.OpenAuthCR("%") step1: % - res=%',
@@ -2858,7 +2912,8 @@ begin // caller should have made fConnections[0].Open
       1, 'conversationId', res.conversationId, 'payload', bson]), res);
     resp.Clear;
     CheckPayload;
-    if (err = '') and (resp.U['v'] <> BinToBase64(@server, SizeOf(server))) then
+    if (err = '') and
+       (resp.U['v'] <> BinToBase64(@server, SizeOf(server))) then
       err := 'Server returned an invalid signature';
     if err <> '' then
       raise EMongoException.CreateUTF8('%.OpenAuthSCRAM("%") step2: % - res=%',
@@ -2868,7 +2923,8 @@ begin // caller should have made fConnections[0].Open
       // third empty challenge may be required
       err := fConnections[0].RunCommand(DatabaseName, BSONVariant(['saslContinue',
         1, 'conversationId', res.conversationId, 'payload', '']), res);
-      if (err = '') and not res.done then
+      if (err = '') and
+         not res.done then
         err := 'SASL conversation failed to complete';
       if err <> '' then
         raise EMongoException.CreateUTF8('%.OpenAuthSCRAM("%") step3: % - res=%',
@@ -3011,8 +3067,10 @@ var
   res: variant;
   usr: TDocVariantData;
 begin
-  usr.InitObject(['createUser', UserName,
-    'pwd', PasswordDigest(UserName, Password), 'digestPassword', false,
+  usr.InitObject([
+    'createUser', UserName,
+    'pwd', PasswordDigest(UserName, Password),
+    'digestPassword', false,
     'roles', roles], JSON_OPTIONS_FAST);
   // note: passwordDigestor:"client" fails
   if client.ServerBuildInfoNumber >= 4000000 then
@@ -3218,7 +3276,8 @@ var
   ndx, order: integer;
   useCommand: Boolean;
 begin
-  if (self = nil) or (Database = nil) then
+  if (self = nil) or
+     (Database = nil) then
     exit;
   if Database.Client.Log <> nil then
     Database.Client.Log.Enter('EnsureIndex %', [name], self);

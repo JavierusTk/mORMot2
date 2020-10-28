@@ -53,7 +53,8 @@ type
   protected
     fPassWord: SPIUTF8;
     fKey: cardinal;
-    function GetKey: cardinal; {$ifdef HASINLINE}inline;{$endif}
+    function GetKey: cardinal;
+      {$ifdef HASINLINE}inline;{$endif}
     function GetPassWordPlain: SPIUTF8;
     function GetPassWordPlainInternal(AppSecret: RawUTF8): SPIUTF8;
     procedure SetPassWordPlain(const Value: SPIUTF8);
@@ -102,7 +103,7 @@ type
 
   /// handle safe storage of any connection properties
   // - would be used by mormot.db to serialize TSQLDBConnectionProperties, or
-  // by mORMot.pas to serialize TSQLRest instances
+  // by mormot.rest.core.pas to serialize TRest instances
   // - the password will be stored as Base64, after a simple encryption as
   // defined by TSynPersistentWithPassword
   // - typical content could be:
@@ -113,7 +114,7 @@ type
   // $	"User": "",
   // $	"Password": "PtvlPA=="
   // $ }
-  // - the "Kind" value will be used to let the corresponding TSQLRest or
+  // - the "Kind" value will be used to let the corresponding TRest or
   // TSQLDBConnectionProperties NewInstance*() class methods create the
   // actual instance, from its class name
   TSynConnectionDefinition = class(TSynPersistentWithPassword)
@@ -127,13 +128,11 @@ type
     // - as previously serialized with the SaveToJSON method
     // - you can specify a custom Key used for password encryption, if the
     // default value is not safe enough for you
-    // - this method won't use JSONToObject() so avoid any dependency to mORMot.pas
     constructor CreateFromJSON(const JSON: RawUTF8; Key: cardinal = 0); virtual;
     /// serialize the database definition as JSON
-    // - this method won't use ObjectToJSON() so avoid any dependency to mORMot.pas
     function SaveToJSON: RawUTF8; virtual;
   published
-    /// the class name implementing the connection or TSQLRest instance
+    /// the class name implementing the connection or TRest instance
     // - will be used to instantiate the expected class type
     property Kind: string read fKind write fKind;
     /// the associated server name (or file, for SQLite3) to be connected to
@@ -280,7 +279,7 @@ type
   // than UUID/GUID), and contain generation time and a 16-bit process ID
   // - mapped by TSynUniqueIdentifierBits memory structure
   // - may be used on client side for something similar to a MongoDB ObjectID,
-  // but compatible with TSQLRecord.ID: TID properties
+  // but compatible with TOrm.ID: TID properties
   TSynUniqueIdentifier = type Int64;
 
   /// 16-bit unique process identifier, used to compute TSynUniqueIdentifier
@@ -320,7 +319,8 @@ type
     // - returns e.g.
     // ! {"Created":"2016-04-19T15:27:58","Identifier":1,"Counter":1,
     // ! "Value":3137644716930138113,"Hex":"2B8B273F00008001"}
-    function AsVariant: variant; {$ifdef HASINLINE}inline;{$endif}
+    function AsVariant: variant;
+      {$ifdef HASINLINE}inline;{$endif}
     /// convert this identifier to an explicit TDocVariant JSON object
     // - returns e.g.
     // ! {"Created":"2016-04-19T15:27:58","Identifier":1,"Counter":1,
@@ -368,7 +368,7 @@ type
 
   /// thread-safe 64-bit integer unique identifier computation
   // - may be used on client side for something similar to a MongoDB ObjectID,
-  // but compatible with TSQLRecord.ID: TID properties, since it will contain
+  // but compatible with TOrm.ID: TID properties, since it will contain
   // a 63-bit unsigned integer, following our ORM expectations
   // - each identifier would contain a 16-bit process identifier, which is
   // supplied by the application, and should be unique for this process at a
@@ -399,7 +399,7 @@ type
     procedure ComputeNew(out result: TSynUniqueIdentifierBits); overload;
     /// return a new unique ID, type-casted to an Int64
     function ComputeNew: Int64; overload;
-      {$ifdef HASINLINE} inline;{$endif}
+      {$ifdef HASINLINE}inline;{$endif}
     /// return an unique ID matching this generator pattern, at a given timestamp
     // - may be used e.g. to limit database queries on a particular time range
     procedure ComputeFromDateTime(const aDateTime: TDateTime;
@@ -435,6 +435,9 @@ type
     property ComputedCount: Int64 read GetComputedCount;
   end;
 
+  /// hold a dynamic array of TSynUniqueIdentifierGenerator instances
+  TSynUniqueIdentifierGenerators = array of TSynUniqueIdentifierGenerator;
+
 
 
 { **************** High-Level TSynSigner/TSynHasher Multi-Algorithm Wrappers }
@@ -445,8 +448,16 @@ type
 type
   /// the HMAC/SHA-3 algorithms known by TSynSigner
   TSignAlgo = (
-    saSha1, saSha256, saSha384, saSha512,
-    saSha3224, saSha3256, saSha3384, saSha3512, saSha3S128, saSha3S256);
+    saSha1,
+    saSha256,
+    saSha384,
+    saSha512,
+    saSha3224,
+    saSha3256,
+    saSha3384,
+    saSha3512,
+    saSha3S128,
+    saSha3S256);
 
   /// JSON-serialization ready object as used by TSynSigner.PBKDF2 overloaded methods
   // - default value for unspecified parameters will be SHAKE_128 with
@@ -481,9 +492,9 @@ type
     procedure Update(aBuffer: pointer; aLen: integer); overload;
     /// process some message content supplied as string
     procedure Update(const aBuffer: RawByteString); overload;
-      {$ifdef HASINLINE} inline;{$endif}
+      {$ifdef HASINLINE}inline;{$endif}
     /// returns the computed digital signature as lowercase hexadecimal text
-    function final: RawUTF8; overload;
+    function Final: RawUTF8; overload;
     /// returns the raw computed digital signature
     // - SignatureSize bytes will be written: use Signature.Lo/h0/b3/b accessors
     procedure Final(out aSignature: THash512Rec;
@@ -527,7 +538,13 @@ type
   /// hash algorithms available for HashFile/HashFull functions
   // and TSynHasher object
   THashAlgo = (
-    hfMD5, hfSHA1, hfSHA256, hfSHA384, hfSHA512, hfSHA3_256, hfSHA3_512);
+    hfMD5,
+    hfSHA1,
+    hfSHA256,
+    hfSHA384,
+    hfSHA512,
+    hfSHA3_256,
+    hfSHA3_512);
 
   /// set of algorithms available for HashFile/HashFull functions and TSynHasher object
   THashAlgos = set of THashAlgo;
@@ -548,9 +565,9 @@ type
     procedure Update(aBuffer: Pointer; aLen: integer); overload;
     /// hash the supplied string content
     procedure Update(const aBuffer: RawByteString); overload;
-      {$ifdef HASINLINE} inline;{$endif}
+      {$ifdef HASINLINE}inline;{$endif}
     /// returns the resulting hash as lowercase hexadecimal string
-    function final: RawUTF8;
+    function Final: RawUTF8;
     /// one-step hash computation of a buffer as lowercase hexadecimal string
     function Full(aAlgo: THashAlgo; aBuffer: Pointer; aLen: integer): RawUTF8;
     /// the hash algorithm used by this instance
@@ -579,9 +596,16 @@ function HashFull(aAlgo: THashAlgo; aBuffer: Pointer; aLen: integer): RawUTF8;
 type
   /// possible return codes by IProtocol classes
   TProtocolResult = (
-    sprSuccess, sprBadRequest, sprUnsupported, sprUnexpectedAlgorithm,
-    sprInvalidCertificate, sprInvalidSignature, sprInvalidEphemeralKey,
-    sprInvalidPublicKey, sprInvalidPrivateKey, sprInvalidMAC);
+    sprSuccess,
+    sprBadRequest,
+    sprUnsupported,
+    sprUnexpectedAlgorithm,
+    sprInvalidCertificate,
+    sprInvalidSignature,
+    sprInvalidEphemeralKey,
+    sprInvalidPublicKey,
+    sprInvalidPrivateKey,
+    sprInvalidMAC);
 
   /// perform safe communication after unilateral or mutual authentication
   // - see e.g. TProtocolNone or SynEcc's TECDHEProtocolClient and
@@ -736,19 +760,19 @@ begin
   Update(pointer(aBuffer), length(aBuffer));
 end;
 
-function TSynHasher.final: RawUTF8;
+function TSynHasher.Final: RawUTF8;
 begin
   case fAlgo of
     hfMD5:
-      result := MD5DigestToString(PMD5(@ctxt)^.final);
+      result := MD5DigestToString(PMD5(@ctxt)^.Final);
     hfSHA1:
-      result := SHA1DigestToString(PSHA1(@ctxt)^.final);
+      result := SHA1DigestToString(PSHA1(@ctxt)^.Final);
     hfSHA256:
-      result := SHA256DigestToString(PSHA256(@ctxt)^.final);
+      result := SHA256DigestToString(PSHA256(@ctxt)^.Final);
     hfSHA384:
-      result := SHA384DigestToString(PSHA384(@ctxt)^.final);
+      result := SHA384DigestToString(PSHA384(@ctxt)^.Final);
     hfSHA512:
-      result := SHA512DigestToString(PSHA512(@ctxt)^.final);
+      result := SHA512DigestToString(PSHA512(@ctxt)^.Final);
     hfSHA3_256:
       result := SHA256DigestToString(PSHA3(@ctxt)^.Final256);
     hfSHA3_512:
@@ -760,7 +784,7 @@ function TSynHasher.Full(aAlgo: THashAlgo; aBuffer: Pointer; aLen: integer): Raw
 begin
   Init(aAlgo);
   Update(aBuffer, aLen);
-  result := final;
+  result := Final;
 end;
 
 function HashFull(aAlgo: THashAlgo; aBuffer: Pointer; aLen: integer): RawUTF8;
@@ -779,7 +803,8 @@ var
   read: cardinal;
 begin
   result := '';
-  if (aFileName = '') or not hasher.Init(aAlgo) then
+  if (aFileName = '') or
+     not hasher.Init(aAlgo) then
     exit;
   F := FileOpenSequentialRead(aFileName);
   if PtrInt(F) >= 0 then
@@ -794,7 +819,7 @@ begin
       hasher.Update(pointer(temp), read);
       dec(size, read);
     end;
-    result := hasher.final;
+    result := hasher.Final;
   finally
     FileClose(F);
   end;
@@ -910,7 +935,7 @@ begin
   end;
 end;
 
-function TSynSigner.final: RawUTF8;
+function TSynSigner.Final: RawUTF8;
 var
   sig: THash512Rec;
 begin
@@ -923,7 +948,7 @@ function TSynSigner.Full(aAlgo: TSignAlgo; const aSecret: RawUTF8;
 begin
   Init(aAlgo, aSecret);
   Update(aBuffer, aLen);
-  result := final;
+  result := Final;
 end;
 
 function TSynSigner.Full(aAlgo: TSignAlgo; const aSecret, aSalt: RawUTF8;
@@ -931,7 +956,7 @@ function TSynSigner.Full(aAlgo: TSignAlgo; const aSecret, aSalt: RawUTF8;
 begin
   Init(aAlgo, aSecret, aSalt, aSecretPBKDF2Rounds);
   Update(aBuffer, aLen);
-  result := final;
+  result := Final;
 end;
 
 procedure TSynSigner.PBKDF2(aAlgo: TSignAlgo; const aSecret, aSalt: RawUTF8;
@@ -984,7 +1009,8 @@ var
 
 begin
   SetDefault;
-  if (aParamsJSON = nil) or (aParamsJSONLen <= 0) then
+  if (aParamsJSON = nil) or
+     (aParamsJSONLen <= 0) then
     k.secret := aDefaultSalt
   else if aParamsJSON[1] <> '{' then
     FastSetString(k.secret, aParamsJSON, aParamsJSONLen)
@@ -993,7 +1019,8 @@ begin
     tmp.Init(aParamsJSON, aParamsJSONLen);
     try
       if (RecordLoadJSON(k, tmp.buf, TypeInfo(TSynSignerParams)) = nil) or
-         (k.secret = '') or (k.salt = '') then
+         (k.secret = '') or
+         (k.salt = '') then
       begin
         SetDefault;
         FastSetString(k.secret, aParamsJSON, aParamsJSONLen);
@@ -1167,13 +1194,16 @@ var
   i, j: integer;
 begin
   result := '';
-  if (self = nil) or (fPassWord = '') then
+  if (self = nil) or
+     (fPassWord = '') then
     exit;
   if AppSecret = '' then
     ClassToText(ClassType, AppSecret);
   usr := ExeVersion.User + ':';
   i := PosEx(usr, fPassword);
-  if (i = 1) or ((i > 0) and (fPassword[i - 1] = ',')) then
+  if (i = 1) or
+     ((i > 0) and
+      (fPassword[i - 1] = ',')) then
   begin
     // handle '....,username:passwordbase64,....' or 'unsername:passwordbase64'
     inc(i, length(usr));
@@ -1415,7 +1445,8 @@ begin
 end;
 
 procedure TIPBan.SaveToWriter(aWriter: TBufferWriter);
-begin // wkSorted not efficient: too big diffs between IPs
+begin
+  // wkSorted not efficient: too big diffs between IPs
   aWriter.WriteVarUInt32Array(fIP4, fCount, wkUInt32);
 end;
 
@@ -1424,7 +1455,8 @@ var
   ip4: cardinal;
 begin
   result := false;
-  if (self = nil) or not IPToCardinal(aIP, ip4) then
+  if (self = nil) or
+     not IPToCardinal(aIP, ip4) then
     exit;
   fSafe.Lock;
   try
@@ -1441,7 +1473,8 @@ var
   i: integer;
 begin
   result := false;
-  if (self = nil) or not IPToCardinal(aIP, ip4) then
+  if (self = nil) or
+     not IPToCardinal(aIP, ip4) then
     exit;
   fSafe.Lock;
   try
@@ -1460,7 +1493,9 @@ var
   ip4: cardinal;
 begin
   result := false;
-  if (self = nil) or (fCount = 0) or not IPToCardinal(aIP, ip4) then
+  if (self = nil) or
+     (fCount = 0) or
+     not IPToCardinal(aIP, ip4) then
     exit;
   fSafe.Lock;
   try
@@ -1582,7 +1617,7 @@ begin
     else
       inc(fLastCounter);
     result.Value := Int64(fLastCounter or fIdentifierShifted) or
-                   (Int64(fUnixCreateTime) shl 31);
+                    (Int64(fUnixCreateTime) shl 31);
     inc(fSafe.Padding[SYNUNIQUEGEN_COMPUTECOUNT].VInt64);
   finally
     fSafe.UnLock;
@@ -1833,7 +1868,6 @@ end;
 
 initialization
   InitializeUnit;
-
 finalization
   FinalizeUnit;
 end.

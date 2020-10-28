@@ -419,13 +419,16 @@ begin
     h.ai_protocol := 0;
     result := getaddrinfo(pointer(ip), nil, @h, res) = NO_ERROR;
   end
-  else if (ip = cAnyHost) or (ip = c6AnyHost) then
+  else if (ip = cAnyHost) or
+          (ip = c6AnyHost) then
   begin
     // 0.0.0.0
     h.ai_flags := AI_PASSIVE;
     result := getaddrinfo(nil, pointer(port), @h, res) = NO_ERROR;
   end
-  else if (ip = '') or (ip = cLocalhost) or (ip = c6Localhost) or
+  else if (ip = '') or
+          (ip = cLocalhost) or
+          (ip = c6Localhost) or
           (PropNameEquals(ip, 'localhost')) then
     // 127.0.0.1
     result := getaddrinfo(nil, pointer(port), @h, res) = NO_ERROR
@@ -523,7 +526,8 @@ begin
     rd.fd_count := 1;
     rdp := @rd;
   end;
-  if (neWrite in scope) or not (neRead in scope) then // a least one is needed
+  if (neWrite in scope) or
+     not (neRead in scope) then // a least one is needed
   begin
     wr.fd_array[0] := sock;
     wr.fd_count := 1;
@@ -537,7 +541,9 @@ begin
   if res = 0 then
     // nothing new detected
     exit;
-  if (rdp <> nil) and ({%H-}rd.fd_count = 1) and (rd.fd_array[0] = sock) then
+  if (rdp <> nil) and
+     ({%H-}rd.fd_count = 1) and
+     (rd.fd_array[0] = sock) then
   begin
     // Windows expects to check FIONREAD for graceful disconnection
     if ioctlsocket(sock, FIONREAD, @pending) <> NO_ERROR then
@@ -547,7 +553,9 @@ begin
     else
       include(result, neClosed);
   end;
-  if (wrp <> nil) and ({%H-}wr.fd_count = 1) and (wr.fd_array[0] = sock) then
+  if (wrp <> nil) and
+     ({%H-}wr.fd_count = 1) and
+     (wr.fd_array[0] = sock) then
     include(result, neWrite);
 end;
 
@@ -555,7 +563,7 @@ end;
 { ******************** Efficient Multiple Sockets Polling }
 
 function FD_ISSET(Socket: TNetSocket; const FDSet: TFDSet): boolean;
-  {$ifdef HASINLINE} inline; {$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 begin
   result := PtrUIntScanExists(@FDSet.fd_array, FDSet.fd_count, PtrUInt(Socket));
 end;
@@ -615,7 +623,9 @@ function TPollSocketSelect.Subscribe(socket: TNetSocket;
   events: TPollSocketEvents; tag: TPollSocketTag): boolean;
 begin
   result := false;
-  if (self = nil) or (socket = nil) or (byte(events) = 0) or
+  if (self = nil) or
+     (socket = nil) or
+     (byte(events) = 0) or
      (fCount = fMaxSockets) or
      PtrUIntScanExists(pointer(fTagSocket), fCount, PtrUInt(socket)) then
     exit;
@@ -636,7 +646,8 @@ var
   i: PtrInt;
 begin
   result := false;
-  if (self <> nil) and (socket <> nil) then
+  if (self <> nil) and
+     (socket <> nil) then
   begin
     i := PtrUIntScanIndex(pointer(fTagSocket), fCount, PtrUInt(socket));
     if i < 0 then
@@ -668,7 +679,8 @@ var
   tmp: array[0..FD_SETSIZE - 1] of TPollSocketResult;
 begin
   result := -1; // error
-  if (self = nil) or (fCount = 0) then
+  if (self = nil) or
+     (fCount = 0) then
     exit;
   if fRead.fd_count > 0 then
   begin
@@ -958,7 +970,8 @@ begin
   inc(DataCount, aBuffer.cbBuffer);
 end;
 
-procedure TSChannelClient.AfterConnection(aSocket: TNetSocket; const aServerAddress: RawUTF8);
+procedure TSChannelClient.AfterConnection(aSocket: TNetSocket;
+  const aServerAddress: RawUTF8);
 var
   buf: THandshakeBuf;
   res, f: cardinal;
@@ -996,7 +1009,8 @@ begin
   len := 0;
   SetLength(tmp, 65536);
   res := SEC_I_CONTINUE_NEEDED;
-  while (res = SEC_I_CONTINUE_NEEDED) or (res = SEC_E_INCOMPLETE_MESSAGE) do
+  while (res = SEC_I_CONTINUE_NEEDED) or
+        (res = SEC_E_INCOMPLETE_MESSAGE) do
   begin
     if res <> SEC_E_INCOMPLETE_MESSAGE then
       len := 0;
@@ -1007,12 +1021,15 @@ begin
     buf.buf[0].pvBuffer := pointer(tmp);
     res := InitializeSecurityContext(@Cred, @Ctxt, nil, ISC_REQ_FLAGS, 0,
       SECURITY_NATIVE_DREP, @buf.input, 0, @Ctxt, @buf.output, @f, nil);
-    if (res = SEC_E_OK) or (res = SEC_I_CONTINUE_NEEDED) or
+    if (res = SEC_E_OK) or
+       (res = SEC_I_CONTINUE_NEEDED) or
        ((f and ISC_REQ_EXTENDED_ERROR) <> 0) then
     begin
-      if (buf.buf[2].cbBuffer <> 0) and (buf.buf[2].pvBuffer <> nil) then
+      if (buf.buf[2].cbBuffer <> 0) and
+         (buf.buf[2].pvBuffer <> nil) then
       begin
-        CheckSocket(mormot.net.sock.Send(aSocket, buf.buf[2].pvBuffer, buf.buf[2].cbBuffer, 0));
+        CheckSocket(mormot.net.sock.Send(
+          aSocket, buf.buf[2].pvBuffer, buf.buf[2].cbBuffer, 0));
         CheckSEC_E_OK(FreeContextBuffer(buf.buf[2].pvBuffer));
       end;
     end;

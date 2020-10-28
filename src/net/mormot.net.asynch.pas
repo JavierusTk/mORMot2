@@ -80,7 +80,8 @@ type
 
   /// let TPollAsynchSockets.OnRead shutdown the socket if needed
   TPollAsynchSocketOnRead = (
-    sorContinue, sorClose);
+    sorContinue,
+    sorClose);
 
   {$M+}
   /// read/write buffer-oriented process of multiple non-blocking connections
@@ -298,8 +299,13 @@ type
   // - acoLastOperationNoRead and acoLastOperationNoWrite could be used to
   // avoid TAsynchConnection.fLastOperation reset at read or write
   TAsynchConnectionsOptions = set of (
-    acoOnErrorContinue, acoOnAcceptFailureStop, acoNoLogRead, acoNoLogWrite,
-    acoVerboseLog, acoLastOperationNoRead, acoLastOperationNoWrite);
+    acoOnErrorContinue,
+    acoOnAcceptFailureStop,
+    acoNoLogRead,
+    acoNoLogWrite,
+    acoVerboseLog,
+    acoLastOperationNoRead,
+    acoLastOperationNoWrite);
 
   /// implements an abstract thread-pooled high-performance TCP clients or server
   // - internal TAsynchConnectionsSockets will handle high-performance process
@@ -472,11 +478,13 @@ var
   endtix: Int64;
   ms: integer;
 begin
-  result := (@self <> nil) and (socket <> nil);
+  result := (@self <> nil) and
+            (socket <> nil);
   if not result then
     exit; // socket closed
   result := Lock(writer);
-  if result or (timeoutMS = 0) then
+  if result or
+     (timeoutMS = 0) then
     exit; // we acquired the slot, or we don't want to wait
   endtix := GetTickCount64 + timeoutMS; // never wait forever
   ms := 0;
@@ -524,12 +532,14 @@ var
   slot: PPollSocketsSlot;
 begin
   result := false;
-  if (fRead.Terminated) or (connection = nil) then
+  if (fRead.Terminated) or
+     (connection = nil) then
     exit;
   InterlockedIncrement(fProcessing);
   try
     slot := SlotFromConnection(connection);
-    if (slot = nil) or (slot.socket = nil) then
+    if (slot = nil) or
+       (slot.socket = nil) then
       exit;
     if slot.socket.MakeAsynch <> nrOK then
       exit; // we expect non-blocking mode on a real working socket
@@ -550,7 +560,8 @@ var
   dummylen: integer;
 begin
   result := false;
-  if fRead.Terminated or (connection = nil) then
+  if fRead.Terminated or
+     (connection = nil) then
     exit;
   InterlockedIncrement(fProcessing);
   try
@@ -642,22 +653,27 @@ var
   sent, previous: integer;
 begin
   result := false;
-  if (datalen <= 0) or (connection = nil) or fWrite.Terminated then
+  if (datalen <= 0) or
+     (connection = nil) or
+     fWrite.Terminated then
     exit;
   InterlockedIncrement(fProcessing);
   try
     tag := TPollSocketTag(connection);
     slot := SlotFromConnection(connection);
-    if (slot = nil) or (slot.socket = nil) then
+    if (slot = nil) or
+       (slot.socket = nil) then
       exit;
     if slot.TryLock(true, timeout) then // try and wait for another ProcessWrite
     try
       P := @data;
       previous := length(slot.writebuf);
-      if (previous = 0) and not (paoWritePollOnly in fOptions) then
+      if (previous = 0) and
+         not (paoWritePollOnly in fOptions) then
         repeat
           // try to send now in non-blocking mode (works most of the time)
-          if fWrite.Terminated or (slot.socket = nil) then
+          if fWrite.Terminated or
+             (slot.socket = nil) then
             exit;
           sent := datalen;
           res := slot.socket.Send(P, sent);
@@ -722,7 +738,8 @@ var
   end;
 
 begin
-  if (self = nil) or fRead.Terminated then
+  if (self = nil) or
+     fRead.Terminated then
     exit;
   InterlockedIncrement(fProcessing);
   try
@@ -730,7 +747,8 @@ begin
       exit;
     connection := TObject(notif.tag);
     slot := SlotFromConnection(connection);
-    if (slot = nil) or (slot.socket = nil) then
+    if (slot = nil) or
+       (slot.socket = nil) then
       exit;
     if pseError in notif.events then
       if not OnError(connection, notif.events) then
@@ -744,7 +762,8 @@ begin
       try
         added := 0;
         repeat
-          if fRead.Terminated or (slot.socket = nil) then
+          if fRead.Terminated or
+             (slot.socket = nil) then
             exit;
           recved := SizeOf(temp);
           res := slot.socket.Recv(@temp, recved);
@@ -773,7 +792,9 @@ begin
         slot.UnLock(false); // CloseConnection may set slot=nil
       end;
     end;
-    if (slot <> nil) and (slot.socket <> nil) and (pseClosed in notif.events) then
+    if (slot <> nil) and
+       (slot.socket <> nil) and
+       (pseClosed in notif.events) then
     begin
       CloseConnection(false);
       exit;
@@ -792,7 +813,8 @@ var
   buflen, bufsent, sent: integer;
   res: TNetResult;
 begin
-  if (self = nil) or fWrite.Terminated then
+  if (self = nil) or
+     fWrite.Terminated then
     exit;
   InterlockedIncrement(fProcessing);
   try
@@ -802,7 +824,8 @@ begin
       exit; // only try if we are sure the socket is writable and safe
     connection := TObject(notif.tag);
     slot := SlotFromConnection(connection);
-    if (slot = nil) or (slot.socket = nil) then
+    if (slot = nil) or
+       (slot.socket = nil) then
       exit;
     if slot.Lock({writer=}true) then // paranoid check
     try
@@ -812,7 +835,8 @@ begin
         buf := pointer(slot.writebuf);
         sent := 0;
         repeat
-          if fWrite.Terminated or (slot.socket = nil) then
+          if fWrite.Terminated or
+             (slot.socket = nil) then
             exit;
           bufsent := buflen;
           res := slot.socket.Send(buf, bufsent);
@@ -911,8 +935,9 @@ function TAsynchConnectionsSockets.SlotFromConnection(connection: TObject):
   PPollSocketsSlot;
 begin
   try
-    if (connection = nil) or not connection.InheritsFrom(TAsynchConnection) or
-      (TAsynchConnection(connection).Handle = 0) then
+    if (connection = nil) or
+       not connection.InheritsFrom(TAsynchConnection) or
+       (TAsynchConnection(connection).Handle = 0) then
     begin
       fOwner.fLog.Add.Log(sllStackTrace,
         'SlotFromConnection() with dangling pointer %', [connection], self);
@@ -933,11 +958,14 @@ var
   tmp: TLogEscape;
 begin
   result := inherited Write(connection, data, datalen, timeout);
-  if result and not (acoLastOperationNoWrite in fOwner.Options) then
+  if result and
+     not (acoLastOperationNoWrite in fOwner.Options) then
     (connection as TAsynchConnection).fLastOperation := UnixTimeUTC;
-  if (fOwner.fLog <> nil) and not (acoNoLogWrite in fOwner.Options) then
-    fOwner.fLog.Add.Log(sllTrace, 'Write%=% len=%%', [connection, BOOL_STR[result],
-      datalen, LogEscape(@data, datalen, tmp{%H-}, acoVerboseLog in fOwner.Options)], self);
+  if (fOwner.fLog <> nil) and
+     not (acoNoLogWrite in fOwner.Options) then
+    fOwner.fLog.Add.Log(sllTrace, 'Write%=% len=%%', [connection,
+      BOOL_STR[result], datalen, LogEscape(@data, datalen, tmp{%H-},
+      acoVerboseLog in fOwner.Options)], self);
 end;
 
 procedure TAsynchConnectionsSockets.AfterWrite(connection: TObject);
@@ -969,8 +997,9 @@ begin
   SetCurrentThreadName('% % %', [fOwner.fProcessName, self, ToText(fProcess)^]);
   fOwner.NotifyThreadStart(self);
   try
-    idletix := GetTickCount64 + 1000;
-    while not Terminated and (fOwner.fClients <> nil) do
+    idletix := mormot.core.os.GetTickCount64 + 1000;
+    while not Terminated and
+          (fOwner.fClients <> nil) do
     begin
       // implement parallel client connections for TAsynchClient
       if (fOwner.fThreadClients.Count > 0) and
@@ -983,10 +1012,10 @@ begin
           pseWrite:
             begin
               fOwner.fClients.ProcessWrite(30000);
-              if GetTickCount64 >= idletix then
+              if mormot.core.os.GetTickCount64 >= idletix then
               begin
                 fOwner.IdleEverySecond; // may take some time -> retrieve ticks again
-                idletix := GetTickCount64 + 1000;
+                idletix := mormot.core.os.GetTickCount64 + 1000;
               end;
             end;
         else
@@ -1018,7 +1047,8 @@ var
   log: ISynLog;
 begin
   log := aLog.Enter('Create(%,%,%)', [aStreamClass, ProcessName, aThreadPoolCount], self);
-  if (aStreamClass = TAsynchConnection) or (aStreamClass = nil) then
+  if (aStreamClass = TAsynchConnection) or
+     (aStreamClass = nil) then
     raise EAsynchConnections.CreateUTF8('%.Create(%)', [self, aStreamClass]);
   if aThreadPoolCount <= 0 then
     aThreadPoolCount := 1;
@@ -1138,7 +1168,8 @@ var
   conn: TAsynchConnection;
 begin // don't call fClients.Stop() here - see ConnectionRemove()
   result := false;
-  if Terminated or (aHandle <= 0) then
+  if Terminated or
+     (aHandle <= 0) then
     exit;
   conn := ConnectionFindLocked(aHandle, @i);
   if conn <> nil then
@@ -1158,7 +1189,9 @@ var
   i: integer;
 begin
   result := nil;
-  if (self = nil) or Terminated or (aHandle <= 0) then
+  if (self = nil) or
+     Terminated or
+     (aHandle <= 0) then
     exit;
   fConnectionLock.Lock;
   try
@@ -1184,7 +1217,9 @@ var
   conn: TAsynchConnection;
 begin
   result := false;
-  if (self = nil) or Terminated or (aHandle <= 0) then
+  if (self = nil) or
+     Terminated or
+     (aHandle <= 0) then
     exit;
   conn := ConnectionFindLocked(aHandle, @i);
   if conn <> nil then
@@ -1232,7 +1267,9 @@ procedure TAsynchConnections.LogVerbose(connection: TAsynchConnection;
 var
   tmp: TLogEscape;
 begin
-  if not (acoNoLogRead in Options) and (acoVerboseLog in Options) and (fLog <> nil) then
+  if not (acoNoLogRead in Options) and
+     (acoVerboseLog in Options) and
+     (fLog <> nil) then
     fLog.Add.Log(sllTrace, '% len=%%', [ident, framelen, LogEscape(frame,
       framelen, tmp{%H-})], connection);
 end;
@@ -1249,7 +1286,8 @@ var
   allowed: cardinal;
   log: ISynLog;
 begin
-  if Terminated or (LastOperationIdleSeconds <= 0) then
+  if Terminated or
+     (LastOperationIdleSeconds <= 0) then
     exit;
   fConnectionLock.Lock;
   try
@@ -1293,9 +1331,10 @@ begin
   fServer.Close; // shutdown the socket to unlock Accept() in Execute
   if NewSocket('127.0.0.1', fServer.Port, nlTCP, false, 1000, 0, 0, 0, touchandgo) = nrOk then
     touchandgo.ShutdownAndClose(false);
-  endtix := GetTickCount64 + 10000;
+  endtix := mormot.core.os.GetTickCount64 + 10000;
   inherited Destroy;
-  while not fExecuteFinished and (GetTickCount64 < endtix) do
+  while not fExecuteFinished and
+        (mormot.core.os.GetTickCount64 < endtix) do
     SleepHiRes(1); // wait for Execute to be finalized (unlikely)
   fServer.Free;
 end;

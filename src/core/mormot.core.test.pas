@@ -38,7 +38,8 @@ type
 
   /// allows to tune TSynTest process
   // - tcoLogEachCheck will log as sllCustom4 each non void Check() message
-  TSynTestOption = (tcoLogEachCheck);
+  TSynTestOption = (
+    tcoLogEachCheck);
 
   /// set of options to tune TSynTest process
   TSynTestOptions = set of TSynTestOption;
@@ -171,27 +172,27 @@ type
     /// used by the published methods to run test assertion against integers
     // - if a<>b, will fail and include '#<>#' text before the supplied msg
     function CheckEqual(a, b: Int64; const msg: RawUTF8 = ''): Boolean; overload;
-      {$ifdef HASINLINE} inline;{$endif}
+      {$ifdef HASINLINE}inline;{$endif}
     /// used by the published methods to run test assertion against UTF-8 strings
     // - if a<>b, will fail and include '#<>#' text before the supplied msg
     function CheckEqual(const a, b: RawUTF8; const msg: RawUTF8 = ''): Boolean; overload;
-      {$ifdef HASINLINE} inline;{$endif}
+      {$ifdef HASINLINE}inline;{$endif}
     /// used by the published methods to run test assertion against pointers/classes
     // - if a<>b, will fail and include '#<>#' text before the supplied msg
     function CheckEqual(a, b: pointer; const msg: RawUTF8 = ''): Boolean; overload;
-      {$ifdef HASINLINE} inline;{$endif}
+      {$ifdef HASINLINE}inline;{$endif}
     /// used by the published methods to run test assertion against integers
     // - if a=b, will fail and include '#=#' text before the supplied msg
     function CheckNotEqual(a, b: Int64; const msg: RawUTF8 = ''): Boolean; overload;
-      {$ifdef HASINLINE} inline;{$endif}
+      {$ifdef HASINLINE}inline;{$endif}
     /// used by the published methods to run test assertion against UTF-8 strings
     // - if a=b, will fail and include '#=#' text before the supplied msg
     function CheckNotEqual(const a, b: RawUTF8; const msg: RawUTF8 = ''): Boolean; overload;
-      {$ifdef HASINLINE} inline;{$endif}
+      {$ifdef HASINLINE}inline;{$endif}
     /// used by the published methods to run test assertion against pointers/classes
     // - if a=b, will fail and include '#=#' text before the supplied msg
     function CheckNotEqual(a, b: pointer; const msg: RawUTF8 = ''): Boolean; overload;
-      {$ifdef HASINLINE} inline;{$endif}
+      {$ifdef HASINLINE}inline;{$endif}
     /// used by the published methods to run a test assertion about two double values
     // - includes some optional precision argument
     function CheckSame(const Value1, Value2: double;
@@ -571,7 +572,8 @@ end;
 
 procedure TSynTestCase.AddLog(condition: Boolean; const msg: string);
 const
-  LEV: array[boolean] of TSynLogInfo = (sllFail, sllCustom4);
+  LEV: array[boolean] of TSynLogInfo = (
+    sllFail, sllCustom4);
 var
   tix, crc: cardinal; // use a crc since strings are not thread-safe
 begin
@@ -598,7 +600,8 @@ procedure TSynTestCase.Check(condition: Boolean; const msg: string);
 begin
   if self = nil then
     exit;
-  if (msg <> '') and (tcoLogEachCheck in fOptions) then
+  if (msg <> '') and
+     (tcoLogEachCheck in fOptions) then
     AddLog(condition, msg);
   InterlockedIncrement(fAssertions);
   if not condition then
@@ -612,7 +615,8 @@ begin
     result := false;
     exit;
   end;
-  if (msg <> '') and (tcoLogEachCheck in fOptions) then
+  if (msg <> '') and
+     (tcoLogEachCheck in fOptions) then
     AddLog(condition, msg);
   InterlockedIncrement(fAssertions);
   if condition then
@@ -682,7 +686,8 @@ end;
 procedure TSynTestCase.CheckUTF8(condition: Boolean; const msg: RawUTF8);
 begin
   InterlockedIncrement(fAssertions);
-  if not condition or (tcoLogEachCheck in fOptions) then
+  if not condition or
+     (tcoLogEachCheck in fOptions) then
     CheckUTF8(condition, '%', [msg]);
 end;
 
@@ -692,7 +697,8 @@ var
   str: string; // using a sub-proc may be faster, but unstable on Android
 begin
   InterlockedIncrement(fAssertions);
-  if not condition or (tcoLogEachCheck in fOptions) then
+  if not condition or
+     (tcoLogEachCheck in fOptions) then
   begin
     if msg <> '' then
     begin
@@ -805,7 +811,8 @@ class procedure TSynTestCase.AddRandomTextParagraph(WR: TBaseWriter;
   WordCount: Integer; LastPunctuation: AnsiChar; const RandomInclude: RawUTF8;
   NoLineFeed: boolean);
 type
-  TKind = (space, comma, dot, question, paragraph);
+  TKind = (
+    space, comma, dot, question, paragraph);
 const
   bla: array[0..7] of string[3] = (
     'bla', 'ble', 'bli', 'blo', 'blu', 'bla', 'bli', 'blo');
@@ -872,7 +879,8 @@ begin
         WR.AddShorter('.'#13#10);
     end;
   end;
-  if not (last in endKind) and (LastPunctuation <> ' ') then
+  if not (last in endKind) and
+     (LastPunctuation <> ' ') then
   begin
     WR.AddShorter('bla');
     WR.Add(LastPunctuation);
@@ -978,7 +986,8 @@ end;
 
 procedure TSynTests.Color(aColor: TConsoleColor);
 begin
-  if (StdOut <> 0) and (THandle(TTextRec(fSaveToFile).Handle) = StdOut) then
+  if (StdOut <> 0) and
+     (THandle(TTextRec(fSaveToFile).Handle) = StdOut) then
     TextColor(aColor);
 end;
 
@@ -1044,7 +1053,8 @@ end;
 
 function TSynTests.GetFailed(Index: integer): TSynTestFailed;
 begin
-  if (self = nil) or (cardinal(Index) >= cardinal(fFailedCount)) then
+  if (self = nil) or
+     (cardinal(Index) >= cardinal(fFailedCount)) then
     Finalize(result)
   else
     result := fFailed[Index];
@@ -1313,13 +1323,13 @@ end;
 function SynTestsTextOut(var t: TTextRec): Integer;
 begin
   if t.BufPos = 0 then
-    Result := 0
+    result := 0
   else
   begin
     if FileWrite(t.Handle, t.BufPtr^, t.BufPos) <> integer(t.BufPos) then
-      Result := GetLastError
+      result := GetLastError
     else
-      Result := 0;
+      result := 0;
     AppendBufferToRawUTF8(PPRawUTF8(@t.UserData)^^, t.BufPtr, t.Bufpos);
     t.BufPos := 0;
   end;
@@ -1338,7 +1348,8 @@ end;
 
 destructor TSynTestsLogged.Destroy;
 begin
-  if (fLogFile <> nil) and (fConsoleDup <> '') then
+  if (fLogFile <> nil) and
+     (fConsoleDup <> '') then
     fLogFile.LogLines(sllCustom1, pointer(fConsoleDup), nil, '  ----');
   fLogFile.Log(sllMemory, '', self);
   inherited Destroy;

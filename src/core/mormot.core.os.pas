@@ -16,9 +16,8 @@ unit mormot.core.os;
    Aim of this unit is to centralize most used OS-specific API calls, like a
   SysUtils unit on steroids, to avoid $ifdef/$endif in "uses" clauses.
    In practice, no "Windows", nor "Linux/Unix" reference should be needed in
-  regular units, once mormot.core.os is included.
-
-  This unit only refers to mormot.core.base so could be used almost stand-alone.
+  regular units, once mormot.core.os is included. :)
+   This unit only refers to mormot.core.base so can be used almost stand-alone.
 
   *****************************************************************************
 }
@@ -30,6 +29,7 @@ interface
 uses
   {$ifdef MSWINDOWS}
   Windows, // needed here e.g. for redefinition of standard types
+  Messages,
   {$endif MSWINDOWS}
   classes,
   contnrs,
@@ -47,28 +47,73 @@ type
 
   /// the recognized operating systems
   // - it will also recognize most Linux distributions
-  TOperatingSystem = (osUnknown, osWindows, osLinux, osOSX, osBSD, osPOSIX,
-    osArch, osAurox, osDebian, osFedora, osGentoo, osKnoppix, osMint, osMandrake,
-    osMandriva, osNovell, osUbuntu, osSlackware, osSolaris, osSuse, osSynology,
-    osTrustix, osClear, osUnited, osRedHat, osLFS, osOracle, osMageia, osCentOS,
-    osCloud, osXen, osAmazon, osCoreOS, osAlpine, osAndroid);
+  TOperatingSystem = (
+    osUnknown,
+    osWindows,
+    osLinux,
+    osOSX,
+    osBSD,
+    osPOSIX,
+    osArch,
+    osAurox,
+    osDebian,
+    osFedora,
+    osGentoo,
+    osKnoppix,
+    osMint,
+    osMandrake,
+    osMandriva,
+    osNovell,
+    osUbuntu,
+    osSlackware,
+    osSolaris,
+    osSuse,
+    osSynology,
+    osTrustix,
+    osClear,
+    osUnited,
+    osRedHat,
+    osLFS,
+    osOracle,
+    osMageia,
+    osCentOS,
+    osCloud,
+    osXen,
+    osAmazon,
+    osCoreOS,
+    osAlpine,
+    osAndroid);
 
   /// the recognized Windows versions
   // - defined even outside MSWINDOWS to access e.g. from monitoring tools
   TWindowsVersion = (
-    wUnknown, w2000, wXP, wXP_64, wServer2003, wServer2003_R2,
-    wVista, wVista_64, wServer2008, wServer2008_64,
-    wSeven, wSeven_64, wServer2008_R2, wServer2008_R2_64,
-    wEight, wEight_64, wServer2012, wServer2012_64,
-    wEightOne, wEightOne_64, wServer2012R2, wServer2012R2_64,
-    wTen, wTen_64, wServer2016, wServer2016_64, wServer2019_64);
+    wUnknown,
+    w2000,
+    wXP,
+    wXP_64,
+    wServer2003,
+    wServer2003_R2,
+    wVista, wVista_64,
+    wServer2008, wServer2008_64,
+    wSeven, wSeven_64,
+    wServer2008_R2, wServer2008_R2_64,
+    wEight, wEight_64,
+    wServer2012, wServer2012_64,
+    wEightOne, wEightOne_64,
+    wServer2012R2, wServer2012R2_64,
+    wTen, wTen_64,
+    wServer2016, wServer2016_64,
+    wServer2019_64);
 
   /// the running Operating System, encoded as a 32-bit integer
   TOperatingSystemVersion = packed record
     case os: TOperatingSystem of
-    osUnknown: (b: array[0..2] of byte);
-    osWindows: (win: TWindowsVersion);
-    osLinux:   (utsrelease: array[0..2] of byte);
+    osUnknown: (
+      b: array[0..2] of byte);
+    osWindows: (
+      win: TWindowsVersion);
+    osLinux: (
+      utsrelease: array[0..2] of byte);
   end;
 
 const
@@ -83,13 +128,14 @@ const
     '10', '10 64bit', 'Server 2016', 'Server 2016 64bit', 'Server 2019 64bit');
 
   /// the recognized Windows versions which are 32-bit
-  WINDOWS_32 = [w2000, wXP, wServer2003, wServer2003_R2, wVista, wServer2008,
-    wSeven, wServer2008_R2, wEight, wServer2012, wEightOne, wServer2012R2,
-    wTen, wServer2016];
+  WINDOWS_32 = [
+     w2000, wXP, wServer2003, wServer2003_R2, wVista, wServer2008,
+     wSeven, wServer2008_R2, wEight, wServer2012, wEightOne, wServer2012R2,
+     wTen, wServer2016];
 
   /// translate one operating system (and distribution) into a its common name
-  OS_NAME: array[TOperatingSystem] of RawUTF8 =
-   ('Unknown', 'Windows', 'Linux', 'OSX', 'BSD', 'POSIX',
+  OS_NAME: array[TOperatingSystem] of RawUTF8 = (
+    'Unknown', 'Windows', 'Linux', 'OSX', 'BSD', 'POSIX',
     'Arch', 'Aurox', 'Debian', 'Fedora', 'Gentoo', 'Knoppix', 'Mint', 'Mandrake',
     'Mandriva', 'Novell', 'Ubuntu', 'Slackware', 'Solaris', 'Suse', 'Synology',
     'Trustix', 'Clear', 'United', 'RedHat', 'LFS', 'Oracle', 'Mageia', 'CentOS',
@@ -98,13 +144,14 @@ const
   /// translate one operating system (and distribution) into a single character
   // - may be used internally e.g. for a HTTP User-Agent header, as with
   // TFileVersion.UserAgent
-  OS_INITIAL: array[TOperatingSystem] of AnsiChar =
-    ('?', 'W', 'L', 'X', 'B', 'P', 'A', 'a', 'D', 'F', 'G', 'K', 'M', 'm',
-     'n', 'N', 'U', 'S', 's', 'u', 'Y', 'T', 'C', 't', 'R', 'l', 'O', 'G',
-     'c', 'd', 'x', 'Z', 'r', 'p', 'J'); // for Android: J=JVM
+  OS_INITIAL: array[TOperatingSystem] of AnsiChar = (
+    '?', 'W', 'L', 'X', 'B', 'P', 'A', 'a', 'D', 'F', 'G', 'K', 'M', 'm',
+    'n', 'N', 'U', 'S', 's', 'u', 'Y', 'T', 'C', 't', 'R', 'l', 'O', 'G',
+    'c', 'd', 'x', 'Z', 'r', 'p', 'J'); // for Android: J=JVM
 
   /// the operating systems items which actually have a Linux kernel
-  OS_LINUX = [osLinux, osArch .. osAndroid];
+  OS_LINUX = [
+    osLinux, osArch .. osAndroid];
 
   /// the compiler family used
   COMP_TEXT = {$ifdef FPC}'Fpc'{$else}'Delphi'{$endif};
@@ -414,7 +461,12 @@ procedure SetExecutableVersion(const aVersionText: RawUTF8); overload;
 type
   /// identify an operating system folder
   TSystemPath = (
-    spCommonData, spUserData, spCommonDocuments, spUserDocuments, spTempFolder, spLog);
+    spCommonData,
+    spUserData,
+    spCommonDocuments,
+    spUserDocuments,
+    spTempFolder,
+    spLog);
 
 /// returns an operating system folder
 // - will return the full path of a given kind of private or shared folder,
@@ -433,10 +485,15 @@ function GetSystemPath(kind: TSystemPath): TFileName;
 
 type
   TThreadID = DWORD;
+  TMessage = Messages.TMessage;
+  HWND = Windows.HWND;
 
   /// the known Windows Registry Root key used by TWinRegistry.Open
   TWinRegistryRoot = (
-    wrClasses, wrCurrentUser, wrLocalMachine, wrUsers);
+    wrClasses,
+    wrCurrentUser,
+    wrLocalMachine,
+    wrUsers);
 
   /// direct access to the Windows Registry
   // - could be used as alternative to TRegistry, which doesn't behave the same on
@@ -506,17 +563,17 @@ type
     DestroyKey: function(hKey: HCRYPTKEY): BOOL; stdcall;
     /// encrypt the data designated by the key held by the CSP module
     // referenced by the hKey parameter
-    Encrypt: function(hKey: HCRYPTKEY; hHash: HCRYPTHASH; final: BOOL;
+    Encrypt: function(hKey: HCRYPTKEY; hHash: HCRYPTHASH; Final: BOOL;
       dwFlags: DWORD; pbData: pointer; var pdwDataLen: DWORD; dwBufLen: DWORD): BOOL; stdcall;
     /// decrypts data previously encrypted by using the CryptEncrypt function
-    Decrypt: function(hKey: HCRYPTKEY; hHash: HCRYPTHASH; final: BOOL;
+    Decrypt: function(hKey: HCRYPTKEY; hHash: HCRYPTHASH; Final: BOOL;
       dwFlags: DWORD; pbData: pointer; var pdwDataLen: DWORD): BOOL; stdcall;
     /// fills a buffer with cryptographically random bytes
     // - since Windows Vista with Service Pack 1 (SP1), an AES counter-mode
     // based PRNG specified in NIST Special Publication 800-90 is used
     GenRandom: function(hProv: HCRYPTPROV; dwLen: DWORD; pbBuffer: Pointer): BOOL; stdcall;
     /// try to load the CryptoAPI on this system
-    function Available: boolean; {$ifdef HASINLINE} inline; {$endif}
+    function Available: boolean; {$ifdef HASINLINE}inline;{$endif}
   end;
 
 const
@@ -577,6 +634,10 @@ procedure CoUninit;
 /// retrieves the current executable module handle, i.e.  its memory load address
 // - redefined in mormot.core.os to avoid dependency to Windows
 function GetModuleHandle(lpModuleName: PChar): HMODULE;
+
+/// post a message to the Windows message queue
+// - redefined in mormot.core.os to avoid dependency to Windows
+function PostMessage(hWnd: HWND; Msg:UINT; wParam: WPARAM; lParam: LPARAM): BOOL;
 
 /// retrieves the current stack trace
 // - only available since Windows XP
@@ -748,10 +809,6 @@ type
   TRTLCriticalSection = Windows.TRTLCriticalSection;
   {$endif ISDELPHI}
 
-const
-  /// redefined here to avoid dependency to Windows
-  INFINITE = cardinal(-1);
-
 /// returns the current UTC time as TSystemTime
 // - under Delphi/Windows, directly call the homonymous Win32 API
 // - redefined in mormot.core.os to avoid dependency to Windows
@@ -761,6 +818,10 @@ const
 procedure GetLocalTime(out result: TSystemTime); stdcall;
 
 {$endif MSWINDOWS}
+
+const
+  /// redefined here to avoid dependency to Windows or SyncObjs
+  INFINITE = cardinal(-1);
 
 /// initialize a Critical Section (for Lock/UnLock)
 // - redefined in mormot.core.os to avoid dependency to Windows
@@ -866,7 +927,8 @@ procedure Unicode_WideToShort(W: PWideChar; LW, CodePage: PtrInt; var res: short
 // - do not expect exact millisecond resolution - it may rather be within the
 // 10-16 ms range, especially under Windows
 {$ifdef MSWINDOWS}
-var GetTickCount64: function: Int64; stdcall;
+var
+  GetTickCount64: function: Int64; stdcall;
 {$else}
 function GetTickCount64: Int64;
 {$endif MSWINDOWS}
@@ -1084,7 +1146,10 @@ function IsDirectoryWritable(const Directory: TFileName): boolean;
 
 type
   /// text file layout, as recognized by TMemoryMap.TextFileKind
-  TTextFileKind = (isUnicode, isUTF8, isAnsi);
+  TTextFileKind = (
+    isUnicode,
+    isUTF8,
+    isAnsi);
 
   /// cross-platform memory mapping of a file content
   TMemoryMap = object
@@ -1149,7 +1214,7 @@ type
   end;
 
   /// low-level access to a resource bound to the executable
-  // - so that Windows is not required by Delphi in your unit uses clause
+  // - so that Windows is not required in your unit uses clause
   TExecutableResource = object
   private
     HResInfo: THandle;
@@ -1233,6 +1298,29 @@ type
   TDiskPartitions = array of TDiskPartition;
 
 
+{$ifdef CPUARM}
+var
+  /// internal wrapper address for ReserveExecutableMemory()
+  // - set to @TInterfacedObjectFake.ArmFakeStub by mormot.core.interfaces.pas
+  ArmFakeStubAddr: pointer;
+{$endif CPUARM}
+
+
+/// cross-platform reserve some executable memory
+// - using PAGE_EXECUTE_READWRITE flags on Windows, and PROT_READ or PROT_WRITE
+// or PROT_EXEC on POSIX
+// - this function maintain an internal set of 64KB memory pages for efficiency
+// - memory blocks can not be released (don't try to use fremeem on them) and
+// will be returned to the system at process finalization
+function ReserveExecutableMemory(size: cardinal): pointer;
+
+/// to be called after ReserveExecutableMemory() when you want to actually write
+// the memory blocks
+// - affect the mapping flags of the first memory page (4KB) of the Reserved
+// buffer, so its size should be < 4KB
+// - do nothing on Windows and Linux, but may be needed on OpenBSD
+procedure ReserveExecutableMemoryPageAccess(Reserved: pointer; Exec: boolean);
+
 /// return the PIDs of all running processes
 // - under Windows, is a wrapper around EnumProcesses() PsAPI call
 // - on Linux, will enumerate /proc/* pseudo-files
@@ -1274,9 +1362,22 @@ function GetDiskPartitions: TDiskPartitions;
 type
   /// available console colors
   TConsoleColor = (
-    ccBlack, ccBlue, ccGreen, ccCyan, ccRed, ccMagenta, ccBrown, ccLightGray,
-    ccDarkGray, ccLightBlue, ccLightGreen, ccLightCyan, ccLightRed, ccLightMagenta,
-    ccYellow, ccWhite);
+    ccBlack,
+    ccBlue,
+    ccGreen,
+    ccCyan,
+    ccRed,
+    ccMagenta,
+    ccBrown,
+    ccLightGray,
+    ccDarkGray,
+    ccLightBlue,
+    ccLightGreen,
+    ccLightCyan,
+    ccLightRed,
+    ccLightMagenta,
+    ccYellow,
+    ccWhite);
 
 {$ifdef LINUX}
 var
@@ -1380,7 +1481,7 @@ procedure PatchCodePtrUInt(Code: PPtrUInt; Value: PtrUInt;
 // - returns nil if no Properties was registered for this class; caller should
 // call ClassPropertiesAdd() to initialize
 function ClassPropertiesGet(ObjectClass, PropertiesClass: TClass): pointer;
-  {$ifdef HASINLINE} inline; {$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
 /// try to register a given Properties instance for a given class
 // - returns associated PropertiesInstance otherwise, which may not be the supplied
@@ -1502,7 +1603,8 @@ type
     // or
     // !begin
     // !  ... // unsafe code
-    // !  with Safe.ProtectMethod do begin
+    // !  with Safe.ProtectMethod do
+    // !  begin
     // !    ... // thread-safe code
     // !  end; // local hidden IUnknown will release the lock for the method
     // !end;
@@ -1575,6 +1677,17 @@ type
   /// a pointer to a TSynLocker mutex instance
   // - see also NewSynLocker and TSynLocker.DoneAndFreemem functions
   PSynLocker = ^TSynLocker;
+
+  /// raw class used by TAutoLocker.ProtectMethod and TSynLocker.ProtectMethod
+  // - defined here for use by TAutoLocker in mormot.core.data.pas
+  TAutoLock = class(TInterfacedObject)
+  protected
+    fLock: PSynLocker;
+  public
+    constructor Create(aLock: PSynLocker);
+    destructor Destroy; override;
+  end;
+
 
 /// initialize a TSynLocker instance from heap
 // - call DoneandFreeMem to release the associated memory and OS mutex
@@ -1661,9 +1774,9 @@ threadvar
 /// retrieve the thread name, as set by SetThreadName()
 // - if possible, direct CurrentThreadName threadvar access is slightly faster
 function GetCurrentThreadName: RawUTF8;
-  {$ifdef HASINLINE} inline; {$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
-/// enter a giant lock for thread-safe shared process
+/// enter a process-wide giant lock for thread-safe shared process
 // - shall be protected as such:
 // ! GlobalLock;
 // ! try
@@ -1713,7 +1826,8 @@ var
   osv: TOperatingSystemVersion absolute osint32;
 begin
   result := ToText(osv);
-  if (osv.os >= osLinux) and (osv.utsrelease[2] <> 0) then
+  if (osv.os >= osLinux) and
+     (osv.utsrelease[2] <> 0) then
     result := RawUTF8(Format('%s %d.%d.%d', [result, osv.utsrelease[2],
       osv.utsrelease[1], osv.utsrelease[0]]));
 end;
@@ -1749,7 +1863,8 @@ begin
     ObjectClass := PropertiesClass; // better TClass constant inlining on FPC
     repeat
       result := slots^;
-      if (result = nil) or (PClass(result)^ = ObjectClass) then
+      if (result = nil) or
+         (PClass(result)^ = ObjectClass) then
         exit; // reached end of list, or found the expected class type
       inc(slots);
     until false;
@@ -1838,7 +1953,8 @@ begin
     FORMAT_MESSAGE_FROM_HMODULE or FORMAT_MESSAGE_ALLOCATE_BUFFER,
     pointer(GetModuleHandle(ModuleName)), Code, ENGLISH_LANGID, @err, 0, nil);
   try
-    while (tmpLen > 0) and (ord(err[tmpLen - 1]) in [0..32, ord('.')]) do
+    while (tmpLen > 0) and
+          (ord(err[tmpLen - 1]) in [0..32, ord('.')]) do
       dec(tmpLen);
     SetString(result, err, tmpLen);
   finally
@@ -1890,7 +2006,8 @@ procedure Unicode_WideToShort(W: PWideChar; LW, CodePage: PtrInt; var res: short
 begin
   if LW <= 0 then
     res[0] := #0
-  else if (LW <= 255) and IsAnsiCompatibleW(W, LW) then
+  else if (LW <= 255) and
+          IsAnsiCompatibleW(W, LW) then
   begin
     res[0] := AnsiChar(LW);
     repeat
@@ -1914,7 +2031,8 @@ var
 begin
   DecodeDate(DateTime, YY, MM, DD);
   DecodeTime(DateTime, h, m, s, ms);
-  If (YY < 1980) or (YY > 2099) then
+  if (YY < 1980) or
+     (YY > 2099) then
     result := 0
   else
     result := (s shr 1) or (m shl 5) or (h shl 11) or
@@ -1924,21 +2042,24 @@ end;
 function SearchRecToDateTime(const F: TSearchRec): TDateTime;
 begin
   {$ifdef ISDELPHIXE}
-  result := F.Timestamp;
+  result := F.Timestamp; // use new API
   {$else}
   result := FileDateToDateTime(F.Time);
-  {$endif}
+  {$endif ISDELPHIXE}
 end;
 
 function SearchRecValidFile(const F: TSearchRec): boolean;
 begin
-  result := (F.Name <> '') and (F.Attr and faInvalidFile = 0);
+  result := (F.Name <> '') and
+            (F.Attr and faInvalidFile = 0);
 end;
 
 function SearchRecValidFolder(const F: TSearchRec): boolean;
 begin
   result := (F.Attr and faDirectoryMask = faDirectory) and
-            (F.Name <> '') and (F.Name <> '.') and (F.Name <> '..');
+            (F.Name <> '') and
+            (F.Name <> '.') and
+            (F.Name <> '..');
 end;
 
 {$ifdef FPC}
@@ -2067,7 +2188,8 @@ begin // fast cross-platform implementation
   if _TmpCounter = 0 then
     _TmpCounter := Random32;
   retry := 10;
-  repeat // thread-safe unique file name generation
+  repeat
+    // thread-safe unique file name generation
     result := Format('%s%s_%x.tmp', [folder, ExeVersion.ProgramName,
       InterlockedIncrement(_TmpCounter)]);
     if not FileExists(result) then
@@ -2117,7 +2239,8 @@ var
   backuphandler: TOnRawLogException;
 begin
   if Assigned(_RawLogException) then
-    if (Obj <> nil) and (Obj.InheritsFrom(Exception)) then
+    if (Obj <> nil) and
+       Obj.InheritsFrom(Exception) then
     begin
       backuplasterror := GetLastError;
       backuphandler := _RawLogException;
@@ -2261,10 +2384,12 @@ end;
 function TMemoryMap.TextFileKind: TTextFileKind;
 begin
   result := isAnsi;
-  if (fBuf <> nil) and (fBufSize >= 3) then
+  if (fBuf <> nil) and
+     (fBufSize >= 3) then
     if PWord(fBuf)^ = $FEFF then
       result := isUnicode
-    else if (PWord(fBuf)^ = $BBEF) and (PByteArray(fBuf)[2] = $BF) then
+    else if (PWord(fBuf)^ = $BBEF) and
+            (PByteArray(fBuf)[2] = $BF) then
       result := isUTF8;
 end;
 
@@ -2297,6 +2422,7 @@ begin
   inherited;
 end;
 
+
 { TExecutableResource }
 
 function TExecutableResource.Open(const ResourceName: string; ResType: PChar;
@@ -2326,6 +2452,107 @@ begin
   end;
 end;
 
+
+{ ReserveExecutableMemory() / TFakeStubBuffer }
+
+type
+  // internal memory buffer created with PAGE_EXECUTE_READWRITE flags
+  TFakeStubBuffer = class
+  protected
+    fStub: PByteArray;
+    fStubUsed: cardinal;
+  public
+    constructor Create;
+    destructor Destroy; override;
+  end;
+
+var
+  CurrentFakeStubBuffer: TFakeStubBuffer;
+  CurrentFakeStubBuffers: array of TFakeStubBuffer;
+  {$ifdef UNIX}
+  MemoryProtection: boolean = false; // set to true if PROT_EXEC seems to fail
+  {$endif UNIX}
+
+constructor TFakeStubBuffer.Create;
+begin
+  {$ifdef MSWINDOWS}
+  fStub := VirtualAlloc(nil, STUB_SIZE, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+  if fStub = nil then
+  {$else MSWINDOWS}
+  if not MemoryProtection then
+    fStub := StubCallAllocMem(STUB_SIZE, PROT_READ or PROT_WRITE or PROT_EXEC);
+  if (fStub = MAP_FAILED) or
+     MemoryProtection then
+  begin
+    // i.e. on OpenBSD, we can have w^x protection
+    fStub := StubCallAllocMem(STUB_SIZE, PROT_READ OR PROT_WRITE);
+    if fStub <> MAP_FAILED then
+      MemoryProtection := True;
+  end;
+  if fStub = MAP_FAILED then
+  {$endif MSWINDOWS}
+    raise EOSException.Create('ReserveExecutableMemory(): OS memory allocation failed');
+end;
+
+destructor TFakeStubBuffer.Destroy;
+begin
+  {$ifdef MSWINDOWS}
+  VirtualFree(fStub, 0, MEM_RELEASE);
+  {$else}
+  fpmunmap(fStub, STUB_SIZE);
+  {$endif MSWINDOWS}
+  inherited;
+end;
+
+function ReserveExecutableMemory(size: cardinal): pointer;
+begin
+  if size > STUB_SIZE then
+    raise EOSException.CreateFmt('ReserveExecutableMemory(size=%d>%d)',
+      [size, STUB_SIZE]);
+  GlobalLock;
+  try
+    if (CurrentFakeStubBuffer <> nil) and
+       (CurrentFakeStubBuffer.fStubUsed + size > STUB_SIZE) then
+      CurrentFakeStubBuffer := nil;
+    if CurrentFakeStubBuffer = nil then
+    begin
+      CurrentFakeStubBuffer := TFakeStubBuffer.Create;
+      ObjArrayAdd(CurrentFakeStubBuffers, CurrentFakeStubBuffer);
+    end;
+    with CurrentFakeStubBuffer do
+    begin
+      result := @fStub[fStubUsed];
+      inc(fStubUsed, size);
+    end;
+  finally
+    GlobalUnLock;
+  end;
+end;
+
+{$ifdef UNIX}
+procedure ReserveExecutableMemoryPageAccess(Reserved: pointer; Exec: boolean);
+var
+  PageAlignedFakeStub: pointer;
+  flags: cardinal;
+begin
+  if not MemoryProtection then
+    // nothing to be done on this platform
+    exit;
+  // toggle execution permission of memory to be able to write into memory
+  PageAlignedFakeStub := Pointer(
+    (PtrUInt(Reserved) div SystemInfo.dwPageSize) * SystemInfo.dwPageSize);
+  if Exec then
+    flags := PROT_READ OR PROT_EXEC
+  else
+    flags := PROT_READ or PROT_WRITE;
+  if SynMProtect(PageAlignedFakeStub, SystemInfo.dwPageSize shl 1, flags) < 0 then
+     raise EOSException.Create('ReserveExecutableMemoryPageAccess(: SynMProtect write failure');
+end;
+{$else}
+procedure ReserveExecutableMemoryPageAccess(Reserved: pointer; Exec: boolean);
+begin // nothing to be done
+end;
+{$endif UNIX}
 
 {$ifndef PUREMORMOT2}
 
@@ -2390,14 +2617,16 @@ end;
 function TSynLibrary.GetProc(ProcName: PChar; Entry: PPointer;
   RaiseExceptionOnFailure: ExceptionClass): boolean;
 begin
-  if (Entry = nil) or (Handle = 0) then
+  if (Entry = nil) or
+     (Handle = 0) then
     result := false // avoid GPF
   else
   begin
     Entry^ := GetProcAddress(Handle, ProcName);
     result := Entry^ <> nil;
   end;
-  if (RaiseExceptionOnFailure <> nil) and not result then
+  if (RaiseExceptionOnFailure <> nil) and
+     not result then
   begin
     FreeLib;
     raise RaiseExceptionOnFailure.CreateFmt('Invalid %s: missing %s',
@@ -2429,7 +2658,7 @@ begin
     if nwd <> '' then
     begin
       cwd := GetCurrentDir;
-      SetCurrentDir(nwd); // search for dll dependencies in the same folder
+      SetCurrentDir(nwd); // search for dependencies in the .dll folder
     end;
     fHandle := SafeLoadLibrary(lib);
     if nwd <> '' then
@@ -2487,7 +2716,8 @@ end;
 
 function TFileVersion.DetailedOrVoid: string;
 begin
-  if (self = nil) or (Major or Minor or Release or Build = 0) then
+  if (self = nil) or
+     (Major or Minor or Release or Build = 0) then
     result := ''
   else
     result := fDetailed;
@@ -2636,16 +2866,6 @@ end;
 
 { TAutoLock }
 
-type
-  /// used by TAutoLocker.ProtectMethod and TSynLocker.ProtectMethod
-  TAutoLock = class(TInterfacedObject)
-  protected
-    fLock: PSynLocker;
-  public
-    constructor Create(aLock: PSynLocker);
-    destructor Destroy; override;
-  end;
-
 constructor TAutoLock.Create(aLock: PSynLocker);
 begin
   fLock := aLock;
@@ -2700,14 +2920,16 @@ end;
 
 function TSynLocker.TryLock: boolean;
 begin
-  result := not fLocked and (TryEnterCriticalSection(fSection) <> 0);
+  result := not fLocked and
+            (TryEnterCriticalSection(fSection) <> 0);
 end;
 
 function TSynLocker.TryLockMS(retryms: integer): boolean;
 begin
   repeat
     result := TryLock;
-    if result or (retryms <= 0) then
+    if result or
+       (retryms <= 0) then
       break;
     SleepHiRes(1);
     dec(retryms);
@@ -2976,6 +3198,7 @@ var
 begin
   for i := 0 to high(AutoSlots) do
     FreeMem(AutoSlots[i]);
+  ObjArrayClear(CurrentFakeStubBuffers);
   ExeVersion.Version.Free;
   DeleteCriticalSection(AutoSlotsLock);
   DeleteCriticalSection(GlobalCriticalSection);

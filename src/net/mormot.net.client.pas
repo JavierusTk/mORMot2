@@ -117,7 +117,10 @@ type
   /// the supported authentication schemes which may be used by HTTP clients
   // - supported only by TWinHTTP class yet
   THttpRequestAuthentication = (
-    wraNone, wraBasic, wraDigest, wraNegotiate);
+    wraNone,
+    wraBasic,
+    wraDigest,
+    wraNegotiate);
 
   /// a record to set some extended options for HTTP clients
   // - allow easy propagation e.g. from a TSQLHttpClient* wrapper class to
@@ -654,8 +657,8 @@ uses
 
 function DefaultUserAgent(Instance: TObject): RawUTF8;
 begin
-  // note: some part of mORMot.pas would identify 'mORMot' pattern in the
-  // agent header to enable advanced behavior e.g. about JSON transmission
+  // note: the framework would identify 'mORMot' pattern in the user-agent
+  // header to enable advanced behavior e.g. about JSON transmission
   FormatUTF8('Mozilla/5.0 (' + OS_TEXT + '; mORMot ' +
     SYNOPSE_FRAMEWORK_VERSION + ' %)', [Instance], result);
 end;
@@ -670,7 +673,8 @@ begin
     CreateSockIn; // use SockIn by default if not already initialized: 2x faster
   if TCPPrefix <> '' then
     SockSend(TCPPrefix);
-  if (url = '') or (url[1] <> '/') then
+  if (url = '') or
+     (url[1] <> '/') then
     SockSend([method, ' /', url, ' HTTP/1.1'])
   else
     SockSend([method, ' ', url, ' HTTP/1.1']);
@@ -913,7 +917,8 @@ var
   aDataEncoding, aAcceptEncoding, aURL: RawUTF8;
   i: integer;
 begin
-  if (url = '') or (url[1] <> '/') then
+  if (url = '') or
+     (url[1] <> '/') then
     aURL := '/' + url
   else // need valid url according to the HTTP/1.1 RFC
     aURL := url;
@@ -1174,7 +1179,8 @@ end;
 
 procedure TWinHTTP.InternalAddHeader(const hdr: RawUTF8);
 begin
-  if (hdr <> '') and not WinHttpAPI.AddRequestHeaders(FRequest,
+  if (hdr <> '') and
+     not WinHttpAPI.AddRequestHeaders(FRequest,
     Pointer(UTF8ToSynUnicode(hdr)), length(hdr), WINHTTP_ADDREQ_FLAG_COALESCE) then
     RaiseLastModuleError(winhttpdll, EWinHTTP);
 end;
@@ -1385,7 +1391,8 @@ end;
 procedure TWinINet.InternalAddHeader(const hdr: RawUTF8);
 begin
   if (hdr <> '') and
-     not HttpAddRequestHeadersA(fRequest, Pointer(hdr), length(hdr), HTTP_ADDREQ_FLAG_COALESCE) then
+     not HttpAddRequestHeadersA(fRequest, Pointer(hdr), length(hdr),
+       HTTP_ADDREQ_FLAG_COALESCE) then
     raise EWinINet.Create;
 end;
 
@@ -1396,7 +1403,8 @@ var
   datapos, datalen, max, Bytes, BytesWritten: cardinal;
 begin
   datalen := length(aData);
-  if (datalen > 0) and Assigned(fOnUpload) then
+  if (datalen > 0) and
+     Assigned(fOnUpload) then
   begin
     FillCharFast(buff, SizeOf(buff), 0);
     buff.dwStructSize := SizeOf(buff);
@@ -1456,7 +1464,7 @@ end;
 
 function TWinINet.InternalQueryDataAvailable: cardinal;
 begin
-  if not InternetQueryDataAvailable(fRequest, Result, 0, 0) then
+  if not InternetQueryDataAvailable(fRequest, result, 0, 0) then
     raise EWinINet.Create;
 end;
 
@@ -1482,7 +1490,7 @@ end;
 function TWinHTTPUpgradeable.InternalRetrieveAnswer(var Header, Encoding,
   AcceptEncoding: RawUTF8; var Data: RawByteString): integer;
 begin
-  Result := inherited InternalRetrieveAnswer(Header, Encoding, AcceptEncoding, Data);
+  result := inherited InternalRetrieveAnswer(Header, Encoding, AcceptEncoding, Data);
 end;
 
 procedure TWinHTTPUpgradeable.InternalSendRequest(const aMethod: RawUTF8; const
@@ -1621,7 +1629,7 @@ end;
 
 function TCurlHTTP.GetCACertFile: RawUTF8;
 begin
-  Result := fSSL.CACertFile;
+  result := fSSL.CACertFile;
 end;
 
 procedure TCurlHTTP.SetCACertFile(const aCertFile: RawUTF8);
@@ -1704,7 +1712,7 @@ end;
 
 class function TCurlHTTP.IsAvailable: boolean;
 begin
-  Result := CurlIsAvailable;
+  result := CurlIsAvailable;
 end;
 
 procedure TCurlHTTP.InternalSendRequest(const aMethod: RawUTF8; const aData:
@@ -1818,9 +1826,11 @@ var
   modified: boolean;
 begin
   result := '';
-  if (fHttp = nil) and (fSocket = nil) then // either fHttp or fSocket is used
+  if (fHttp = nil) and
+     (fSocket = nil) then // either fHttp or fSocket is used
     exit;
-  if (fCache <> nil) and fCache.FindAndCopy(aAddress, cache) then
+  if (fCache <> nil) and
+     fCache.FindAndCopy(aAddress, cache) then
     FormatUTF8('If-None-Match: %', [cache.Tag], headin);
   if fTokenHeader <> '' then
   begin
@@ -1866,7 +1876,10 @@ function THttpRequestCached.LoadFromURI(const aURI, aToken: RawUTF8;
   aHttpClass: THttpRequestClass): boolean;
 begin
   result := false;
-  if (self = nil) or (fHttp <> nil) or (fSocket <> nil) or not fURI.From(aURI) then
+  if (self = nil) or
+     (fHttp <> nil) or
+     (fSocket <> nil) or
+     not fURI.From(aURI) then
     exit;
   fTokenHeader := AuthorizationBearer(aToken);
   if aHttpClass = nil then

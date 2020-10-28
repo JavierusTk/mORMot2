@@ -55,7 +55,7 @@ function Iso8601ToDateTime(const S: RawByteString): TDateTime; overload;
 // - will also recognize '.sss' milliseconds suffix, if any
 // - if L is left to default 0, it will be computed from StrLen(P)
 function Iso8601ToDateTimePUTF8Char(P: PUTF8Char; L: integer = 0): TDateTime;
-  {$ifdef HASINLINE} inline;{$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
 /// Date/Time conversion from ISO-8601
 // - handle 'YYYYMMDDThhmmss' and 'YYYY-MM-DD hh:mm:ss' format, with potentially
@@ -75,7 +75,7 @@ function Iso8601CheckAndDecode(P: PUTF8Char; L: integer; var Value: TDateTime): 
 // - will also recognize '.sss' milliseconds suffix, if any
 // - if L is left to default 0, it will be computed from StrLen(P)
 function Iso8601ToTimePUTF8Char(P: PUTF8Char; L: integer = 0): TDateTime; overload;
-  {$ifdef HASINLINE} inline;{$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
 /// Time conversion from ISO-8601 (with no Date part)
 // - handle 'hhmmss' and 'hh:mm:ss' format
@@ -104,7 +104,7 @@ function Iso8601ToDatePUTF8Char(P: PUTF8Char; L: integer; var Y, M, D: cardinal)
 // !DateTimeToIso8601Text(IntervalTextToDateTime('+1 06:03:20'))='1899-12-31T06:03:20'
 // !DateTimeToIso8601Text(IntervalTextToDateTime('-2 06:03:20'))='1899-12-28T06:03:20'
 function IntervalTextToDateTime(Text: PUTF8Char): TDateTime;
-  {$ifdef HASINLINE} inline;{$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
 /// Interval date/time conversion from simple text
 // - expected format does not match ISO-8601 Time intervals format, but Oracle
@@ -187,7 +187,7 @@ function DateTimeToIso8601ExpandedPChar(const Value: TDateTime; Dest: PUTF8Char;
 // - used e.g. by TPropInfo.GetValue() and TPropInfo.NormalizeValue() methods
 function DateTimeToIso8601Text(DT: TDateTime; FirstChar: AnsiChar = 'T';
   WithMS: boolean = false): RawUTF8;
-  {$ifdef HASINLINE} inline;{$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
 /// write a TDateTime into strict ISO-8601 date and/or time text
 // - if DT=0, returns ''
@@ -231,12 +231,20 @@ function TimeToIso8601PChar(Time: TDateTime; P: PUTF8Char; Expanded: boolean;
 { ************ TSynDate / TSynDateTime / TSynSystemTime High-Level objects }
 
 type
+  {$A-}
+
   /// a simple way to store a date as Year/Month/Day
   // - with no intermediate computation needed as with TDate/TUnixTime values
   // - consider using TSynSystemTime if you need to handle both Date and Time
   // - match the first 4 fields of TSynSystemTime - so PSynDate(@aSynSystemTime)^
   // is safe to be used
+  // - some Delphi revisions have trouble with "object" as own method parameters
+  // (e.g. IsEqual or Compare) so we force to use "record" type if possible
+  {$ifdef USERECORDWITHMETHODS}
+  TSynDate = record
+  {$else}
   TSynDate = object
+  {$endif USERECORDWITHMETHODS}
     /// the Year value of this Date
     Year: word;
     /// the Month value of this Date (1..12)
@@ -273,7 +281,7 @@ type
     // - by default, most methods will just store 0 in the DayOfWeek field
     // - sunday is DayOfWeek 1, saturday is 7
     procedure ComputeDayOfWeek;
-    /// convert the stored date into a Delphi TDate floating-point value
+    /// convert the stored date into a TDate floating-point value
     function ToDate: TDate; {$ifdef HASINLINE}inline;{$endif}
     /// encode the stored date as ISO-8601 text
     // - returns '' if the stored date is 0 (i.e. after Clear)
@@ -292,7 +300,13 @@ type
   // for fast conversion from TDateTime to its ready-to-display members
   // - DayOfWeek field is not handled by most methods by default, but could be
   // filled on demand via ComputeDayOfWeek
+  // - some Delphi revisions have trouble with "object" as own method parameters
+  // (e.g. IsEqual) so we force to use "record" type if possible
+  {$ifdef USERECORDWITHMETHODS}
+  TSynSystemTime = record
+  {$else}
   TSynSystemTime = object
+  {$endif USERECORDWITHMETHODS}
   public
     Year, Month, DayOfWeek, Day, Hour, Minute, Second, MilliSecond: word;
     /// set all fields to 0
@@ -369,12 +383,14 @@ type
   /// pointer to our cross-platform and cross-compiler TSystemTime 128-bit structure
   PSynSystemTime = ^TSynSystemTime;
 
+  {$A+}
+
 /// our own faster version of the corresponding RTL function
 function TryEncodeDate(Year, Month, Day: cardinal; out Date: TDateTime): boolean;
 
 /// our own faster version of the corresponding RTL function
 function IsLeapYear(Year: cardinal): boolean;
-  {$ifdef HASINLINE} inline; {$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
 /// retrieve the current Date, in the ISO 8601 layout, but expanded and
 // ready to be displayed
@@ -438,12 +454,12 @@ const
 /// convert a second-based c-encoded time as TDateTime
 //  - i.e. number of seconds elapsed since Unix epoch 1/1/1970 into TDateTime
 function UnixTimeToDateTime(const UnixTime: TUnixTime): TDateTime;
-  {$ifdef HASINLINE} inline;{$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
 /// convert a TDateTime into a second-based c-encoded time
 //  - i.e. TDateTime into number of seconds elapsed since Unix epoch 1/1/1970
 function DateTimeToUnixTime(const AValue: TDateTime): TUnixTime;
-  {$ifdef HASINLINE} inline;{$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
 /// convert some second-based c-encoded time (from Unix epoch 1/1/1970) to
 // the ISO 8601 text layout
@@ -474,12 +490,12 @@ function UnixTimePeriodToString(const UnixTime: TUnixTime;
 
 /// convert a millisecond-based c-encoded time (from Unix epoch 1/1/1970) as TDateTime
 function UnixMSTimeToDateTime(const UnixMSTime: TUnixMSTime): TDateTime;
-  {$ifdef HASINLINE} inline;{$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
 /// convert a TDateTime into a millisecond-based c-encoded time (from Unix epoch 1/1/1970)
 // - if AValue is 0, will return 0 (since is likely to be an error constant)
 function DateTimeToUnixMSTime(const AValue: TDateTime): TUnixMSTime;
-  {$ifdef HASINLINE} inline;{$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 
 /// convert some millisecond-based c-encoded time (from Unix epoch 1/1/1970) to
 // the ISO 8601 text layout, including milliseconds
@@ -546,12 +562,12 @@ type
     // - never truncate to date/time or return '' as Text() does
     function FullText(Dest: PUTF8Char; Expanded: boolean;
       FirstTimeChar: AnsiChar = 'T'; QuotedChar: AnsiChar = #0): PUTF8Char; overload;
-    /// convert to a Delphi Time
-    function ToTime: TDateTime;
-    /// convert to a Delphi Date
+    /// extract the Time value of this date/time as floating-point TTime
+    function ToTime: TTime;
+    /// extract the Date value of this date/time as floating-point TDate
     // - will return 0 if the stored value is not a valid date
-    function ToDate: TDateTime;
-    /// convert to a Delphi Date and Time
+    function ToDate: TDate;
+    /// convert to a floating-point TDateTime
     // - will return 0 if the stored value is not a valid date
     function ToDateTime: TDateTime;
     /// convert to a second-based c-encoded time (from Unix epoch 1/1/1970)
@@ -616,7 +632,7 @@ function TimeLogNowUTC: TTimeLog;
 // - handle TTimeLog bit-encoded Int64 format
 function TimeLogFromFile(const FileName: TFileName): TTimeLog;
 
-/// get TTimeLog value from a given Delphi date and time
+/// get TTimeLog value from a given floating-point TDateTime
 // - handle TTimeLog bit-encoded Int64 format
 // - just a wrapper around PTimeLogBits(@aTime)^.From()
 // - we defined such a function since TTimeLogBits(aTimeLog).From() won't change
@@ -691,9 +707,10 @@ function Iso8601CheckAndDecode(P: PUTF8Char; L: integer; var Value: TDateTime): 
 begin
   if P = nil then
     result := false
-  else if (((L = 9) or (L = 13)) and (P[0] = 'T') and (P[3] = ':')) or // 'Thh:mm:ss[.sss]'
-    ((L = 10) and (P[4] = '-') and (P[7] = '-')) or // 'YYYY-MM-DD'
-    (((L = 19) or (L = 23)) and (P[4] = '-') and (P[10] = 'T')) then
+  else if (((L = 9) or (L = 13)) and
+            (P[0] = 'T') and (P[3] = ':')) or // 'Thh:mm:ss[.sss]'
+          ((L = 10) and (P[4] = '-') and (P[7] = '-')) or // 'YYYY-MM-DD'
+          (((L = 19) or (L = 23)) and (P[4] = '-') and (P[10] = 'T')) then
   begin
     Iso8601ToDateTimePUTF8CharVar(P, L, Value);
     result := PInt64(@Value)^ <> 0;
@@ -711,7 +728,7 @@ var
   tab: TNormTableByte absolute ConvertHexToBin;
   {$else}
   tab: PNormTableByte; // faster on PIC, ARM and x86_64
-  {$endif}
+  {$endif CPUX86NOTPIC}
 // expect 'YYYYMMDDThhmmss[.sss]' format but handle also 'YYYY-MM-DDThh:mm:ss[.sss]'
 begin
   unaligned(result) := 0;
@@ -758,7 +775,8 @@ begin
     if L >= 6 then
     begin // YYYYMM
       M := ord(P[4]) * 10 + ord(P[5]) - (48 + 480);
-      if (M = 0) or (M > 12) then
+      if (M = 0) or
+         (M > 12) then
         exit;
       if P[6] in ['-', '/'] then
       begin
@@ -767,10 +785,12 @@ begin
       end; // allow YYYY-MM-DD
       if L >= 8 then
       begin // YYYYMMDD
-        if (L > 8) and not (P[8] in [#0, ' ', 'T']) then
+        if (L > 8) and
+           not (P[8] in [#0, ' ', 'T']) then
           exit; // invalid date format
         D := ord(P[6]) * 10 + ord(P[7]) - (48 + 480);
-        if (D = 0) or (D > MonthDays[true][M]) then
+        if (D = 0) or
+           (D > MonthDays[true][M]) then
           exit; // worse day number to allow is for leapyear=true
       end;
     end
@@ -805,7 +825,8 @@ begin
     dec(L);
   end; // allow hh:mm:ss
   SS := ord(P[13]) * 10 + ord(P[14]) - (48 + 480);
-  if (L > 16) and (P[15] = '.') then
+  if (L > 16) and
+     (P[15] = '.') then
   begin
     // one or more digits representing a decimal fraction of a second
     MS := ord(P[16]) * 100 - 4800;
@@ -818,7 +839,9 @@ begin
   end
   else
     MS := 0;
-  if (H < 24) and (MI < 60) and (SS < 60) then // inlined EncodeTime()
+  if (H < 24) and
+     (MI < 60) and
+     (SS < 60) then // inlined EncodeTime()
     result := result + (H * (MinsPerHour * SecsPerMin * MSecsPerSec) +
       MI * (SecsPerMin * MSecsPerSec) + SS * MSecsPerSec + MS) / MSecsPerDay;
 end;
@@ -861,7 +884,8 @@ begin
     dec(L);
   end; // allow hh:mm:ss
   S := ord(P[4]) * 10 + ord(P[5]) - (48 + 480);
-  if (L > 6) and (P[6] = '.') then
+  if (L > 6) and
+     (P[6] = '.') then
   begin
     // one or more digits representing a decimal fraction of a second
     MS := ord(P[7]) * 100 - 4800;
@@ -872,7 +896,10 @@ begin
   end
   else
     MS := 0;
-  if (H < 24) and (M < 60) and (S < 60) and (MS < 1000) then
+  if (H < 24) and
+     (M < 60) and
+     (S < 60) and
+     (MS < 1000) then
     result := true;
 end;
 
@@ -883,22 +910,28 @@ begin
     exit;
   if L = 0 then
     L := StrLen(P);
-  if (L < 8) or not (P[0] in ['0'..'9']) or not (P[1] in ['0'..'9']) or
-     not (P[2] in ['0'..'9']) or not (P[3] in ['0'..'9']) then
+  if (L < 8) or
+     not (P[0] in ['0'..'9']) or
+     not (P[1] in ['0'..'9']) or
+     not (P[2] in ['0'..'9']) or
+     not (P[3] in ['0'..'9']) then
     exit; // we need 'YYYYMMDD' at least
   Y := ord(P[0]) * 1000 + ord(P[1]) * 100 + ord(P[2]) * 10 + ord(P[3])
        - (48 + 480 + 4800 + 48000);
-  if (Y < 1000) or (Y > 2999) then
+  if (Y < 1000) or
+     (Y > 2999) then
     exit;
   if P[4] in ['-', '/'] then
     inc(P); // allow YYYY-MM-DD
   M := ord(P[4]) * 10 + ord(P[5]) - (48 + 480);
-  if (M = 0) or (M > 12) then
+  if (M = 0) or
+     (M > 12) then
     exit;
   if P[6] in ['-', '/'] then
     inc(P);
   D := ord(P[6]) * 10 + ord(P[7]) - (48 + 480);
-  if (D <> 0) and (D <= MonthDays[true][M]) then
+  if (D <> 0) and
+     (D <= MonthDays[true][M]) then
     // worse day number to allow is for leapyear=true
     result := true;
 end;
@@ -983,7 +1016,7 @@ var {$ifdef CPUX86NOTPIC}
     tab: TWordArray absolute TwoDigitLookupW;
     {$else}
     tab: PWordArray;
-    {$endif}
+    {$endif CPUX86NOTPIC}
 begin // use Thhmmss[.sss] format
   if FirstChar <> #0 then
   begin
@@ -1013,7 +1046,7 @@ begin // use Thhmmss[.sss] format
     YearToPChar(MS, P);
     {$else}
     YearToPChar2(tab, MS, P);
-    {$endif}
+    {$endif CPUX86NOTPIC}
     P^ := '.'; // override first digit
     inc(P, 4);
   end;
@@ -1336,13 +1369,13 @@ begin
     dow := DayOfWeek;
   // Encoding the day of change
   d := Day;
-  while not TryEncodeDayOfWeekInMonth(aYear, Month, d, dow, Result) do
+  while not TryEncodeDayOfWeekInMonth(aYear, Month, d, dow, result) do
   begin
     // if Day = 5 then try it and if needed decrement to find the last
     // occurence of the day in this month
     if d = 0 then
     begin
-      TryEncodeDayOfWeekInMonth(aYear, Month, 1, 7, Result);
+      TryEncodeDayOfWeekInMonth(aYear, Month, 1, 7, result);
       break;
     end;
     dec(d);
@@ -1359,7 +1392,8 @@ end;
 
 function TSynSystemTime.IsZero: boolean;
 begin
-  result := (PInt64Array(@self)[0] = 0) and (PInt64Array(@self)[1] = 0);
+  result := (PInt64Array(@self)[0] = 0) and
+            (PInt64Array(@self)[1] = 0);
 end;
 
 function TSynSystemTime.IsEqual(const another: TSynSystemTime): boolean;
@@ -1488,7 +1522,7 @@ var
   tab: TWordArray absolute TwoDigitLookupW;
   {$else}
   tab: PWordArray;
-  {$endif}
+  {$endif CPUX86NOTPIC}
 begin
   P := WR.B + 1;
   if WR.BEnd - P <= 4 then
@@ -1523,7 +1557,7 @@ var
   tab: TWordArray absolute TwoDigitLookupW;
   {$else}
   tab: PWordArray;
-  {$endif}
+  {$endif CPUX86NOTPIC}
 begin
   {$ifndef CPUX86NOTPIC} tab := @TwoDigitLookupW; {$endif}
   PWord(P)^ := tab[Day];
@@ -1671,7 +1705,11 @@ var
   d100: TDiv100Rec;
 begin 
   result := false;
-  if (Month = 0) or (Month > 12) or (Day = 0) or (Year = 0) or (Year > 10000) or
+  if (Month = 0) or
+     (Month > 12) or
+     (Day = 0) or
+     (Year = 0) or
+     (Year > 10000) or
      (Day > MonthDays[IsLeapYear(Year)][Month]) then
     exit;
   if Month > 2 then
@@ -1762,7 +1800,7 @@ var
   tab: TWordArray absolute TwoDigitLookupW;
   {$else}
   tab: PWordArray;
-  {$endif}
+  {$endif CPUX86NOTPIC}
 begin // use 'YYMMDDHHMMSS' format
   if DateTime <= 0 then
   begin
@@ -1976,7 +2014,7 @@ begin
   From(@now);
 end;
 
-function TTimeLogBits.ToTime: TDateTime;
+function TTimeLogBits.ToTime: TTime;
 var
   lo: PtrUInt;
 begin
@@ -1984,14 +2022,14 @@ begin
   lo := Value;
   {$else}
   lo := PCardinal(@Value)^;
-  {$endif}
+  {$endif CPU64}
   if lo and (1 shl (6 + 6 + 5) - 1) = 0 then
     result := 0
   else
     result := EncodeTime((lo shr (6 + 6)) and 31, (lo shr 6) and 63, lo and 63, 0);
 end;
 
-function TTimeLogBits.ToDate: TDateTime;
+function TTimeLogBits.ToDate: TDate;
 var
   Y, lo: PtrUInt;
 begin
@@ -2001,10 +2039,10 @@ begin
   {$else}
   Y := Value shr (6 + 6 + 5 + 5 + 4);
   lo := PCardinal(@Value)^;
-  {$endif}
+  {$endif CPU64}
   if (Y = 0) or
      not TryEncodeDate(Y, 1 + (lo shr (6 + 6 + 5 + 5)) and 15,
-                       1 + (lo shr (6 + 6 + 5)) and 31, result) then
+                       1 + (lo shr (6 + 6 + 5)) and 31, TDateTime(result)) then
     result := 0;
 end;
 
@@ -2019,7 +2057,7 @@ begin
   {$else}
   Y := Value shr (6 + 6 + 5 + 5 + 4);
   lo := PCardinal(@Value)^;
-  {$endif}
+  {$endif CPU64}
   if (Y = 0) or
       not TryEncodeDate(Y, 1 + (lo shr (6 + 6 + 5 + 5)) and 15,
                         1 + (lo shr (6 + 6 + 5)) and 31, result) then
@@ -2212,7 +2250,7 @@ var
   tab: TNormTableByte absolute ConvertHexToBin;
   {$else}
   tab: PNormTableByte; // faster on PIC/x86_64/ARM
-  {$endif}
+  {$endif CPUX86NOTPIC}
 begin
   result := 0;
   if P = nil then
@@ -2269,7 +2307,9 @@ begin
       begin
         // YYYYMMDD
         V := ord(P[6]) * 10 + ord(P[7]) - (48 + 480 + 1); // Day 1..31 -> 0..30
-        if (V <= 30) and ((L = 8) or (P[8] in [#0, ' ', 'T'])) then
+        if (V <= 30) and
+           ((L = 8) or
+            (P[8] in [#0, ' ', 'T'])) then
           inc(result, V shl 17)
         else
         begin

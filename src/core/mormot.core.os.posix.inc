@@ -48,7 +48,7 @@ function CompareStringW(GetThreadLocale: DWORD; dwCmpFlags: DWORD;
 var
   U1, U2: UnicodeString; // faster than WideString on Windows
 begin
-  // not inlined to avoid try..finally UnicodeString protection
+  // not inlined to avoid try..finally UnicodeString protection overhead
   if cchCount1 < 0 then
     cchCount1 := StrLenW(lpString1);
   SetString(U1, lpString1, cchCount1);
@@ -98,7 +98,7 @@ const // Date Translation - see http://en.wikipedia.org/wiki/Julian_day
   MILLION  = Int64(THOUSAND * THOUSAND);
 
 procedure JulianToGregorian(JulianDN: PtrUInt; out result: TSystemTime);
-  {$ifdef HASINLINE} inline;{$endif}
+  {$ifdef HASINLINE}inline;{$endif}
 var
   YYear, XYear, Temp, TempMonth: PtrUInt;
 begin
@@ -259,8 +259,9 @@ function UnixMSTimeUTC: Int64;
 var
   r: timespec;
 begin
-  clock_gettime(CLOCK_REALTIME_FAST,@r); // likely = CLOCK_REALTIME_COARSE
-  result := (Int64(r.tv_sec) * THOUSAND) + (r.tv_nsec div MILLION); // in ms
+  clock_gettime(CLOCK_REALTIME_FAST, @r); // likely = CLOCK_REALTIME_COARSE
+  // convert from nanoseconds into milliseconds
+  result := PtrUInt(r.tv_nsec) div MILLION + (r.tv_sec * THOUSAND);
 end;
 
 function UnixTimeUTC: Int64;
@@ -276,7 +277,8 @@ var
   r : TTimeSpec;
 begin
   clock_gettime(CLOCK_MONOTONIC, @r);
-  value := PtrUInt(r.tv_nsec) div THOUSAND + r.tv_sec * MILLION; // as microseconds
+  // convert from nanoseconds into microseconds
+  value := PtrUInt(r.tv_nsec) div THOUSAND + r.tv_sec * MILLION;
 end;
 
 procedure GetSystemTime(out result: TSystemTime);
@@ -294,7 +296,8 @@ var
   tp: timespec;
 begin
   clock_gettime(CLOCK_MONOTONIC_FAST, @tp); // likely = CLOCK_MONOTONIC_COARSE
-  Result := (Int64(tp.tv_sec) * THOUSAND) + (tp.tv_nsec div MILLION); // in ms
+  // convert from nanoseconds into milliseconds
+  result := PtrUInt(tp.tv_nsec) div MILLION + (tp.tv_sec * THOUSAND);
 end;
 
 {$endif DARWIN}
@@ -454,15 +457,18 @@ begin
   lastreadaccess := lp.st_atime * MSecsPerSec;
   LastWriteAccess := lp.st_mtime * MSecsPerSec;
   {$ifdef OPENBSD}
-  if (lp.st_birthtime <> 0) and (lp.st_birthtime < lp.st_ctime) then
+  if (lp.st_birthtime <> 0) and
+     (lp.st_birthtime < lp.st_ctime) then
     lp.st_ctime := lp.st_birthtime;
   {$endif OPENBSD}
   FileCreateDateTime := lp.st_ctime * MSecsPerSec;
   if LastWriteAccess <> 0 then
-    if (FileCreateDateTime = 0) or (FileCreateDateTime > LastWriteAccess) then
+    if (FileCreateDateTime = 0) or
+       (FileCreateDateTime > LastWriteAccess) then
       FileCreateDateTime := LastWriteAccess;
   if lastreadaccess <> 0 then
-    if (FileCreateDateTime = 0) or (FileCreateDateTime > lastreadaccess) then
+    if (FileCreateDateTime = 0) or
+       (FileCreateDateTime > lastreadaccess) then
       FileCreateDateTime := lastreadaccess;
 end;
 
@@ -589,7 +595,9 @@ end;
 
 procedure TMemoryMap.DoUnMap;
 begin
-  if (fBuf <> nil) and (fBufSize > 0) and (fFile <> 0) then
+  if (fBuf <> nil) and
+     (fBufSize > 0) and
+     (fFile <> 0) then
     fpmunmap(fBuf, fBufSize);
 end;
 
@@ -598,7 +606,8 @@ var
   timeout: TTimespec;
   d: cardinal;
 begin
-  if ms = 0 then // handle SleepHiRes(0) special case
+  if ms = 0 then
+    // handle SleepHiRes(0) special case
     if SleepHiRes0Yield then
     begin
       // warning: reported as buggy by Alan on POSIX, and despited by Linus
@@ -689,8 +698,10 @@ begin
   result := -1;
   if fpgetrlimit(RLIMIT_NOFILE, @limit) <> 0 then
     exit;
-  if (hard and (integer(limit.rlim_max) = max)) or
-     (not hard and (integer(limit.rlim_cur) = max)) then
+  if (hard and
+      (integer(limit.rlim_max) = max)) or
+     (not hard and
+      (integer(limit.rlim_cur) = max)) then
   begin
     result := max; // already to the expected value
     exit;
@@ -702,6 +713,7 @@ begin
   if fpsetrlimit(RLIMIT_NOFILE, @limit) = 0 then
     result := GetFileOpenLimit(hard);
 end;
+
 
 {$ifdef LINUXNOTBSD} { the systemd API is Linux-specific }
 
@@ -757,7 +769,8 @@ begin
     // note: for example on Ubuntu 20.04 INVOCATION_ID is always defined
     // from the other side PPID 1 can be in case we run under docker of started
     // by init.d so let's verify both
-    (fpgetppid() = 1) and (fpGetenv(ENV_INVOCATION_ID) <> nil);
+    (fpgetppid() = 1) and
+    (fpGetenv(ENV_INVOCATION_ID) <> nil);
 end;
 
 procedure TSystemDAPI.Done;
@@ -781,7 +794,8 @@ var
   c, u: AnsiChar;
 begin
   result := false;
-  if (p = nil) or (up = nil) then
+  if (p = nil) or
+     (up = nil) then
     exit;
   repeat
     u := up^;
@@ -790,7 +804,8 @@ begin
     inc(up);
     c := p^;
     inc(p);
-    if (c >= 'a') and (c <= 'z') then
+    if (c >= 'a') and
+       (c <= 'z') then
       dec(c, 32);
     if c <> u then
       exit;
@@ -820,7 +835,8 @@ begin
     if IdemPChar(p, pointer(up)) then
     begin
       inc(p, length(up));
-      while (p^ <= ' ') and (p^ <> #0) do
+      while (p^ <= ' ') and
+            (p^ <> #0) do
         inc(p);
       L := 0;
       while p[L] > #13 do
@@ -919,7 +935,8 @@ procedure ConsoleWaitForEnterKey;
 var
   c: AnsiChar;
 begin
-  if IsMultiThread and (GetCurrentThreadID = MainThreadID) then
+  if IsMultiThread and
+     (GetCurrentThreadID = MainThreadID) then
     repeat
       CheckSynchronize(100);
       if UnixKeyPending then
@@ -959,7 +976,8 @@ begin
   begin
     VI := TVersionInfo.Create;
     try
-      if (aFileName <> '') and (aFileName <> ParamStr(0)) then
+      if (aFileName <> '') and
+         (aFileName <> ParamStr(0)) then
         VI.Load(aFileName)
       else
         VI.Load(HInstance); // load info for currently running program
@@ -1046,7 +1064,8 @@ begin
     spUserData:
       begin
         if _UserPath = '' then
-        begin //  ~/.cache/appname
+        begin
+          //  ~/.cache/appname
           _UserPath := GetEnvironmentVariable('XDG_CACHE_HOME');
           if (_UserPath = '') or not IsDirectoryWritable(_UserPath) then
             _UserPath := EnsureDirectoryExists(GetSystemPath(spUserDocuments) + '.cache');
@@ -1072,7 +1091,8 @@ begin
       end
   else
     begin
-      if _HomePath = '' then // POSIX requires a value for $HOME
+      if _HomePath = '' then
+        // POSIX requires a value for $HOME
         _HomePath := IncludeTrailingPathDelimiter(GetEnvironmentVariable('HOME'));
       result := _HomePath;
     end;
@@ -1125,7 +1145,8 @@ begin
     e := FpReaddir(d^);
     if e = nil then
       break;
-    if (e.d_type = DT_UNKNOWN) or (e.d_type = DT_DIR) or
+    if (e.d_type = DT_UNKNOWN) or
+       (e.d_type = DT_DIR) or
        not (e.d_name[0] in ['1'..'9']) then
       continue;
     pid := GetCardinal(@e.d_name[0]);
@@ -1199,7 +1220,8 @@ function TProcessInfo.PerSystem(out Idle, Kernel, User: single): boolean;
 var
   P: PUTF8Char;
   U, K, I, S: cardinal;
-begin // see http://www.linuxhowtos.org/System/procstat.htm
+begin
+  // see http://www.linuxhowtos.org/System/procstat.htm
   result := false;
   P := pointer(StringFromFile('/proc/stat', {nosize=}true));
   if P = nil then
@@ -1294,9 +1316,12 @@ begin
     fs :=  GetNextItem(p);
     mnt := GetNextItem(p);
     typ := GetNextItem(p);
-    if (fs <> '') and (fs <> 'rootfs') and
+    if (fs <> '') and
+       (fs <> 'rootfs') and
        not IdemPChar(pointer(fs), '/DEV/LOOP') and
-       (mnt <> '') and (mnt <> '/mnt') and (typ <> '') and
+       (mnt <> '') and
+       (mnt <> '/mnt') and
+       (typ <> '') and
        not IdemPChars(mnt, ['/PROC/', '/SYS/', '/RUN/']) and
        not IdemPChars(typ, ['AUTOFS', 'PROC', 'SUBFS', 'DEBUGFS', 'DEVPTS',
         'FUSECTL', 'MQUEUE', 'RPC-PIPEFS', 'SYSFS', 'DEVFS', 'KERNFS',
@@ -1304,9 +1329,10 @@ begin
         'HUGETLBFS', 'ISO9660']) then
     begin
       fn := mnt;
-      if GetDiskInfo(fn, av, fr, tot) and (tot > 1 shl 20) then
+      if GetDiskInfo(fn, av, fr, tot) and
+         (tot > 1 shl 20) then
       begin
-  //writeln('fs=',fs,' mnt=',mnt,' typ=',typ, ' av=',av,' fr=',fr,' tot=',tot);
+//writeln('fs=',fs,' mnt=',mnt,' typ=',typ, ' av=',av,' fr=',fr,' tot=',tot);
         SetLength(result, n + 1);
         result[n].name := fs;
         result[n].mounted := fn;
@@ -1366,6 +1392,66 @@ begin
   end;
 end;
 
+const
+  STUB_SIZE = 65536; // 16*4 KB (4 KB = memory granularity)
+
+{$ifdef CPUARM}
+
+var
+  StubCallAllocMemLastStart: PtrUInt; // avoid unneeded fpmmap() calls
+
+function StubCallAllocMem(const Size, flProtect: DWORD): pointer;
+const
+  STUB_RELJMP = {$ifdef CPUARM} $7fffff {$else} $7fffffff {$endif}; // relative jmp
+  STUB_INTERV = STUB_RELJMP+1; // try to reserve in closed stub interval
+  STUB_ALIGN = QWord($ffffffffffff0000); // align to STUB_SIZE
+var
+  start, stop, stub, dist: PtrUInt;
+begin
+  stub := PtrUInt(ArmFakeStubAddr); // = @TInterfacedObjectFake.ArmFakeStub
+  if StubCallAllocMemLastStart <> 0 then
+    start := StubCallAllocMemLastStart
+  else
+  begin
+    start := stub - STUB_INTERV;
+    if start > stub then
+      start := 0; // avoid range overflow
+    start := start and STUB_ALIGN;
+  end;
+  stop := stub + STUB_INTERV;
+  if stop < stub then
+    stop := high(PtrUInt);
+  stop := stop and STUB_ALIGN;
+  while start < stop do
+  begin
+    // try whole -STUB_INTERV..+STUB_INTERV range
+    inc(start, STUB_SIZE);
+    result := fpmmap(pointer(start), STUB_SIZE, flProtect, MAP_PRIVATE or MAP_ANONYMOUS, -1, 0);
+    if result <> MAP_FAILED then
+    begin
+      // close enough for a 24/32-bit relative jump?
+      dist := abs(stub - PtrUInt(result));
+      if dist < STUB_RELJMP then
+      begin
+        StubCallAllocMemLastStart := start;
+        exit;
+      end else
+        fpmunmap(result, STUB_SIZE);
+    end;
+  end;
+  result := MAP_FAILED; // error
+end;
+
+{$else}
+
+// other platforms (Intel+Arm64) use plain Kernel call
+function StubCallAllocMem(const Size, flProtect: DWORD): pointer;
+begin
+  result := fpmmap(nil, STUB_SIZE, flProtect, MAP_PRIVATE OR MAP_ANONYMOUS, -1, 0);
+end;
+
+{$endif CPUARM}
+
 
 { ****************** Gather Operating System Information }
 
@@ -1413,7 +1499,7 @@ begin
   // retrieve Kernel and Hardware information
   stdoutIsTTY := IsATTY(StdOutputHandle) = 1;
   modname := nil;
-  SystemInfo.dwPageSize := getpagesize;
+  SystemInfo.dwPageSize := getpagesize; // call libc API
   fpuname(uts);
   {$ifdef BSD}
   SystemInfo.dwNumberOfProcessors := fpsysctlhwint(HW_NCPU);
@@ -1425,7 +1511,8 @@ begin
   {$else}
   {$ifndef ANDROID}
   pthread := dlopen('libpthread.so.0', RTLD_LAZY);
-  if pthread <> nil then begin
+  if pthread <> nil then
+  begin
     {$ifdef LINUXNOTBSD}
     @pthread_setname_np := dlsym(pthread, 'pthread_setname_np');
     {$endif LINUXNOTBSD}
@@ -1460,40 +1547,50 @@ begin
   if modname <> nil then
     repeat
       inc(modname);
-    until (modname^ = #0) or (modname^ > ' ');
+    until (modname^ = #0) or
+          (modname^ > ' ');
   FindNameValue(StringFromFile('/etc/os-release'), 'PRETTY_NAME=', release);
-  if (release <> '') and (release[1] = '"') then
+  if (release <> '') and
+     (release[1] = '"') then
     release := copy(release, 2, length(release) - 2);
   release := trim(release);
   if release = '' then
   begin
     FindNameValue(StringFromFile('/etc/lsb-release'), 'DISTRIB_DESCRIPTION=', release);
-    if (release <> '') and (release[1] = '"') then
+    if (release <> '') and
+       (release[1] = '"') then
       release := copy(release, 2, length(release) - 2);
   end;
-  if (release = '') and (FindFirst('/etc/*-release', faAnyFile, SR) = 0) then
+  if (release = '') and
+     (FindFirst('/etc/*-release', faAnyFile, SR) = 0) then
   begin
     release := SR.Name; // 'redhat-release' 'SuSE-release'
-    if IdemPChar(pointer(release), 'LSB-') and (FindNext(SR) = 0) then
+    if IdemPChar(pointer(release), 'LSB-') and
+       (FindNext(SR) = 0) then
       release := SR.Name;
     release := split(release, '-');
     dist := split(trim(StringFromFile('/etc/' + SR.Name)), #10);
-    if (dist <> '') and (PosExChar('=', dist) = 0) and (PosExChar(' ', dist) > 0) then
+    if (dist <> '') and
+       (PosExChar('=', dist) = 0) and
+       (PosExChar(' ', dist) > 0) then
       SetLinuxDistrib(dist) // e.g. 'Red Hat Enterprise Linux Server release 6.7 (Santiago)'
     else
       dist := '';
     FindClose(SR);
   end;
-  if (release <> '') and (OS_KIND = osLinux) then
+  if (release <> '') and
+     (OS_KIND = osLinux) then
   begin
     SetLinuxDistrib(release);
-    if (OS_KIND = osLinux) and ({%H-}dist <> '') then
+    if (OS_KIND = osLinux) and
+       ({%H-}dist <> '') then
     begin
       SetLinuxDistrib(dist);
       release := dist;
     end;
     if (OS_KIND = osLinux) and
-       ((PosEx('RH', release) > 0) or (PosEx('Red Hat', release) > 0)) then
+       ((PosEx('RH', release) > 0) or
+        (PosEx('Red Hat', release) > 0)) then
       OS_KIND := osRedHat;
   end;
   SystemInfo.release := release;
@@ -1509,10 +1606,11 @@ begin
     OSVersionText := sysname + ' ' + release;
   if SystemInfo.release <> '' then
     OSVersionText := SystemInfo.release + ' - ' + OSVersionText;
-  {$ifdef Android}
+  {$ifdef ANDROID}
   OSVersionText := 'Android (' + OSVersionText + ')';
-  {$endif}
-  if (SystemInfo.dwNumberOfProcessors > 0) and (modname <> nil) then
+  {$endif ANDROID}
+  if (SystemInfo.dwNumberOfProcessors > 0) and
+     (modname <> nil) then
   begin
     beg := modname;
     while not (ord(modname^) in [0, 10, 13]) do
@@ -1534,7 +1632,8 @@ begin
   {$ifdef DARWIN}
   mach_timebase_info(mach_timeinfo);
   mach_timecoeff := mach_timeinfo.Numer / mach_timeinfo.Denom;
-  mach_timenanosecond := (mach_timeinfo.Numer = 1) and (mach_timeinfo.Denom = 1);
+  mach_timenanosecond := (mach_timeinfo.Numer = 1) and
+                         (mach_timeinfo.Denom = 1);
   {$else}
   {$ifdef LINUX}
   // try Linux kernel 2.6.32+ or FreeBSD 8.1+ fastest clocks
