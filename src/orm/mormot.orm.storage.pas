@@ -10,7 +10,7 @@ unit mormot.orm.storage;
     - Virtual Table ORM Support
     - TRestStorage Abstract Class for ORM/REST Storage
     - TRestStorageInMemory as Stand-Alone JSON/Binary Storage
-    - TOrmVirtualTableJSON/TOrmVirtualTableBinary Virtual Tables
+    - TOrmVirtualTableJson/TOrmVirtualTableBinary Virtual Tables
     - TRestStorageRemote for CRUD Redirection
     - TRestStorageShard as Abstract Sharded Storage Engine
 
@@ -27,9 +27,6 @@ uses
   classes,
   variants,
   contnrs,
-  {$ifndef FPC}
-//  typinfo, // for proper Delphi inlining
-  {$endif FPC}
   mormot.core.base,
   mormot.core.os,
   mormot.core.buffers,
@@ -41,11 +38,11 @@ uses
   mormot.core.rtti,
   mormot.core.json,
   mormot.core.threads,
-  mormot.core.crypto,
-  mormot.core.jwt,
+  mormot.crypt.core,
+  mormot.crypt.jwt,
   mormot.core.perf,
   mormot.core.search,
-  mormot.core.secure,
+  mormot.crypt.secure,
   mormot.core.log,
   mormot.core.interfaces,
   mormot.orm.core,
@@ -75,7 +72,7 @@ type
   // - call Model.VirtualTableRegister() before TRestOrmServer.Create on the
   // Server side (not needed for Client) to associate such a record with a
   // particular Virtual Table module, otherwise an exception will be raised:
-  // ! Model.VirtualTableRegister(TOrmDali1,TOrmVirtualTableJSON);
+  // ! Model.VirtualTableRegister(TOrmDali1,TOrmVirtualTableJson);
   TOrmVirtualTableForcedID = class(TOrmVirtual);
 
   /// Record associated to Virtual Table implemented in Delphi, with ID
@@ -85,7 +82,7 @@ type
   // - call Model.VirtualTableRegister() before TRestOrmServer.Create on the
   // Server side (not needed for Client) to associate such a record with a
   // particular Virtual Table module, otherwise an exception will be raised:
-  // ! Model.VirtualTableRegister(TOrmDali1,TOrmVirtualTableJSON);
+  // ! Model.VirtualTableRegister(TOrmDali1,TOrmVirtualTableJson);
   TOrmVirtualTableAutoID = class(TOrmVirtual);
 
   /// class-reference type (metaclass) of our abstract table storage
@@ -106,16 +103,16 @@ type
     // Prepare() should ignore this entry
     Column: integer;
     /// The associated expression
-    // - TOrmVirtualTable.Prepare() must set Value.VType to not svtUnknown
-    // (e.g. to svtNull), if an expression is expected at vt_BestIndex() call
+    // - TOrmVirtualTable.Prepare() must set Value.VType to not ftUnknown
+    // (e.g. to ftNull), if an expression is expected at vt_BestIndex() call
     // - TOrmVirtualTableCursor.Search() will receive an expression value,
     // to be retrieved e.g. via sqlite3_value_*() functions
-    Value: TSQLVar;
+    Value: TSqlVar;
     /// Constraint operator to be transmitted at SQL level
     // - MATCH keyword is parsed into soBeginWith, and should be handled as
     // soBeginWith, soContains or soSoundsLike* according to the effective
     // expression text value ('text*', '%text'...)
-    Operation: TSQLCompareOperator;
+    Operation: TSqlCompareOperator;
     /// If true, the constraint is assumed to be fully handled
     // by the virtual table and is not checked again by SQLite
     // - By default (OmitCheck=false), the SQLite core double checks all
@@ -127,7 +124,7 @@ type
   POrmVirtualTablePreparedConstraint = ^TOrmVirtualTablePreparedConstraint;
 
   /// an ORDER BY clause as set by the TOrmVirtualTable.Prepare() method
-  // - warning: this structure should match exactly TSQLite3IndexOrderBy as
+  // - warning: this structure should match exactly TSqlite3IndexOrderBy as
   // defined in mormot.db.raw.sqlite3
   TOrmVirtualTablePreparedOrderBy = record
     /// Column number
@@ -215,7 +212,7 @@ type
     // - used to retrieve the field structure with all collations
     RecordClass: TOrmClass;
     /// the associated TRestStorage class used for storage
-    // - is e.g. TRestStorageInMemory for TOrmVirtualTableJSON,
+    // - is e.g. TRestStorageInMemory for TOrmVirtualTableJson,
     // TRestStorageExternal for TOrmVirtualTableExternal, or nil for
     // TOrmVirtualTableLog
     StaticClass: TRestStorageClass;
@@ -235,7 +232,7 @@ type
   // association with the database engine itself
   TOrmVirtualTableModule = class
   protected
-    fModuleName: RawUTF8;
+    fModuleName: RawUtf8;
     fTableClass: TOrmVirtualTableClass;
     fServer: TRestOrmServer;
     fFeatures: TVirtualTableModuleProperties;
@@ -249,34 +246,43 @@ type
     /// retrieve the file name to be used for a specific Virtual Table
     // - returns by default a file located in the executable folder, with the
     // table name as file name, and module name as extension
-    function FileName(const aTableName: RawUTF8): TFileName; virtual;
+    function FileName(const aTableName: RawUtf8): TFileName; virtual;
     /// the Virtual Table module features
-    property Features: TOrmVirtualTableFeatures read fFeatures.Features;
+    property Features: TOrmVirtualTableFeatures
+      read fFeatures.Features;
     /// the associated virtual table class
-    property TableClass: TOrmVirtualTableClass read fTableClass;
+    property TableClass: TOrmVirtualTableClass
+      read fTableClass;
     /// the associated virtual table cursor class
-    property CursorClass: TOrmVirtualTableCursorClass read fFeatures.CursorClass;
+    property CursorClass: TOrmVirtualTableCursorClass
+      read fFeatures.CursorClass;
     /// the associated TRestStorage class used for storage
-    // - e.g. returns TRestStorageInMemory for TOrmVirtualTableJSON,
+    // - e.g. returns TRestStorageInMemory for TOrmVirtualTableJson,
     // or TRestStorageExternal for TOrmVirtualTableExternal, or
     // either nil for TOrmVirtualTableLog
-    property StaticClass: TRestStorageClass read fFeatures.StaticClass;
+    property StaticClass: TRestStorageClass
+      read fFeatures.StaticClass;
     /// the associated TOrm class
-    // - is mostly nil, e.g. for TOrmVirtualTableJSON
+    // - is mostly nil, e.g. for TOrmVirtualTableJson
     // - used to retrieve the field structure for TOrmVirtualTableLog e.g.
-    property RecordClass: TOrmClass read fFeatures.RecordClass;
+    property RecordClass: TOrmClass
+      read fFeatures.RecordClass;
     /// the extension of the filename (without any left '.')
-    property FileExtension: TFileName read fFeatures.FileExtension;
+    property FileExtension: TFileName
+      read fFeatures.FileExtension;
     /// the full path to be used for the filename
     // - is '' by default, i.e. will use the executable path
     // - you can specify here a custom path, which will be used by the FileName
     // method to retrieve the .json/.data full file
-    property FilePath: TFileName read fFilePath write fFilePath;
+    property FilePath: TFileName
+      read fFilePath write fFilePath;
     /// the associated Server instance
     // - may be nil, in case of direct access to the virtual table
-    property Server: TRestOrmServer read fServer;
+    property Server: TRestOrmServer
+      read fServer;
     /// the corresponding module name
-    property ModuleName: RawUTF8 read fModuleName;
+    property ModuleName: RawUtf8
+      read fModuleName;
   end;
 
   /// the available transaction levels
@@ -299,7 +305,7 @@ type
   TOrmVirtualTable = class
   protected
     fModule: TOrmVirtualTableModule;
-    fTableName: RawUTF8;
+    fTableName: RawUtf8;
     fStatic: TRestOrm;
     fStaticStorage: TRestStorage;
     fStaticTable: TOrmClass;
@@ -313,25 +319,27 @@ type
     // - aTableName will be checked against the current aModule.Server.Model
     // to retrieve the corresponding TOrmVirtualTableAutoID class and
     // create any associated Static: TRestStorage instance
-    constructor Create(aModule: TOrmVirtualTableModule; const aTableName: RawUTF8;
-      FieldCount: integer; Fields: PPUTF8CharArray); virtual;
+    constructor Create(aModule: TOrmVirtualTableModule; const aTableName: RawUtf8;
+      FieldCount: integer; Fields: PPUtf8CharArray); virtual;
     /// release the associated memory, especially the Static instance
     destructor Destroy; override;
     /// retrieve the corresponding module name
-    // - will use the class name, triming any T/TSQL/TSQLVirtual/TOrmVirtualTable*
+    // - will use the class name, triming any T/TSql/TSqlVirtual/TOrmVirtualTable*
     // - when the class is instanciated, it will be faster to retrieve the same
     // value via Module.ModuleName
-    class function ModuleName: RawUTF8;
+    class function ModuleName: RawUtf8;
     /// a generic method to get a 'CREATE TABLE' structure from a supplied
     // TOrm class
     // - is called e.g. by the Structure method
     class function StructureFromClass(aClass: TOrmClass;
-      const aTableName: RawUTF8): RawUTF8;
+      const aTableName: RawUtf8): RawUtf8;
     /// the associated Virtual Table module
-    property Module: TOrmVirtualTableModule read fModule;
+    property Module: TOrmVirtualTableModule
+      read fModule;
     /// the name of the Virtual Table, as specified following the TABLE keyword
     // in the CREATE VIRTUAL TABLE statement
-    property TableName: RawUTF8 read fTableName;
+    property TableName: RawUtf8
+      read fTableName;
   public { virtual methods to be overridden }
     /// should return the main specifications of the associated TOrmVirtualTableModule
     class procedure GetTableModuleProperties(
@@ -350,8 +358,8 @@ type
     // - default implementation is to retrieve the structure for the associated
     // Module.RecordClass property (as set by GetTableModuleProperties) or
     // the Static.StoredClass: in both cases, column numbering will follow
-    // the TOrm published field order (TOrm.RecordProps.Fields[])
-    function Structure: RawUTF8; virtual;
+    // the TOrm published field order (TOrm.Orm.Fields[])
+    function Structure: RawUtf8; virtual;
     /// called when a DROP TABLE statement is executed against the virtual table
     // - should return true on success, false otherwise
     // - does nothing by default, and returns false, i.e. always fails
@@ -360,17 +368,17 @@ type
     // - should return true on success, false otherwise
     // - does nothing by default, and returns false, i.e. always fails
     function Delete(aRowID: Int64): boolean; virtual;
-    /// called to insert a virtual table row content from an array of TSQLVar
+    /// called to insert a virtual table row content from an array of TSqlVar
     // - should return true on success, false otherwise
     // - should return the just created row ID in insertedRowID on success
     // - does nothing by default, and returns false, i.e. always fails
-    function Insert(aRowID: Int64; var Values: TSQLVarDynArray;
+    function Insert(aRowID: Int64; var Values: TSqlVarDynArray;
       out insertedRowID: Int64): boolean; virtual;
-    /// called to update a virtual table row content from an array of TSQLVar
+    /// called to update a virtual table row content from an array of TSqlVar
     // - should return true on success, false otherwise
     // - does nothing by default, and returns false, i.e. always fails
     function Update(oldRowID, newRowID: Int64;
-      var Values: TSQLVarDynArray): boolean; virtual;
+      var Values: TSqlVarDynArray): boolean; virtual;
     /// called to begin a transaction to the virtual table row
     // - do nothing by default, and returns false in case of RollBack/RollBackto
     // - aSavePoint is used for vttSavePoint, vttRelease and vttRollBackTo only
@@ -382,18 +390,22 @@ type
       aSavePoint: integer): boolean; virtual;
     /// called to rename the virtual table
     // - by default, returns false, i.e. always fails
-    function Rename(const NewName: RawUTF8): boolean; virtual;
+    function Rename(const NewName: RawUtf8): boolean; virtual;
     /// the associated virtual table storage instance
-    // - can be e.g. a TRestStorageInMemory for TOrmVirtualTableJSON,
+    // - can be e.g. a TRestStorageInMemory for TOrmVirtualTableJson,
     // or a TRestStorageExternal for TOrmVirtualTableExternal, or nil
     // for TOrmVirtualTableLog
-    property Static: TRestOrm read fStatic;
+    property Static: TRestOrm
+      read fStatic;
     /// the associated virtual table storage instance, if is a TRestStorage
-    property StaticStorage: TRestStorage read fStaticStorage;
+    property StaticStorage: TRestStorage
+      read fStaticStorage;
     /// the associated virtual table storage table
-    property StaticTable: TOrmClass read fStaticTable;
+    property StaticTable: TOrmClass
+      read fStaticTable;
     /// the associated virtual table storage index in its Model.Tables[] array
-    property StaticTableIndex: integer read fStaticTableIndex;
+    property StaticTableIndex: integer
+      read fStaticTableIndex;
   end;
 
   /// abstract class able to define a Virtual Table cursor
@@ -402,34 +414,35 @@ type
   TOrmVirtualTableCursor = class
   protected
     fTable: TOrmVirtualTable;
-    /// used internaly between two Column() method calls for GetFieldSQLVar()
+    /// used internally between two Column() method calls for GetFieldSqlVar()
     fColumnTemp: RawByteString;
-    /// easy set a TSQLVar content for the Column() method
-    procedure SetColumn(var aResult: TSQLVar; aValue: Int64); overload;
+    /// easy set a TSqlVar content for the Column() method
+    procedure SetColumn(var aResult: TSqlVar; aValue: Int64); overload;
       {$ifdef HASINLINE}inline;{$endif}
-    procedure SetColumn(var aResult: TSQLVar; const aValue: double); overload;
+    procedure SetColumn(var aResult: TSqlVar; const aValue: double); overload;
       {$ifdef HASINLINE}inline;{$endif}
-    procedure SetColumn(var aResult: TSQLVar; const aValue: RawUTF8); overload;
+    procedure SetColumn(var aResult: TSqlVar; const aValue: RawUtf8); overload;
       {$ifdef HASINLINE}inline;{$endif}
-    procedure SetColumn(var aResult: TSQLVar; aValue: PUTF8Char; aValueLength: integer); overload;
+    procedure SetColumn(var aResult: TSqlVar; aValue: PUtf8Char; aValueLength: integer); overload;
       {$ifdef HASINLINE}inline;{$endif}
-    procedure SetColumnBlob(var aResult: TSQLVar; aValue: pointer; aValueLength: integer);
+    procedure SetColumnBlob(var aResult: TSqlVar; aValue: pointer; aValueLength: integer);
       {$ifdef HASINLINE}inline;{$endif}
-    procedure SetColumnDate(var aResult: TSQLVar; const aValue: TDateTime;
+    procedure SetColumnDate(var aResult: TSqlVar; const aValue: TDateTime;
       aWithMS: boolean); {$ifdef HASINLINE}inline;{$endif}
-    procedure SetColumnCurr64(var aResult: TSQLVar; aValue64: PInt64);
+    procedure SetColumnCurr64(var aResult: TSqlVar; aValue64: PInt64);
       {$ifdef HASINLINE}inline;{$endif}
   public
     /// create the cursor instance
     // - it will be destroyed when by the DB engine (e.g. via xClose in SQLite3)
     constructor Create(aTable: TOrmVirtualTable); virtual;
     /// the associated Virtual Table class instance
-    property Table: TOrmVirtualTable read fTable;
+    property Table: TOrmVirtualTable
+      read fTable;
   public { abstract methods to be overridden }
     /// called to begin a search in the virtual table
     // - the TOrmVirtualTablePrepared parameters were set by
     // TOrmVirtualTable.Prepare and will contain both WHERE and ORDER BY statements
-    // (retrieved e.g. by x_BestIndex() from a TSQLite3IndexInfo structure)
+    // (retrieved e.g. by x_BestIndex() from a TSqlite3IndexInfo structure)
     // - Prepared will contain all prepared constraints and the corresponding
     // expressions in the Where[].Value field
     // - should move cursor to first row of matching data
@@ -439,10 +452,10 @@ type
     /// called after Search() to check if there is data to be retrieved
     // - should return false if reached the end of matching data
     function HasData: boolean; virtual; abstract;
-    /// called to retrieve a column value of the current data row into a TSQLVar
+    /// called to retrieve a column value of the current data row into a TSqlVar
     // - if aColumn=-1, should return the row ID as varInt64 into aResult
     // - should return false in case of an error, true on success
-    function Column(aColumn: integer; var aResult: TSQLVar): boolean; virtual; abstract;
+    function Column(aColumn: integer; var aResult: TSqlVar): boolean; virtual; abstract;
     /// called to go to the next row of matching data
     // - should return false on low-level database error (but true in case of a
     // valid call, even if HasData will return false, i.e. no data match)
@@ -481,7 +494,8 @@ type
   // - you can set an alternate per-table database engine by using this class
   // - this abstract class is to be overridden with a proper implementation
   // (e.g. TRestStorageInMemory in this unit, or TRestStorageExternal
-  // from mORMotDB unit, or TRestStorageMongoDB from mORMotMongoDB unit)
+  // from mormot.orm.sql unit, or TRestStorageMongoDB from
+  // mormot.orm.mongodb.pas unit)
   TRestStorage = class(TRestOrm)
   protected
     fStoredClass: TOrmClass;
@@ -494,15 +508,15 @@ type
     fOwner: TRestOrmServer;
     fStorageCriticalSection: TRTLCriticalSection;
     fStorageCriticalSectionCount: integer;
-    fBasicSQLCount: RawUTF8;
-    fBasicSQLHasRows: array[boolean] of RawUTF8;
+    fBasicSqlCount: RawUtf8;
+    fBasicSqlHasRows: array[boolean] of RawUtf8;
     fStorageVirtual: TOrmVirtualTable;
     /// any set bit in this field indicates UNIQUE field value
     fIsUnique: TFieldBits;
     fOutInternalStateForcedRefresh: boolean;
     procedure RecordVersionFieldHandle(Occasion: TOrmOccasion;
-      var Decoder: TJSONObjectDecoder);
-    function GetStoredClassName: RawUTF8;
+      var Decoder: TJsonObjectDecoder);
+    function GetStoredClassName: RawUtf8;
   public
     /// initialize the abstract storage data
     constructor Create(aClass: TOrmClass; aServer: TRestOrmServer); reintroduce; virtual;
@@ -511,7 +525,7 @@ type
 
     /// should be called before any access to the storage content
     // - and protected with a try ... finally StorageUnLock; end section
-    procedure StorageLock(WillModifyContent: boolean; const msg: RawUTF8); virtual;
+    procedure StorageLock(WillModifyContent: boolean; const msg: RawUtf8); virtual;
     /// should be called after any StorageLock-protected access to the content
     // - e.g. protected with a try ... finally StorageUnLock; end section
     procedure StorageUnLock; virtual;
@@ -528,37 +542,38 @@ type
     /// overridden method calling the owner (if any) to guess if this record
     // can be updated or deleted
     function RecordCanBeUpdated(Table: TOrmClass; ID: TID; Action: TOrmEvent;
-      ErrorMsg: PRawUTF8 = nil): boolean; override;
+      ErrorMsg: PRawUtf8 = nil): boolean; override;
     /// override this method if you want to update the refresh state
     // - returns FALSE if the static table content was not modified (default
     // method implementation is to always return FALSE)
     // - returns TRUE if the table has been refreshed and its content was modified:
     // therefore the client will know he'll need to refresh some content
     function RefreshedAndModified: boolean; virtual;
-    /// TRestOrmServer.URI use it for Static.EngineList to by-pass virtual table
+    /// TRestOrmServer.Uri use it for Static.EngineList to by-pass virtual table
     // - this default implementation will return TRUE and replace SQL with
-    // SQLSelectAll[true] if it SQL equals SQLSelectAll[false] (i.e. 'SELECT *')
+    // SqlSelectAll[true] if it SQL equals SqlSelectAll[false] (i.e. 'SELECT *')
     // - this method is called only if the WHERE clause of SQL refers to the
     // static table name only (not needed to check it twice)
-    function AdaptSQLForEngineList(var SQL: RawUTF8): boolean; virtual;
+    function AdaptSqlForEngineList(var SQL: RawUtf8): boolean; virtual;
     /// create one index for all specific FieldNames at once
     // - do nothing virtual/abstract method by default: will return FALSE (i.e. error)
-    function CreateSQLMultiIndex(Table: TOrmClass; const FieldNames: array of RawUTF8;
-      Unique: boolean; IndexName: RawUTF8=''): boolean; virtual;
+    function CreateSqlMultiIndex(Table: TOrmClass; const FieldNames: array of RawUtf8;
+      Unique: boolean; IndexName: RawUtf8=''): boolean; virtual;
     /// search for a numerical field value
     // - return true on success (i.e. if some values have been added to ResultID)
     // - store the results into the ResultID dynamic array
     // - faster than OneFieldValues method, which creates a temporary JSON content
     // - this default implementation will call the overloaded SearchField()
-    // value after conversion of the FieldValue into RawUTF8
-    function SearchField(const FieldName: RawUTF8; FieldValue: Int64;
+    // value after conversion of the FieldValue into RawUtf8
+    function SearchField(const FieldName: RawUtf8; FieldValue: Int64;
       out ResultID: TIDDynArray): boolean; overload; virtual;
     /// search for a field value, according to its SQL content representation
     // - return true on success (i.e. if some values have been added to ResultID)
     // - store the results into the ResultID dynamic array
-    // - faster than OneFieldValues method, which creates a temporary JSON content
-    function SearchField(const FieldName, FieldValue: RawUTF8;
-      out ResultID: TIDDynArray): boolean; overload; virtual; abstract;
+    // - this virtual implementation redirect to OneFieldValues method, which
+    // creates a temporary JSON content
+    function SearchField(const FieldName, FieldValue: RawUtf8;
+      out ResultID: TIDDynArray): boolean; overload; virtual;
     /// returns the current authentication session ID from TRestOrmServer owner
     function GetCurrentSessionUserID: TID; override;
 
@@ -590,7 +605,7 @@ type
       read fOutInternalStateForcedRefresh;
   published
     /// name of the class defining the record type stored in this REST storage
-    property StoredClassName: RawUTF8
+    property StoredClassName: RawUtf8
       read GetStoredClassName;
   end;
 
@@ -598,29 +613,29 @@ type
 
 { ************ TRestStorageInMemory as Stand-Alone JSON/Binary Storage }
 
-  /// event prototype called by TRestStorageInMemory.FindWhereEqual() or
-  // TRestStorageInMemory.ForEach() methods
+  /// event prototype called by TRestStorageInMemory.FindWhereEqual(),
+  // FindWhere() or ForEach() methods
   // - aDest is an opaque pointer, as supplied to FindWhereEqual(), which may
   // point e.g. to a result list, or a shared variable to apply the process
   // - aRec will point to the corresponding item
   // - aIndex will identify the item index in the internal list
-  TFindWhereEqualEvent = procedure(
+  TOnFindWhereEqual = procedure(
     aDest: pointer; aRec: TOrm; aIndex: integer) of object;
 
   /// abstract REST storage exposing some internal TOrm-based methods
-  TRestStorageRecordBased = class(TRestStorage)
+  TRestStorageTOrm = class(TRestStorage)
   public
     function EngineAdd(TableModelIndex: integer;
-      const SentData: RawUTF8): TID; override;
+      const SentData: RawUtf8): TID; override;
     function EngineUpdate(TableModelIndex: integer; ID: TID;
-      const SentData: RawUTF8): boolean; override;
+      const SentData: RawUtf8): boolean; override;
     /// manual Add of a TOrm
     // - returns the ID created on success
     // - returns -1 on failure (not UNIQUE field value e.g.)
     // - on success, the Rec instance is added to the Values[] list: caller
     // doesn't need to Free it
     function AddOne(Rec: TOrm; ForceID: boolean;
-      const SentData: RawUTF8): TID; virtual; abstract;
+      const SentData: RawUtf8): TID; virtual; abstract;
     /// manual Retrieval of a TOrm field values
     // - an instance of the associated static class is created
     // - and all its properties are filled from the Items[] values
@@ -638,8 +653,8 @@ type
     // - method available since a TRestStorage instance may be created
     // stand-alone, i.e. without any associated Model/TRestOrmServer
     function UpdateOne(Rec: TOrm;
-      const SentData: RawUTF8): boolean; overload; virtual; abstract;
-    /// manual Update of a TOrm field values from an array of TSQLVar
+      const SentData: RawUtf8): boolean; overload; virtual; abstract;
+    /// manual Update of a TOrm field values from an array of TSqlVar
     // - will update all properties, including BLOB fields and such
     // - returns TRUE on success, FALSE on any error (e.g. invalid Rec.ID)
     // - method available since a TRestStorage instance may be created
@@ -647,7 +662,7 @@ type
     // - this default implementation will create a temporary TOrm instance
     // with the supplied Values[], and will call overloaded UpdateOne() method
     function UpdateOne(ID: TID;
-      const Values: TSQLVarDynArray): boolean; overload; virtual;
+      const Values: TSqlVarDynArray): boolean; overload; virtual;
   end;
 
   /// class able to handle a O(1) hashed-based search of a property
@@ -659,8 +674,8 @@ type
     fPropInfo: TOrmPropInfo;
     fCaseInsensitive: boolean;
     fLastFindHashCode: cardinal;
-    function EventCompare(const A,B): integer; // match TEventDynArraySortCompare
-    function EventHash(const Elem): cardinal;  // match TEventDynArrayHashOne
+    function EventCompare(const A,B): integer; // match TOnDynArraySortCompare
+    function EventHash(const Elem): cardinal;  // match TOnDynArrayHashOne
   public
     /// initialize a hash for a record array field
     // - aField maps the "stored AS_UNIQUE" published property
@@ -671,11 +686,14 @@ type
     /// called by TRestStorageInMemory.AddOne after a precious Find()
     function AddedAfterFind(Rec: TOrm): boolean;
     /// the corresponding field RTTI
-    property PropInfo: TOrmPropInfo read fPropInfo;
+    property PropInfo: TOrmPropInfo
+      read fPropInfo;
     /// if the string comparison shall be case-insensitive
-    property CaseInsensitive: boolean read fCaseInsensitive;
+    property CaseInsensitive: boolean
+      read fCaseInsensitive;
     /// access to the internal hash table
-    property Hasher: TDynArrayHasher read fHasher;
+    property Hasher: TDynArrayHasher
+      read fHasher;
   end;
 
   /// REST storage with direct access to a TObjectList memory-stored table
@@ -684,11 +702,13 @@ type
   // - must be registered individualy in a TRestOrmServer to access data from a
   // common client, by using the TRestOrmServer.StaticDataCreate method:
   // it allows an unique access for both SQLite3 and Static databases
-  // - handle basic REST commands, no SQL interpreter is implemented: only
+  // - handle basic REST commands, no full SQL interpreter is implemented: only
   // valid SQL command is "SELECT Field1,Field2 FROM Table WHERE ID=120;", i.e
-  // a one Table SELECT with one optional "WHERE fieldname = value" statement;
-  // if used within a TOrmVirtualTableJSON, you'll be able to handle any kind of
+  // a one Table SELECT with one optional "WHERE fieldname operator value"
+  // statement, with = < <= <> != >= > operators, and IS / IS NULL / ID IN (...)
+  // - if used within a TOrmVirtualTableJson, you'll be able to handle any kind of
   // SQL statement (even joined SELECT or such) with this memory-stored database
+  // via the SQlite3 virtual tables engine
   // - data can be stored and retrieved from a file (JSON format is used by
   // default, if BinaryFile parameter is left to false; a proprietary compressed
   // binary format can be used instead) if a file name is supplied at creating
@@ -697,17 +717,17 @@ type
   // faster than SQLite3 for such queries - but its values remain in RAM,
   // therefore it is not meant to deal with more than 100,000 rows or if
   // ACID commit on disk is required
-  TRestStorageInMemory = class(TRestStorageRecordBased)
+  TRestStorageInMemory = class(TRestStorageTOrm)
   protected
     fValue: TOrmObjArray;
     fCount: integer;
     fFileName: TFileName;
     fCommitShouldNotUpdateFile: boolean;
     fBinaryFile: boolean;
-    fExpandedJSON: boolean;
+    fExpandedJson: boolean;
     fUnSortedID: boolean;
     fSearchRec: TOrm; // temporary record to store the searched value
-    fBasicUpperSQLSelect: array[boolean] of RawUTF8;
+    fBasicUpperSqlSelect: array[boolean] of RawUtf8;
     fUnique: array of TRestStorageInMemoryUnique;
     fMaxID: TID;
     fValues: TDynArrayHashed; // hashed by ID
@@ -718,30 +738,30 @@ type
     procedure SetFileName(const aFileName: TFileName);
     procedure ComputeStateAfterLoad(var loaded: TPrecisionTimer; binary: boolean);
     procedure SetBinaryFile(aBinary: boolean);
-    procedure GetJSONValuesEvent(aDest: pointer; aRec: TOrm; aIndex: integer);
+    procedure GetJsonValuesEvent(aDest: pointer; aRec: TOrm; aIndex: integer);
     /// used to create the JSON content from a SELECT parsed command
     // - WhereField index follows FindWhereEqual / TSelectStatement.WhereField
     // - returns the number of data row added (excluding field names)
     // - this method is very fast and optimized (for search and JSON serializing)
-    function GetJSONValues(Stream: TStream; Expand: boolean;
+    function GetJsonValues(Stream: TStream; Expand: boolean;
       Stmt: TSelectStatement): PtrInt;
   public
-    /// TRestOrmServer.URI use it for Static.EngineList to by-pass virtual table
+    /// TRestOrmServer.Uri use it for Static.EngineList to by-pass virtual table
     // - overridden method to handle basic queries as handled by EngineList()
-    function AdaptSQLForEngineList(var SQL: RawUTF8): boolean; override;
+    function AdaptSqlForEngineList(var SQL: RawUtf8): boolean; override;
     /// overridden methods for direct in-memory database engine thread-safe process
-    function EngineRetrieve(TableModelIndex: integer; ID: TID): RawUTF8; override;
-    function EngineList(const SQL: RawUTF8; ForceAJAX: boolean = false;
-      ReturnedRowCount: PPtrInt = nil): RawUTF8; override;
+    function EngineRetrieve(TableModelIndex: integer; ID: TID): RawUtf8; override;
+    function EngineList(const SQL: RawUtf8; ForceAjax: boolean = false;
+      ReturnedRowCount: PPtrInt = nil): RawUtf8; override;
     function EngineUpdate(TableModelIndex: integer; ID: TID;
-      const SentData: RawUTF8): boolean; override;
+      const SentData: RawUtf8): boolean; override;
     function EngineRetrieveBlob(TableModelIndex: integer; aID: TID;
       BlobField: PRttiProp; out BlobData: RawBlob): boolean; override;
     function EngineUpdateBlob(TableModelIndex: integer; aID: TID;
       BlobField: PRttiProp; const BlobData: RawBlob): boolean; override;
-    function EngineDeleteWhere(TableModelIndex: integer; const SQLWhere: RawUTF8;
+    function EngineDeleteWhere(TableModelIndex: integer; const SqlWhere: RawUtf8;
       const IDs: TIDDynArray): boolean; override;
-    function EngineExecute(const aSQL: RawUTF8): boolean; override;
+    function EngineExecute(const aSql: RawUtf8): boolean; override;
   public
     /// initialize the table storage data, reading it from a file if necessary
     // - data encoding on file is UTF-8 JSON format by default, or
@@ -755,15 +775,15 @@ type
     // - will reset the associated database file, if any
     procedure DropValues(andUpdateFile: boolean = true);
     /// load the values from JSON data
-    // - a temporary copy of aJSON is made to ensure it won't be modified in-place
-    // - consider using the overlaoded PUTF8Char/len method if you don't need this copy
-    procedure LoadFromJSON(const aJSON: RawUTF8); overload;
+    // - a temporary copy of aJson is made to ensure it won't be modified in-place
+    // - consider using the overlaoded PUtf8Char/len method if you don't need this copy
+    procedure LoadFromJson(const aJson: RawUtf8); overload;
     /// load the values from JSON data
-    procedure LoadFromJSON(JSONBuffer: PUTF8Char; JSONBufferLen: integer); overload;
+    procedure LoadFromJson(JsonBuffer: PUtf8Char; JsonBufferLen: integer); overload;
     /// save the values into JSON data
-    function SaveToJSON(Expand: boolean): RawUTF8; overload;
+    function SaveToJson(Expand: boolean): RawUtf8; overload;
     /// save the values into JSON data
-    procedure SaveToJSON(Stream: TStream; Expand: boolean); overload;
+    procedure SaveToJson(Stream: TStream; Expand: boolean); overload;
     /// load the values from binary file/stream
     // - the binary format is a custom compressed format (using our SynLZ fast
     // compression algorithm), with variable-length record storage
@@ -823,7 +843,7 @@ type
     // and the history feature
     // - warning: this method should be protected via StorageLock/StorageUnlock
     function AddOne(Rec: TOrm; ForceID: boolean;
-      const SentData: RawUTF8): TID; override;
+      const SentData: RawUtf8): TID; override;
     /// manual Retrieval of a TOrm field values
     // - an instance of the associated static class is created, and filled with
     // the actual properties values
@@ -842,14 +862,14 @@ type
     // - method available since a TRestStorage instance may be created
     // stand-alone, i.e. without any associated Model/TRestOrmServer
     function UpdateOne(Rec: TOrm;
-      const SentData: RawUTF8): boolean; override;
-    /// manual Update of a TOrm field values from a TSQLVar array
+      const SentData: RawUtf8): boolean; override;
+    /// manual Update of a TOrm field values from a TSqlVar array
     // - will update all properties, including BLOB fields and such
     // - returns TRUE on success, FALSE on any error (e.g. invalid Rec.ID)
     // - method available since a TRestStorage instance may be created
     // stand-alone, i.e. without any associated Model/TRestOrmServer
     function UpdateOne(ID: TID;
-      const Values: TSQLVarDynArray): boolean; override;
+      const Values: TSqlVarDynArray): boolean; override;
     /// direct deletion of a TOrm, from its index in Values[]
     // - warning: this method should be protected via StorageLock/StorageUnlock
     function DeleteOne(aIndex: integer): boolean; virtual;
@@ -861,12 +881,12 @@ type
     // - made public since a TRestStorage instance may be created
     // stand-alone, i.e. without any associated Model/TRestOrmServer
     function EngineUpdateField(TableModelIndex: integer;
-      const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUTF8): boolean; override;
+      const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUtf8): boolean; override;
     /// overridden method for direct in-memory database engine call
     // - made public since a TRestStorage instance may be created
     // stand-alone, i.e. without any associated Model/TRestOrmServer
     function EngineUpdateFieldIncrement(TableModelIndex: integer; ID: TID;
-      const FieldName: RawUTF8; Increment: Int64): boolean; override;
+      const FieldName: RawUtf8; Increment: Int64): boolean; override;
     /// overridden method for direct in-memory database engine call
     function UpdateBlobFields(Value: TOrm): boolean; override;
     /// overridden method for direct in-memory database engine call
@@ -881,7 +901,7 @@ type
     // - return true on success (i.e. if some values have been added to ResultID)
     // - store the results into the ResultID dynamic array
     // - faster than OneFieldValues method, which creates a temporary JSON content
-    function SearchField(const FieldName, FieldValue: RawUTF8;
+    function SearchField(const FieldName, FieldValue: RawUtf8;
       out ResultID: TIDDynArray): boolean; override;
     /// search for a field value, according to its SQL content representation
     // - return the found TOrm on success, nil if none did match
@@ -889,34 +909,43 @@ type
     // list, so you should NOT use this on a read/write table, but rather
     // use the slightly slower but safer SearchCopy() method or make explicit
     // ! StorageLock ... try ... SearchInstance ... finally StorageUnlock end
-    function SearchInstance(const FieldName, FieldValue: RawUTF8): pointer;
+    function SearchInstance(const FieldName, FieldValue: RawUtf8;
+      CaseInsensitive: boolean = true;
+      Op: TSelectStatementOperator = opEqualTo): pointer;
     /// search for a field value, according to its SQL content representation
     // - return the found TOrm index on success, -1 if none did match
     // - warning: it returns a reference to the current index of the unlocked
     // internal list, so you should NOT use without StorageLock/StorageUnlock
-    function SearchIndex(const FieldName, FieldValue: RawUTF8): integer;
+    function SearchIndex(const FieldName, FieldValue: RawUtf8;
+      CaseInsensitive: boolean = true;
+      Op: TSelectStatementOperator = opEqualTo): integer;
     /// search for a field value, according to its SQL content representation
     // - return a copy of the found TOrm on success, nil if no match
     // - you should use SearchCopy() instead of SearchInstance(), unless you
     // are sure that the internal TOrm list won't change
-    function SearchCopy(const FieldName, FieldValue: RawUTF8): pointer;
+    function SearchCopy(const FieldName, FieldValue: RawUtf8;
+      CaseInsensitive: boolean = true;
+      Op: TSelectStatementOperator = opEqualTo): pointer;
     /// search and count for a field value, according to its SQL content representation
     // - return the number of found entries on success, 0 if it was not found
-    function SearchCount(const FieldName, FieldValue: RawUTF8): integer;
+    function SearchCount(const FieldName, FieldValue: RawUtf8;
+      CaseInsensitive: boolean = true;
+      Op: TSelectStatementOperator = opEqualTo): integer;
     /// search for a field value, according to its SQL content representation
     // - call the supplied OnFind event on match
     // - returns the number of found entries
-    // - is just a wrapper around FindWhereEqual() with StorageLock protection
-    function SearchEvent(const FieldName, FieldValue: RawUTF8;
-      OnFind: TFindWhereEqualEvent; Dest: pointer;
-      FoundLimit, FoundOffset: PtrInt): integer;
+    // - is just a wrapper around FindWhere() with StorageLock protection
+    function SearchEvent(const FieldName, FieldValue: RawUtf8;
+      const OnFind: TOnFindWhereEqual; Dest: pointer;
+      FoundLimit, FoundOffset: PtrInt; CaseInsensitive: boolean = true;
+      Op: TSelectStatementOperator = opEqualTo): integer;
     /// optimized search of WhereValue in WhereField (0=RowID,1..=RTTI)
     // - will use fast O(1) hash for fUnique[] fields
     // - will use SYSTEMNOCASE case-insensitive search for text values, unless
     // CaseInsensitive is set to FALSE
     // - warning: this method should be protected via StorageLock/StorageUnlock
-    function FindWhereEqual(WhereField: integer; const WhereValue: RawUTF8;
-      OnFind: TFindWhereEqualEvent; Dest: pointer;
+    function FindWhereEqual(WhereField: integer; const WhereValue: RawUtf8;
+      const OnFind: TOnFindWhereEqual; Dest: pointer;
       FoundLimit, FoundOffset: PtrInt;
       CaseInsensitive: boolean = true): PtrInt; overload;
     /// optimized search of WhereValue in a field, specified by name
@@ -924,8 +953,26 @@ type
     // - will use SYSTEMNOCASE case-insensitive search for text values, unless
     // CaseInsensitive is set to FALSE
     // - warning: this method should be protected via StorageLock/StorageUnlock
-    function FindWhereEqual(const WhereFieldName, WhereValue: RawUTF8;
-      OnFind: TFindWhereEqualEvent; Dest: pointer;
+    function FindWhereEqual(const WhereFieldName, WhereValue: RawUtf8;
+      const OnFind: TOnFindWhereEqual; Dest: pointer;
+      FoundLimit, FoundOffset: integer;
+      CaseInsensitive: boolean = true): PtrInt; overload;
+    /// comparison lookup of the WhereValue in a field, specified by name
+    // - this method won't use any index but brute force using the comparison
+    // function over each stored item to implement < <= <> > >= search
+    // - warning: this method should be protected via StorageLock/StorageUnlock
+    function FindWhere(WhereField: integer; const WhereValue: RawUtf8;
+      WhereOp: TSelectStatementOperator;
+      const OnFind: TOnFindWhereEqual; Dest: pointer;
+      FoundLimit, FoundOffset: integer;
+      CaseInsensitive: boolean = true): PtrInt; overload;
+    /// comparison lookup of the WhereValue in a field, specified by name
+    // - this method won't use any index but brute force using the comparison
+    // function over each stored item to implement < <= <> > >= search
+    // - warning: this method should be protected via StorageLock/StorageUnlock
+    function FindWhere(const WhereFieldName, WhereValue: RawUtf8;
+      WhereOp: TSelectStatementOperator;
+      const OnFind: TOnFindWhereEqual; Dest: pointer;
       FoundLimit, FoundOffset: integer;
       CaseInsensitive: boolean = true): PtrInt; overload;
     /// search the maximum value of a given column
@@ -934,20 +981,20 @@ type
     /// execute a method on every TOrm item
     // - the loop execution will be protected via StorageLock/StorageUnlock
     procedure ForEach(WillModifyContent: boolean;
-      OnEachProcess: TFindWhereEqualEvent; Dest: pointer);
-    /// low-level TFindWhereEqualEvent callback doing nothing
+      const OnEachProcess: TOnFindWhereEqual; Dest: pointer);
+    /// low-level TOnFindWhereEqual callback doing nothing
     class procedure DoNothingEvent(aDest: pointer;
       aRec: TOrm; aIndex: integer);
-    /// low-level TFindWhereEqualEvent callback making PPointer(aDest)^ := aRec
+    /// low-level TOnFindWhereEqual callback making PPointer(aDest)^ := aRec
     class procedure DoInstanceEvent(aDest: pointer;
       aRec: TOrm; aIndex: integer);
-    /// low-level TFindWhereEqualEvent callback making PInteger(aDest)^ := aIndex
+    /// low-level TOnFindWhereEqual callback making PInteger(aDest)^ := aIndex
     class procedure DoIndexEvent(aDest: pointer;
       aRec: TOrm; aIndex: integer);
-    /// low-level TFindWhereEqualEvent callback making PPointer(aDest)^ := aRec.CreateCopy
+    /// low-level TOnFindWhereEqual callback making PPointer(aDest)^ := aRec.CreateCopy
     class procedure DoCopyEvent(aDest: pointer;
       aRec: TOrm; aIndex: integer);
-    /// low-level TFindWhereEqualEvent callback calling TSynList(aDest).Add(aRec)
+    /// low-level TOnFindWhereEqual callback calling TSynList(aDest).Add(aRec)
     class procedure DoAddToListEvent(aDest: pointer;
       aRec: TOrm; aIndex: integer);
     /// read-only access to the TOrm values, storing the data
@@ -988,14 +1035,15 @@ type
     // to save disk space and time
     // - you can force the JSON to be emitted as an array of objects,
     // e.g. for better human friendliness (reading and modification)
-    property ExpandedJSON: boolean
-      read fExpandedJSON write fExpandedJSON;
+    property ExpandedJson: boolean
+      read fExpandedJson write fExpandedJson;
     /// set this property to TRUE if you want the COMMIT statement not to
-    // update the associated TOrmVirtualTableJSON
+    // update the associated TOrmVirtualTableJson
     property CommitShouldNotUpdateFile: boolean
       read fCommitShouldNotUpdateFile write fCommitShouldNotUpdateFile;
     /// read-only access to the number of TOrm values
-    property Count: integer read fCount;
+    property Count: integer
+      read fCount;
   end;
 
   /// a dynamic array of TRestStorageInMemory instances
@@ -1008,7 +1056,7 @@ type
 
   /// REST storage with direct access to a memory database, to be used as
   // an external SQLite3 Virtual table
-  // - this is the kind of in-memory table expected by TOrmVirtualTableJSON,
+  // - this is the kind of in-memory table expected by TOrmVirtualTableJson,
   // in order to be consistent with the internal DB cache
   TRestStorageInMemoryExternal = class(TRestStorageInMemory)
   public
@@ -1021,25 +1069,25 @@ type
     // is known to be invalid
     // - by default, all REST/CRUD requests and direct SQL statements are
     // scanned and identified as potentially able to change the internal SQL/JSON
-    // cache used at SQLite3 database level; but TOrmVirtualTableJSON virtual
+    // cache used at SQLite3 database level; but TOrmVirtualTableJson virtual
     // tables could flush the database content without proper notification
     // - this overridden implementation will call Owner.FlushInternalDBCache
     procedure StorageLock(WillModifyContent: boolean;
-      const msg: RawUTF8); override;
+      const msg: RawUtf8); override;
   end;
 
 
 
-{ ************ TOrmVirtualTableJSON/TOrmVirtualTableBinary Virtual Tables }
+{ ************ TOrmVirtualTableJson/TOrmVirtualTableBinary Virtual Tables }
 
   /// A Virtual Table cursor for reading a TRestStorageInMemory content
-  // - this is the cursor class associated to TOrmVirtualTableJSON
-  TOrmVirtualTableCursorJSON = class(TOrmVirtualTableCursorIndex)
+  // - this is the cursor class associated to TOrmVirtualTableJson
+  TOrmVirtualTableCursorJson = class(TOrmVirtualTableCursorIndex)
   public
     /// called to begin a search in the virtual table
     // - the TOrmVirtualTablePrepared parameters were set by
     // TOrmVirtualTable.Prepare and will contain both WHERE and ORDER BY statements
-    // (retrieved by x_BestIndex from a TSQLite3IndexInfo structure)
+    // (retrieved by x_BestIndex from a TSqlite3IndexInfo structure)
     // - Prepared will contain all prepared constraints and the corresponding
     // expressions in the Where[].Value field
     // - will move cursor to first row of matching data
@@ -1048,10 +1096,10 @@ type
     // - only handled WHERE clause is for "ID = value" - other request will
     // return all records in ID order, and let the database engine handle it
     function Search(const Prepared: TOrmVirtualTablePrepared): boolean; override;
-    /// called to retrieve a column value of the current data row into a TSQLVar
+    /// called to retrieve a column value of the current data row into a TSqlVar
     // - if aColumn=-1, will return the row ID as varInt64 into aResult
     // - will return false in case of an error, true on success
-    function Column(aColumn: integer; var aResult: TSQLVar): boolean; override;
+    function Column(aColumn: integer; var aResult: TSqlVar): boolean; override;
   end;
 
   /// A TRestStorageInMemory-based virtual table using JSON storage
@@ -1061,7 +1109,7 @@ type
   // - by default, no data is written on disk: you will need to call explicitly
   // aServer.StaticVirtualTable[aClass].UpdateToFile for file creation or refresh
   // - file extension is set to '.json'
-  TOrmVirtualTableJSON = class(TOrmVirtualTable)
+  TOrmVirtualTableJson = class(TOrmVirtualTable)
   protected
     fStaticInMemory: TRestStorageInMemory;
   public
@@ -1075,11 +1123,11 @@ type
     // to retrieve the corresponding TOrmVirtualTableAutoID class and
     // create any associated Static: TRestStorage instance
     constructor Create(aModule: TOrmVirtualTableModule;
-      const aTableName: RawUTF8; FieldCount: integer;
-      Fields: PPUTF8CharArray); override;
+      const aTableName: RawUtf8; FieldCount: integer;
+      Fields: PPUtf8CharArray); override;
     /// returns the main specifications of the associated TOrmVirtualTableModule
     // - this is a read/write table, without transaction, associated to the
-    // TOrmVirtualTableCursorJSON cursor type, with 'JSON' as module name
+    // TOrmVirtualTableCursorJson cursor type, with 'JSON' as module name
     // - no particular class is supplied here, since it will depend on the
     // associated Static instance
     class procedure GetTableModuleProperties(
@@ -1095,21 +1143,21 @@ type
     /// called to delete a virtual table row
     // - returns true on success, false otherwise
     function Delete(aRowID: Int64): boolean; override;
-    /// called to insert a virtual table row content from a TSQLVar array
+    /// called to insert a virtual table row content from a TSqlVar array
     // - column order follows the Structure method, i.e.
     // StoredClassRecordProps.Fields[] order
     // - returns true on success, false otherwise
     // - returns the just created row ID in insertedRowID on success
     // - does nothing by default, and returns false, i.e. always fails
-    function Insert(aRowID: Int64; var Values: TSQLVarDynArray;
+    function Insert(aRowID: Int64; var Values: TSqlVarDynArray;
       out insertedRowID: Int64): boolean; override;
-    /// called to update a virtual table row content from a TSQLVar array
+    /// called to update a virtual table row content from a TSqlVar array
     // - column order follows the Structure method, i.e.
     // StoredClassRecordProps.Fields[] order
     // - returns true on success, false otherwise
     // - does nothing by default, and returns false, i.e. always fails
     function Update(oldRowID, newRowID: Int64;
-      var Values: TSQLVarDynArray): boolean; override;
+      var Values: TSqlVarDynArray): boolean; override;
   end;
 
   /// A TRestStorageInMemory-based virtual table using Binary storage
@@ -1119,10 +1167,10 @@ type
   // - by default, no data is written on disk: you will need to call explicitly
   // aServer.StaticVirtualTable[aClass].UpdateToFile for file creation or refresh
   // - binary format is more efficient in term of speed and disk usage than
-  // the JSON format implemented by TOrmVirtualTableJSON
-  // - binary format will be set by TOrmVirtualTableJSON.CreateTableInstance
+  // the JSON format implemented by TOrmVirtualTableJson
+  // - binary format will be set by TOrmVirtualTableJson.CreateTableInstance
   // - file extension is set to '.data'
-  TOrmVirtualTableBinary = class(TOrmVirtualTableJSON);
+  TOrmVirtualTableBinary = class(TOrmVirtualTableJson);
 
 
 
@@ -1146,8 +1194,8 @@ type
     /// creates the TOrmVirtualTable according to the supplied parameters
     // - aTableName will be checked against the current aModule.Server.Model
     // to retrieve the corresponding TOrmVirtualTableAutoID class
-    constructor Create(aModule: TOrmVirtualTableModule; const aTableName: RawUTF8;
-      FieldCount: integer; Fields: PPUTF8CharArray); override;
+    constructor Create(aModule: TOrmVirtualTableModule; const aTableName: RawUtf8;
+      FieldCount: integer; Fields: PPUtf8CharArray); override;
     /// release the associated .log file mapping and all internal structures
     destructor Destroy; override;
   end;
@@ -1158,8 +1206,8 @@ type
   public
     /// called to begin a search in the virtual table
     function Search(const Prepared: TOrmVirtualTablePrepared): boolean; override;
-    /// called to retrieve a column value of the current data row as TSQLVar
-    function Column(aColumn: integer; var aResult: TSQLVar): boolean; override;
+    /// called to retrieve a column value of the current data row as TSqlVar
+    function Column(aColumn: integer; var aResult: TSqlVar): boolean; override;
   end;
 
 
@@ -1174,25 +1222,25 @@ type
     fRemoteRest: TRestOrm;
     fRemoteTableIndex: integer;
   public
-    function EngineRetrieve(TableModelIndex: integer; ID: TID): RawUTF8; override;
-    function EngineList(const SQL: RawUTF8; ForceAJAX: boolean = false;
-      ReturnedRowCount: PPtrInt = nil): RawUTF8; override;
-    function EngineExecute(const aSQL: RawUTF8): boolean; override;
+    function EngineRetrieve(TableModelIndex: integer; ID: TID): RawUtf8; override;
+    function EngineList(const SQL: RawUtf8; ForceAjax: boolean = false;
+      ReturnedRowCount: PPtrInt = nil): RawUtf8; override;
+    function EngineExecute(const aSql: RawUtf8): boolean; override;
     function EngineAdd(TableModelIndex: integer;
-      const SentData: RawUTF8): TID; override;
+      const SentData: RawUtf8): TID; override;
     function EngineUpdate(TableModelIndex: integer; ID: TID;
-      const SentData: RawUTF8): boolean; override;
+      const SentData: RawUtf8): boolean; override;
     function EngineDelete(TableModelIndex: integer; ID: TID): boolean; override;
-    function EngineDeleteWhere(TableModelIndex: integer; const SQLWhere: RawUTF8;
+    function EngineDeleteWhere(TableModelIndex: integer; const SqlWhere: RawUtf8;
       const IDs: TIDDynArray): boolean; override;
     function EngineRetrieveBlob(TableModelIndex: integer; aID: TID;
       BlobField: PRttiProp; out BlobData: RawBlob): boolean; override;
     function EngineUpdateBlob(TableModelIndex: integer; aID: TID;
       BlobField: PRttiProp; const BlobData: RawBlob): boolean; override;
     function EngineUpdateField(TableModelIndex: integer;
-      const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUTF8): boolean; override;
+      const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUtf8): boolean; override;
     function EngineUpdateFieldIncrement(TableModelIndex: integer; ID: TID;
-      const FieldName: RawUTF8; Increment: Int64): boolean; override;
+      const FieldName: RawUtf8; Increment: Int64): boolean; override;
   public
     /// initialize the table storage redirection
     // - you should not have to use this constructor, but rather the
@@ -1203,7 +1251,8 @@ type
   published
     /// the remote ORM instance used for data persistence
     // - may be a TRestOrmClient or a TRestOrmServer instance
-    property RemoteRest: TRestOrm read fRemoteRest;
+    property RemoteRest: TRestOrm
+      read fRemoteRest;
   end;
 
 
@@ -1236,7 +1285,7 @@ type
   // - inherited class should override InitShards/InitNewShard to customize the
   // kind of TRestOrm instances to be used for each shard (which may be local
   // or remote, a SQLite3 engine or an external SQL/NoSQL database)
-  // - see inherited TRestStorageShardDB as defined in mORMotSQLite3.pas
+  // - see inherited TRestStorageShardDB as defined in mormot.orm.sqlite3.pas
   TRestStorageShard = class(TRestStorage)
   protected
     fShardRange: TID;
@@ -1258,32 +1307,32 @@ type
     function InternalShardBatch(ShardIndex: integer): TRestBatch;
   public
     // overriden methods which will handle all ORM process
-    function EngineRetrieve(TableModelIndex: integer; ID: TID): RawUTF8; override;
-    function EngineList(const SQL: RawUTF8; ForceAJAX: boolean = false;
-      ReturnedRowCount: PPtrInt = nil): RawUTF8; override;
-    function EngineExecute(const aSQL: RawUTF8): boolean; override;
+    function EngineRetrieve(TableModelIndex: integer; ID: TID): RawUtf8; override;
+    function EngineList(const SQL: RawUtf8; ForceAjax: boolean = false;
+      ReturnedRowCount: PPtrInt = nil): RawUtf8; override;
+    function EngineExecute(const aSql: RawUtf8): boolean; override;
     function EngineAdd(TableModelIndex: integer;
-      const SentData: RawUTF8): TID; override;
+      const SentData: RawUtf8): TID; override;
     function EngineUpdate(TableModelIndex: integer; ID: TID;
-      const SentData: RawUTF8): boolean; override;
+      const SentData: RawUtf8): boolean; override;
     function EngineDelete(TableModelIndex: integer; ID: TID): boolean; override;
-    function EngineDeleteWhere(TableModelIndex: integer; const SQLWhere: RawUTF8;
+    function EngineDeleteWhere(TableModelIndex: integer; const SqlWhere: RawUtf8;
       const IDs: TIDDynArray): boolean; override;
     function EngineRetrieveBlob(TableModelIndex: integer; aID: TID;
       BlobField: PRttiProp; out BlobData: RawBlob): boolean; override;
     function EngineUpdateBlob(TableModelIndex: integer; aID: TID;
       BlobField: PRttiProp; const BlobData: RawBlob): boolean; override;
     function EngineUpdateField(TableModelIndex: integer;
-      const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUTF8): boolean; override;
+      const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUtf8): boolean; override;
     function EngineUpdateFieldIncrement(TableModelIndex: integer; ID: TID;
-      const FieldName: RawUTF8; Increment: Int64): boolean; override;
-    function InternalBatchStart(Method: TURIMethod;
+      const FieldName: RawUtf8; Increment: Int64): boolean; override;
+    function InternalBatchStart(Method: TUriMethod;
       BatchOptions: TRestBatchOptions): boolean; override;
     procedure InternalBatchStop; override;
   public
     /// initialize the table storage redirection for sharding
-    // - you should not have to use this constructor, but e.g.
-    // TRestStorageShardDB.Create on a main TRestOrmServer.StaticDataAdd()
+    // - you should not have to use this abstract constructor, but e.g.
+    // TRestStorageShardDB.Create which involved the actual persistence
     // - the supplied aShardRange should be < 1000 - and once set, you should NOT
     // change this value on an existing shard, unless process will be broken
     constructor Create(aClass: TOrmClass; aServer: TRestOrmServer;
@@ -1339,6 +1388,8 @@ type
 
 
 
+function ToText(t: TOrmVirtualTableTransaction): PShortString; overload;
+
 
 implementation
 
@@ -1377,15 +1428,16 @@ begin
   fServer := aServer;
   fTableClass.GetTableModuleProperties(fFeatures);
   fModuleName := fTableClass.ModuleName;
-  if fFeatures.FileExtension = '' then // default extension is the module name
-    fFeatures.FileExtension := UTF8ToString(LowerCase(fModuleName));
+  if fFeatures.FileExtension = '' then
+    // default extension is the module name
+    Utf8ToFileName(LowerCase(fModuleName), fFeatures.FileExtension);
 end;
 
-function TOrmVirtualTableModule.FileName(const aTableName: RawUTF8): TFileName;
+function TOrmVirtualTableModule.FileName(const aTableName: RawUtf8): TFileName;
 begin
-  result := UTF8ToString(aTableName) + '.' + FileExtension;
+  result := Utf8ToString(aTableName) + '.' + FileExtension;
   if fFilePath = '' then
-    result := ExeVersion.ProgramFilePath + result
+    result := Executable.ProgramFilePath + result
   else
     result := IncludeTrailingPathDelimiter(fFilePath) + result;
 end;
@@ -1394,14 +1446,14 @@ end;
 { TOrmVirtualTable }
 
 constructor TOrmVirtualTable.Create(aModule: TOrmVirtualTableModule;
-  const aTableName: RawUTF8; FieldCount: integer; Fields: PPUTF8CharArray);
+  const aTableName: RawUtf8; FieldCount: integer; Fields: PPUtf8CharArray);
 var
   aClass: TRestStorageClass;
   aServer: TRestOrmServer;
 begin
   if (aModule = nil) or
      (aTableName = '') then
-    raise EModelException.CreateUTF8('Invalid %.Create(%,"%")',
+    raise EModelException.CreateUtf8('Invalid %.Create(%,"%")',
       [self, aModule, aTableName]);
   fModule := aModule;
   fTableName := aTableName;
@@ -1410,7 +1462,7 @@ begin
     // create new fStatic instance e.g. for TOrmVirtualTableLog
     aServer := fModule.Server;
     if aServer = nil then
-      raise EModelException.CreateUTF8('%.Server=nil for %.Create', [Module, self])
+      raise EModelException.CreateUtf8('%.Server=nil for %.Create', [Module, self])
     else
       fStaticTableIndex := aServer.Model.GetTableIndex(aTableName);
     if fStaticTableIndex >= 0 then
@@ -1453,7 +1505,7 @@ begin
       with Prepared.Where[0] do
       begin
         // optimize for WHERE ID=? clause
-        Value.VType := ftNull; // mark TOrmVirtualTableCursorJSON expects it
+        Value.VType := ftNull; // mark TOrmVirtualTableCursorJson expects it
         OmitCheck := true;
         Prepared.EstimatedCost := costPrimaryIndex;
         Prepared.EstimatedRows := 1;
@@ -1475,14 +1527,14 @@ begin
   result := false;  // no DELETE to be implemented here
 end;
 
-function TOrmVirtualTable.Insert(aRowID: Int64; var Values: TSQLVarDynArray;
+function TOrmVirtualTable.Insert(aRowID: Int64; var Values: TSqlVarDynArray;
   out insertedRowID: Int64): boolean;
 begin
   result := false;  // no INSERT to be implemented here
 end;
 
 function TOrmVirtualTable.Update(oldRowID, newRowID: Int64;
-  var Values: TSQLVarDynArray): boolean;
+  var Values: TSqlVarDynArray): boolean;
 begin
   result := false;  // no UPDATE to be implemented here
 end;
@@ -1495,12 +1547,12 @@ begin
             (aState in [vttBegin, vttSync, vttCommit, vttSavePoint, vttRelease]);
 end;
 
-function TOrmVirtualTable.Rename(const NewName: RawUTF8): boolean;
+function TOrmVirtualTable.Rename(const NewName: RawUtf8): boolean;
 begin
   result := false;
 end;
 
-class function TOrmVirtualTable.ModuleName: RawUTF8;
+class function TOrmVirtualTable.ModuleName: RawUtf8;
 const
   LEN: array[-1..5] of byte = (
     1, 16, 11, 4, 16, 11, 4);
@@ -1517,18 +1569,18 @@ begin
 end;
 
 class function TOrmVirtualTable.StructureFromClass(aClass: TOrmClass;
-  const aTableName: RawUTF8): RawUTF8;
+  const aTableName: RawUtf8): RawUtf8;
 begin
-  FormatUTF8('CREATE TABLE % (%', [aTableName,
-    GetVirtualTableSQLCreate(aClass.RecordProps)], result);
+  FormatUtf8('CREATE TABLE % (%', [aTableName,
+    GetVirtualTableSqlCreate(aClass.OrmProps)], result);
 end;
 
-function TOrmVirtualTable.Structure: RawUTF8;
+function TOrmVirtualTable.Structure: RawUtf8;
 begin
   result := '';
   if self <> nil then
     if static <> nil then
-      // e.g. for TOrmVirtualTableJSON or TOrmVirtualTableExternal
+      // e.g. for TOrmVirtualTableJson or TOrmVirtualTableExternal
       result := StructureFromClass(StaticTable, TableName)
     else if (Module <> nil) and
             (Module.RecordClass <> nil) then
@@ -1544,14 +1596,14 @@ begin
   fTable := aTable;
 end;
 
-procedure TOrmVirtualTableCursor.SetColumn(var aResult: TSQLVar; aValue: Int64);
+procedure TOrmVirtualTableCursor.SetColumn(var aResult: TSqlVar; aValue: Int64);
 begin
   aResult.Options := [];
   aResult.VType := ftInt64;
   aResult.VInt64 := aValue;
 end;
 
-procedure TOrmVirtualTableCursor.SetColumn(var aResult: TSQLVar;
+procedure TOrmVirtualTableCursor.SetColumn(var aResult: TSqlVar;
   const aValue: double);
 begin
   aResult.Options := [];
@@ -1559,25 +1611,25 @@ begin
   aResult.VDouble := aValue;
 end;
 
-procedure TOrmVirtualTableCursor.SetColumn(var aResult: TSQLVar;
-  const aValue: RawUTF8);
+procedure TOrmVirtualTableCursor.SetColumn(var aResult: TSqlVar;
+  const aValue: RawUtf8);
 begin
   aResult.Options := [];
-  aResult.VType := ftUTF8;
+  aResult.VType := ftUtf8;
   fColumnTemp := aValue; // temporary copy available until next Column() call
   aResult.VText := pointer(fColumnTemp);
 end;
 
-procedure TOrmVirtualTableCursor.SetColumn(var aResult: TSQLVar;
-  aValue: PUTF8Char; aValueLength: integer);
+procedure TOrmVirtualTableCursor.SetColumn(var aResult: TSqlVar;
+  aValue: PUtf8Char; aValueLength: integer);
 begin
   aResult.Options := [];
-  aResult.VType := ftUTF8;
-  FastSetString(RawUTF8(fColumnTemp), aValue, aValueLength); // temporary copy
+  aResult.VType := ftUtf8;
+  FastSetString(RawUtf8(fColumnTemp), aValue, aValueLength); // temporary copy
   aResult.VText := pointer(fColumnTemp);
 end;
 
-procedure TOrmVirtualTableCursor.SetColumnBlob(var aResult: TSQLVar;
+procedure TOrmVirtualTableCursor.SetColumnBlob(var aResult: TSqlVar;
   aValue: pointer; aValueLength: integer);
 begin
   aResult.Options := [];
@@ -1587,7 +1639,7 @@ begin
   aResult.VBlobLen := aValueLength;
 end;
 
-procedure TOrmVirtualTableCursor.SetColumnDate(var aResult: TSQLVar;
+procedure TOrmVirtualTableCursor.SetColumnDate(var aResult: TSqlVar;
   const aValue: TDateTime; aWithMS: boolean);
 begin
   if aWithMS then
@@ -1598,7 +1650,7 @@ begin
   aResult.VDateTime := aValue;
 end;
 
-procedure TOrmVirtualTableCursor.SetColumnCurr64(var aResult: TSQLVar;
+procedure TOrmVirtualTableCursor.SetColumnCurr64(var aResult: TSqlVar;
   aValue64: PInt64);
 begin
   aResult.Options := [];
@@ -1638,7 +1690,7 @@ end;
 
 
 
-function _GetVirtualTableModuleName(VirtualTableClass: TClass): RawUTF8;
+function _GetVirtualTableModuleName(VirtualTableClass: TClass): RawUtf8;
 begin
   if VirtualTableClass.InheritsFrom(TOrmVirtualTable) then
     result := TOrmVirtualTableClass(VirtualTableClass).ModuleName
@@ -1654,18 +1706,20 @@ end;
 
 constructor TRestStorage.Create(aClass: TOrmClass; aServer: TRestOrmServer);
 begin
+  if aServer <> nil then // may be nil for a stand-alone single TOrm engine
+    fRest := aServer.Owner; // redirect high-level methods to the main TRestServer
   inherited Create(nil);
   if aClass = nil then
-    raise ERestStorage.CreateUTF8('%.Create(aClass=nil)', [self]);
+    raise ERestStorage.CreateUtf8('%.Create(aClass=nil)', [self]);
   InitializeCriticalSection(fStorageCriticalSection);
   fStoredClass := aClass;
-  fStoredClassRecordProps := aClass.RecordProps;
+  fStoredClassRecordProps := aClass.OrmProps;
   if aServer <> nil then
   begin
     fOwner := aServer;
     fModel := aServer.Model;
   end
-  else
+  else if fModel = nil then
   begin
     // fallback to an owned model instance
     fModel := TOrmModel.Create([aClass]);
@@ -1674,19 +1728,19 @@ begin
   fStoredClassProps := fModel.Props[aClass];
   fStoredClassMapping := @fStoredClassProps.ExternalDB;
   fIsUnique := fStoredClassRecordProps.IsUniqueFieldsBits;
-  fBasicSQLCount := 'SELECT COUNT(*) FROM ' +
-    fStoredClassRecordProps.SQLTableName;
-  fBasicSQLHasRows[false] := 'SELECT RowID FROM ' +
-    fStoredClassRecordProps.SQLTableName + ' LIMIT 1';
-  fBasicSQLHasRows[true] := fBasicSQLHasRows[false];
-  system.delete(fBasicSQLHasRows[true], 8, 3);
+  fBasicSqlCount := 'SELECT COUNT(*) FROM ' +
+    fStoredClassRecordProps.SqlTableName;
+  fBasicSqlHasRows[false] := 'SELECT RowID FROM ' +
+    fStoredClassRecordProps.SqlTableName + ' LIMIT 1';
+  fBasicSqlHasRows[true] := fBasicSqlHasRows[false];
+  system.delete(fBasicSqlHasRows[true], 8, 3);
 end;
 
 destructor TRestStorage.Destroy;
 begin
   inherited;
   if fStorageCriticalSectionCount <> 0 then
-    raise ERestStorage.CreateUTF8('%.Destroy with CS=%',
+    raise ERestStorage.CreateUtf8('%.Destroy with CS=%',
       [self, fStorageCriticalSectionCount]);
   DeleteCriticalSection(fStorageCriticalSection);
   if fStorageVirtual <> nil then
@@ -1697,20 +1751,27 @@ begin
   end;
 end;
 
-function TRestStorage.CreateSQLMultiIndex(Table: TOrmClass;
-  const FieldNames: array of RawUTF8; Unique: boolean; IndexName: RawUTF8): boolean;
+function TRestStorage.CreateSqlMultiIndex(Table: TOrmClass;
+  const FieldNames: array of RawUtf8; Unique: boolean; IndexName: RawUtf8): boolean;
 begin
   result := false; // not implemented in this basic REST static class
 end;
 
-function TRestStorage.SearchField(const FieldName: RawUTF8; FieldValue: Int64;
+function TRestStorage.SearchField(const FieldName: RawUtf8; FieldValue: Int64;
   out ResultID: TIDDynArray): boolean;
 begin
-  result := SearchField(FieldName, Int64ToUTF8(FieldValue), ResultID);
+  result := SearchField(FieldName, Int64ToUtf8(FieldValue), ResultID);
+end;
+
+function TRestStorage.SearchField(const FieldName, FieldValue: RawUtf8;
+  out ResultID: TIDDynArray): boolean;
+begin
+  result := OneFieldValues(fStoredClass, 'ID',
+    FormatUtf8('%=?', [FieldName, FieldValue]), TInt64DynArray(ResultID));
 end;
 
 function TRestStorage.RecordCanBeUpdated(Table: TOrmClass; ID: TID;
-  Action: TOrmEvent; ErrorMsg: PRawUTF8 = nil): boolean;
+  Action: TOrmEvent; ErrorMsg: PRawUtf8 = nil): boolean;
 begin
   result := (Owner = nil) or
             Owner.RecordCanBeUpdated(Table, ID, Action, ErrorMsg);
@@ -1722,7 +1783,7 @@ begin
 end;
 
 procedure TRestStorage.StorageLock(WillModifyContent: boolean;
-  const msg: RawUTF8);
+  const msg: RawUtf8);
 begin
   if fStorageLockLogTrace or
      (fStorageCriticalSectionCount > 1) then
@@ -1743,7 +1804,7 @@ begin
     InternalLog('StorageUnlock % %',
       [fStoredClass, fStorageCriticalSectionCount]);
   if fStorageCriticalSectionCount < 0 then
-    raise ERestStorage.CreateUTF8('%.StorageUnLock with CS=%',
+    raise ERestStorage.CreateUtf8('%.StorageUnLock with CS=%',
       [self, fStorageCriticalSectionCount]);
   LeaveCriticalSection(fStorageCriticalSection);
 end;
@@ -1757,12 +1818,12 @@ begin
 end;
 
 procedure TRestStorage.RecordVersionFieldHandle(Occasion: TOrmOccasion;
-  var Decoder: TJSONObjectDecoder);
+  var Decoder: TJsonObjectDecoder);
 begin
   if fStoredClassRecordProps.RecordVersionField = nil then
     exit;
   if Owner = nil then
-    raise ERestStorage.CreateUTF8('Owner=nil for %.%: TRecordVersion',
+    raise ERestStorage.CreateUtf8('Owner=nil for %.%: TRecordVersion',
       [fStoredClass, fStoredClassRecordProps.RecordVersionField.Name]);
   Owner.Owner.RecordVersionHandle(Occasion, fStoredClassProps.TableIndex,
     Decoder, fStoredClassRecordProps.RecordVersionField);
@@ -1773,7 +1834,7 @@ begin
   result := Model.UnLock(Table, aID);
 end;
 
-function TRestStorage.AdaptSQLForEngineList(var SQL: RawUTF8): boolean;
+function TRestStorage.AdaptSqlForEngineList(var SQL: RawUtf8): boolean;
 begin
   if fStoredClassProps = nil then
     result := false
@@ -1787,7 +1848,7 @@ begin
   end;
 end;
 
-function TRestStorage.GetStoredClassName: RawUTF8;
+function TRestStorage.GetStoredClassName: RawUtf8;
 begin
   if self = nil then
     result := ''
@@ -1800,10 +1861,10 @@ end;
 { ************ TRestStorageInMemory as Stand-Alone JSON/Binary Storage }
 
 
-{ TRestStorageRecordBased }
+{ TRestStorageTOrm }
 
-function TRestStorageRecordBased.EngineAdd(TableModelIndex: integer;
-  const SentData: RawUTF8): TID;
+function TRestStorageTOrm.EngineAdd(TableModelIndex: integer;
+  const SentData: RawUtf8): TID;
 var
   rec: TOrm;
 begin
@@ -1825,8 +1886,8 @@ begin
   end;
 end;
 
-function TRestStorageRecordBased.EngineUpdate(TableModelIndex: integer;
-  ID: TID; const SentData: RawUTF8): boolean;
+function TRestStorageTOrm.EngineUpdate(TableModelIndex: integer;
+  ID: TID; const SentData: RawUtf8): boolean;
 var
   rec: TOrm;
 begin
@@ -1853,8 +1914,8 @@ begin
   end;
 end;
 
-function TRestStorageRecordBased.UpdateOne(ID: TID;
-  const Values: TSQLVarDynArray): boolean;
+function TRestStorageTOrm.UpdateOne(ID: TID;
+  const Values: TSqlVarDynArray): boolean;
 var
   rec: TOrm;
 begin
@@ -1867,9 +1928,9 @@ begin
   try
     rec := fStoredClass.Create;
     try
-      rec.SetFieldSQLVars(Values);
+      rec.SetFieldSqlVars(Values);
       rec.IDValue := ID;
-      result := UpdateOne(rec, rec.GetJSONValues(true, False, ooUpdate));
+      result := UpdateOne(rec, rec.GetJsonValues(true, False, ooUpdate));
     finally
       rec.Free;
     end;
@@ -1928,7 +1989,7 @@ begin
   inherited Create(aClass, aServer);
   if (fStoredClassProps <> nil) and
      (fStoredClassProps.Kind in INSERT_WITH_ID) then
-    raise ERestStorage.CreateUTF8('%.Create: % virtual table can''t be static',
+    raise ERestStorage.CreateUtf8('%.Create: % virtual table can''t be static',
       [self, aClass]);
   fFileName := aFileName;
   fBinaryFile := aBinaryFile;
@@ -1939,19 +2000,19 @@ begin
      (fStoredClassProps <> nil) then
     with fStoredClassProps do
     begin
-      // used by AdaptSQLForEngineList() method
-      fBasicUpperSQLSelect[false] := UpperCase(SQL.SelectAllWithRowID);
-      SetLength(fBasicUpperSQLSelect[false],
-        length(fBasicUpperSQLSelect[false]) - 1); // trim right ';'
-      fBasicUpperSQLSelect[true] :=
-        StringReplaceAll(fBasicUpperSQLSelect[false], ' ROWID,', ' ID,');
+      // used by AdaptSqlForEngineList() method
+      fBasicUpperSqlSelect[false] := UpperCase(SQL.SelectAllWithRowID);
+      SetLength(fBasicUpperSqlSelect[false],
+        length(fBasicUpperSqlSelect[false]) - 1); // trim right ';'
+      fBasicUpperSqlSelect[true] :=
+        StringReplaceAll(fBasicUpperSqlSelect[false], ' ROWID,', ' ID,');
     end;
   if not IsZero(fIsUnique) then
     with fStoredClassRecordProps.Fields do
     begin
       SetLength(fUnique, Count);
       for f := 0 to Count - 1 do
-        if f in fIsUnique then
+        if byte(f) in fIsUnique then
           fUnique[f] := TRestStorageInMemoryUnique.Create(self, List[f]);
     end;
   ReloadFromFile;
@@ -1978,7 +2039,7 @@ begin
 end;
 
 function TRestStorageInMemory.AddOne(Rec: TOrm; ForceID: boolean;
-  const SentData: RawUTF8): TID;
+  const SentData: RawUtf8): TID;
 var
   ndx, f: PtrInt;
   added: boolean;
@@ -1989,7 +2050,7 @@ begin
     exit;
   // ensure no duplicated ID or unique field
   for f := 0 to high(fUnique) do
-    if f in fIsUnique then
+    if byte(f) in fIsUnique then
     begin
       ndx := fUnique[f].Find(Rec);
       if ndx >= 0 then
@@ -2002,7 +2063,7 @@ begin
   if ForceID then
   begin
     if Rec.IDValue <= 0 then
-      raise ERestStorage.CreateUTF8('%.AddOne(%.ForceID=0)', [self, Rec]);
+      raise ERestStorage.CreateUtf8('%.AddOne(%.ForceID=0)', [self, Rec]);
     ndx := fValues.FindHashed(Rec);
     if ndx >= 0 then
     begin
@@ -2022,15 +2083,15 @@ begin
   end;
   // update internal hash tables and add to internal list
   for f := 0 to high(fUnique) do
-    if f in fIsUnique then
+    if byte(f) in fIsUnique then
       if not fUnique[f].AddedAfterFind(Rec) then // paranoid
-        raise ERestStorage.CreateUTF8('%.AddOne on %.%',
+        raise ERestStorage.CreateUtf8('%.AddOne on %.%',
           [self, Rec, fUnique[f].PropInfo.Name]);
   ndx := fValues.FindHashedForAdding(Rec, added);
   if added then
     fValue[ndx] := Rec
   else
-    raise ERestStorage.CreateUTF8('%.AddOne % failed', [self, Rec]); // paranoid
+    raise ERestStorage.CreateUtf8('%.AddOne % failed', [self, Rec]); // paranoid
   result := Rec.IDValue; // success
   fModified := true;
   if Owner <> nil then
@@ -2045,7 +2106,7 @@ var
 begin
   result := false;
   for f := 0 to high(fUnique) do
-    if f in fIsUnique then
+    if byte(f) in fIsUnique then
     begin
       ndx := fUnique[f].Find(aRec);
       if (ndx >= 0) and
@@ -2144,12 +2205,12 @@ begin
       Owner.InternalUpdateEvent(oeDelete, fStoredClassProps.TableIndex,
         rec.IDValue, '', nil);
     for f := 0 to high(fUnique) do
-      if f in fIsUnique then
+      if byte(f) in fIsUnique then
         if fUnique[f].Hasher.FindBeforeDelete(@rec) < aIndex then
-          raise ERestStorage.CreateUTF8('%.DeleteOne(%) failed on %',
+          raise ERestStorage.CreateUtf8('%.DeleteOne(%) failed on %',
             [self, aIndex, fUnique[f].PropInfo.Name]);
     if fValues.FindHashedAndDelete(rec) <> aIndex then
-      raise ERestStorage.CreateUTF8('%.DeleteOne(%) failed', [self, aIndex]);
+      raise ERestStorage.CreateUtf8('%.DeleteOne(%) failed', [self, aIndex]);
     if fMaxID = 0 then
       fMaxID := FindMaxID(pointer(fValue), fCount);
     fModified := true;
@@ -2158,11 +2219,12 @@ begin
 end;
 
 function TRestStorageInMemory.EngineDeleteWhere(TableModelIndex: integer;
-  const SQLWhere: RawUTF8; const IDs: TIDDynArray): boolean;
+  const SqlWhere: RawUtf8; const IDs: TIDDynArray): boolean;
 var
   ndx: TIntegerDynArray;
   n, i: PtrInt;
-begin // RecordCanBeUpdated() has already been called
+begin
+  // RecordCanBeUpdated() has already been called
   result := false;
   n := length(IDs);
   SetLength(ndx, n);
@@ -2188,7 +2250,7 @@ begin // RecordCanBeUpdated() has already been called
   end;
 end;
 
-function TRestStorageInMemory.EngineExecute(const aSQL: RawUTF8): boolean;
+function TRestStorageInMemory.EngineExecute(const aSql: RawUtf8): boolean;
 begin
   result := false; // there is no SQL engine with this class
 end;
@@ -2206,50 +2268,50 @@ function TRestStorageInMemory.GetItem(Index: integer): TOrm;
 begin
   if self <> nil then
     if cardinal(Index) >= cardinal(fCount) then
-      raise ERestStorage.CreateUTF8('%.GetItem(%) out of range', [self, Index])
+      raise ERestStorage.CreateUtf8('%.GetItem(%) out of range', [self, Index])
     else
       result := fValue[Index]
   else
     result := nil;
 end;
 
-procedure TRestStorageInMemory.GetJSONValuesEvent(aDest: pointer;
+procedure TRestStorageInMemory.GetJsonValuesEvent(aDest: pointer;
   aRec: TOrm; aIndex: integer);
 var
-  W: TJSONSerializer absolute aDest;
+  W: TJsonSerializer absolute aDest;
 begin
-  aRec.GetJSONValues(W);
-  W.Add(',');
+  aRec.GetJsonValues(W);
+  W.AddComma;
 end;
 
-function TRestStorageInMemory.AdaptSQLForEngineList(var SQL: RawUTF8): boolean;
+function TRestStorageInMemory.AdaptSqlForEngineList(var SQL: RawUtf8): boolean;
 var
-  P: PUTF8Char;
-  Prop: RawUTF8;
+  P: PUtf8Char;
+  Prop: RawUtf8;
   WithoutRowID: boolean;
 begin
-  result := inherited AdaptSQLForEngineList(SQL);
+  result := inherited AdaptSqlForEngineList(SQL);
   if result then
     // 'select * from table'
     exit;
-  if IdemPropNameU(fBasicSQLCount, SQL) or
-     IdemPropNameU(fBasicSQLHasRows[false], SQL) or
-     IdemPropNameU(fBasicSQLHasRows[true], SQL) then
+  if IdemPropNameU(fBasicSqlCount, SQL) or
+     IdemPropNameU(fBasicSqlHasRows[false], SQL) or
+     IdemPropNameU(fBasicSqlHasRows[true], SQL) then
   begin
     // 'select count(*) from table' will be handled as static
     result := true;
     exit;
   end;
-  if fBasicUpperSQLSelect[false] = '' then
+  if fBasicUpperSqlSelect[false] = '' then
     exit;
-  if IdemPChar(pointer(SQL), pointer(fBasicUpperSQLSelect[false])) then
+  if IdemPChar(pointer(SQL), pointer(fBasicUpperSqlSelect[false])) then
     WithoutRowID := false
-  else if IdemPChar(pointer(SQL), pointer(fBasicUpperSQLSelect[true])) then
+  else if IdemPChar(pointer(SQL), pointer(fBasicUpperSqlSelect[true])) then
     WithoutRowID := true
   else
     exit;
   P := pointer(SQL);
-  inc(P, length(fBasicUpperSQLSelect[WithoutRowID]));
+  inc(P, length(fBasicUpperSqlSelect[WithoutRowID]));
   if P^ in [#0, ';'] then
   begin
     // properly ended the WHERE clause as 'SELECT * FROM table'
@@ -2290,14 +2352,15 @@ begin
 end;
 
 function TRestStorageInMemory.FindWhereEqual(
-  const WhereFieldName, WhereValue: RawUTF8; OnFind: TFindWhereEqualEvent;
+  const WhereFieldName, WhereValue: RawUtf8; const OnFind: TOnFindWhereEqual;
   Dest: pointer; FoundLimit, FoundOffset: integer; CaseInsensitive: boolean): PtrInt;
 var
   WhereFieldIndex: integer;
 begin
   result := 0;
   if (self = nil) or
-     not Assigned(OnFind) then
+     not Assigned(OnFind) or
+     (fCount = 0) then
     exit;
   if IsRowID(pointer(WhereFieldName)) then
     WhereFieldIndex := 0
@@ -2314,10 +2377,10 @@ begin
 end;
 
 function TRestStorageInMemory.FindWhereEqual(WhereField: integer;
-  const WhereValue: RawUTF8; OnFind: TFindWhereEqualEvent; Dest: pointer;
+  const WhereValue: RawUtf8; const OnFind: TOnFindWhereEqual; Dest: pointer;
   FoundLimit, FoundOffset: PtrInt; CaseInsensitive: boolean): PtrInt;
 var
-  i, currentRow, found: PtrInt;
+  i, found: PtrInt;
   v: Int64;
   err: integer;
   P: TOrmPropInfo;
@@ -2332,10 +2395,8 @@ var
     if FoundOffset > 0 then
     begin
       // omit first FoundOffset rows
-      inc(currentRow);
-      if currentRow > FoundOffset then
-        FoundOffset := 0
-      else
+      dec(FoundOffset);
+      if FoundOffset >= 0 then
         exit;
     end;
     if Assigned(OnFind) then
@@ -2398,20 +2459,19 @@ begin
   end;
   // full scan optimized search for a specified value
   found := 0;
-  currentRow := 0;
-  if P.InheritsFrom(TOrmPropInfoRTTIInt32) and
-     (TOrmPropInfoRTTIInt32(P).PropRtti.Kind in [rkInteger, rkEnumeration, rkSet]) then
+  if P.InheritsFrom(TOrmPropInfoRttiInt32) and
+     (TOrmPropInfoRttiInt32(P).PropRtti.Kind in [rkInteger, rkEnumeration, rkSet]) then
   begin
     // search 8/16/32-bit properties
     v := GetInt64(pointer(WhereValue), err); // 64-bit for cardinal
     if err <> 0 then
       exit;
-    nfo := TOrmPropInfoRTTI(P).PropInfo;
-    offs := TOrmPropInfoRTTI(P).GetterIsFieldPropOffset;
+    nfo := TOrmPropInfoRtti(P).PropInfo;
+    offs := TOrmPropInfoRtti(P).GetterIsFieldPropOffset;
     if offs <> 0 then
     begin
       // plain field with no getter
-      ot := TOrmPropInfoRTTI(P).PropRtti.Cache.RttiOrd;
+      ot := TOrmPropInfoRtti(P).PropRtti.Cache.RttiOrd;
       if ot in [roSLong, roULong] then
       begin
         // handle very common 32-bit integer field
@@ -2437,14 +2497,14 @@ begin
            FoundOneAndReachedLimit then
           break;
   end
-  else if P.InheritsFrom(TOrmPropInfoRTTIInt64) then
+  else if P.InheritsFrom(TOrmPropInfoRttiInt64) then
   begin
     // search 64-bit integer property
     v := GetInt64(pointer(WhereValue), err);
     if err <> 0 then
       exit;
-    nfo := TOrmPropInfoRTTI(P).PropInfo;
-    offs := TOrmPropInfoRTTI(P).GetterIsFieldPropOffset;
+    nfo := TOrmPropInfoRtti(P).PropInfo;
+    offs := TOrmPropInfoRtti(P).GetterIsFieldPropOffset;
     if offs <> 0 then
     begin
       // plain field with no getter
@@ -2475,6 +2535,106 @@ begin
   result := found;
 end;
 
+function TRestStorageInMemory.FindWhere(WhereField: integer;
+  const WhereValue: RawUtf8; WhereOp: TSelectStatementOperator;
+  const OnFind: TOnFindWhereEqual; Dest: pointer; FoundLimit,
+  FoundOffset: integer; CaseInsensitive: boolean): PtrInt;
+var
+  P: TOrmPropInfo;
+  cmp: integer;
+  id: Int64;
+  i: integer;
+  found: boolean;
+  v: POrm;
+begin
+  // prepare the search
+  result := 0;
+  if (self = nil) or
+     not Assigned(OnFind) or
+     (fCount = 0) then
+    exit;
+  case WhereOp of
+    opEqualTo:
+      begin
+        // redirect to the optimized FindWhereEqual() method
+        result := FindWhereEqual(WhereField, WhereValue, OnFind, Dest,
+          FoundLimit, FoundOffset, CaseInsensitive);
+        exit;
+      end;
+    opNotEqualTo,
+    opLessThan,
+    opLessThanOrEqualTo,
+    opGreaterThan,
+    opGreaterThanOrEqualTo:
+      ; // CompareValue() operations
+  else
+    exit; // unsupported operation
+  end;
+  // generic search using fast CompareValue() overridden methods
+  if FoundLimit <= 0 then
+    FoundLimit := maxInt;
+  if WhereField = 0 then
+    if ToInt64(WhereValue, id) then
+      P := nil // will search v^.IDValue
+    else
+      exit
+  else
+  begin
+    P := fStoredClassRecordProps.Fields.List[WhereField - 1];
+    P.SetValueVar(fSearchRec, WhereValue, false); // private copy for comparison
+  end;
+  v := pointer(fValue);
+  for i := 0 to fCount - 1 do
+  begin
+    if P = nil then
+      cmp := CompareInt64(v^.IDValue, id{%H-})
+    else
+      cmp := P.CompareValue(v^, fSearchRec, CaseInsensitive);
+    if cmp < 0 then
+      found := WhereOp in [opNotEqualTo, opLessThan, opLessThanOrEqualTo]
+    else if cmp > 0 then
+      found := WhereOp in [opNotEqualTo, opGreaterThan, opGreaterThanOrEqualTo]
+    else
+      // cmp = 0 -> opEqualTo has been handled above
+      found := WhereOp in [opLessThanOrEqualTo, opGreaterThanOrEqualTo];
+    if found then
+      if FoundOffset > 0 then
+        // omit first FoundOffset rows
+        dec(FoundOffset)
+      else
+      begin
+        // notify match found
+        OnFind(Dest, v^, i);
+        inc(result);
+        if result >= FoundLimit then
+          exit;
+      end;
+    inc(v);
+  end;
+end;
+
+function TRestStorageInMemory.FindWhere(
+  const WhereFieldName, WhereValue: RawUtf8; WhereOp: TSelectStatementOperator;
+  const OnFind: TOnFindWhereEqual; Dest: pointer;
+  FoundLimit, FoundOffset: integer; CaseInsensitive: boolean): PtrInt;
+var
+  WhereFieldIndex: integer;
+begin
+  result := 0;
+  if IsRowID(pointer(WhereFieldName)) then
+    WhereFieldIndex := 0
+  else
+  begin
+    WhereFieldIndex := fStoredClassRecordProps.Fields.
+      IndexByName(pointer(WhereFieldName));
+    if WhereFieldIndex < 0 then
+      exit;
+    inc(WhereFieldIndex); // FindWhere() expects index = RTTI+1
+  end;
+  result := FindWhere(WhereFieldIndex, WhereValue, WhereOp, OnFind, Dest,
+    FoundLimit, FoundOffset, CaseInsensitive);
+end;
+
 function TRestStorageInMemory.FindMax(WhereField: integer;
   out max: Int64): boolean;
 var
@@ -2499,9 +2659,9 @@ begin
   // search WHERE WhereField=WhereValue (WhereField=RTTIfield+1)
   dec(WhereField);
   P := fStoredClassRecordProps.Fields.List[WhereField];
-  if P.InheritsFrom(TOrmPropInfoRTTIInt32) then
+  if P.InheritsFrom(TOrmPropInfoRttiInt32) then
   begin
-    nfo := TOrmPropInfoRTTI(P).PropInfo;
+    nfo := TOrmPropInfoRtti(P).PropInfo;
     for i := 0 to fCount - 1 do
     begin
       v := nfo.GetOrdProp(fValue[i]);
@@ -2510,9 +2670,9 @@ begin
     end;
     result := true;
   end
-  else if P.InheritsFrom(TOrmPropInfoRTTIInt64) then
+  else if P.InheritsFrom(TOrmPropInfoRttiInt64) then
   begin
-    nfo := TOrmPropInfoRTTI(P).PropInfo;
+    nfo := TOrmPropInfoRtti(P).PropInfo;
     for i := 0 to fCount - 1 do
     begin
       v := nfo.GetInt64Prop(fValue[i]);
@@ -2524,7 +2684,7 @@ begin
 end;
 
 procedure TRestStorageInMemory.ForEach(WillModifyContent: boolean;
-  OnEachProcess: TFindWhereEqualEvent; Dest: pointer);
+  const OnEachProcess: TOnFindWhereEqual; Dest: pointer);
 var
   i: PtrInt;
 begin
@@ -2541,23 +2701,24 @@ begin
   end;
 end;
 
-function TRestStorageInMemory.GetJSONValues(Stream: TStream; Expand: boolean;
+function TRestStorageInMemory.GetJsonValues(Stream: TStream; Expand: boolean;
   Stmt: TSelectStatement): PtrInt;
 var
   ndx, KnownRowsCount: PtrInt;
   j: PtrInt;
   id: Int64;
-  W: TJSONSerializer;
+  W: TJsonSerializer;
   IsNull: boolean;
   Prop: TOrmPropInfo;
   bits: TFieldBits;
   withID: boolean;
 label
   err;
-begin // exact same format as TOrmTable.GetJSONValues()
+begin
+  // exact same format as TOrmTable.GetJsonValues()
   result := 0;
   if length(Stmt.Where) > 1 then
-    raise ERestStorage.CreateUTF8('%.GetJSONValues on % with Stmt.Where[]=%',
+    raise ERestStorage.CreateUtf8('%.GetJsonValues on % with Stmt.Where[]=%',
       [self, fStoredClass, length(Stmt.Where)]);
   if Stmt.Where = nil then
     // no WHERE statement -> get all rows -> set rows count
@@ -2569,7 +2730,7 @@ begin // exact same format as TOrmTable.GetJSONValues()
   else
     KnownRowsCount := 0;
   Stmt.SelectFieldBits(bits, withID);
-  W := fStoredClassRecordProps.CreateJSONWriter(Stream, Expand, withID,
+  W := fStoredClassRecordProps.CreateJsonWriter(Stream, Expand, withID,
     bits, KnownRowsCount, {bufsize=}256 shl 10);
   if W <> nil then
   try
@@ -2582,8 +2743,8 @@ begin // exact same format as TOrmTable.GetJSONValues()
       begin
         if Expand then
           W.AddCR; // for better readability
-        fValue[ndx].GetJSONValues(W);
-        W.Add(',');
+        fValue[ndx].GetJsonValues(W);
+        W.AddComma;
       end;
       result := KnownRowsCount;
     end
@@ -2591,7 +2752,15 @@ begin // exact same format as TOrmTable.GetJSONValues()
       case Stmt.Where[0].Operation of
         opEqualTo:
           result := FindWhereEqual(Stmt.Where[0].Field, Stmt.Where[0].Value,
-            GetJSONValuesEvent, W, Stmt.Limit, Stmt.Offset);
+            GetJsonValuesEvent, W, Stmt.Limit, Stmt.Offset);
+        opNotEqualTo,
+        opLessThan,
+        opLessThanOrEqualTo,
+        opGreaterThan,
+        opGreaterThanOrEqualTo:
+          with Stmt.Where[0] do
+            result := FindWhere(Field, Value, Operation,
+              GetJsonValuesEvent, W, Stmt.Limit, Stmt.Offset);
         opIn:
           // only handle ID IN (..) by now
           if (Stmt.Where[0].Field <> 0) or
@@ -2605,8 +2774,8 @@ begin // exact same format as TOrmTable.GetJSONValues()
                   j := IDToIndex(id);
                   if j >= 0 then
                   begin
-                    fValue[j].GetJSONValues(W);
-                    W.Add(',');
+                    fValue[j].GetJsonValues(W);
+                    W.AddComma;
                     inc(result);
                     if (Stmt.Limit > 0) and
                        (result >= Stmt.Limit) then
@@ -2619,14 +2788,14 @@ begin // exact same format as TOrmTable.GetJSONValues()
           if Stmt.Where[0].Field > 0 then
           begin
             Prop := fStoredClassRecordProps.Fields.List[Stmt.Where[0].Field - 1];
-            if Prop.InheritsFrom(TOrmPropInfoRTTIRawBlob) then
+            if Prop.InheritsFrom(TOrmPropInfoRttiRawBlob) then
             begin
               IsNull := Stmt.Where[0].Operation = opIsNull;
               for ndx := 0 to fCount - 1 do
-                if TOrmPropInfoRTTIRawBlob(Prop).IsNull(fValue[ndx]) = IsNull then
+                if TOrmPropInfoRttiRawBlob(Prop).IsNull(fValue[ndx]) = IsNull then
                 begin
-                  fValue[ndx].GetJSONValues(W);
-                  W.Add(',');
+                  fValue[ndx].GetJsonValues(W);
+                  W.AddComma;
                   inc(result);
                   if (Stmt.Limit > 0) and
                     (result >= Stmt.Limit) then
@@ -2651,9 +2820,9 @@ err:      W.CancelAll;
       // we want the field names at least, even with no data
       W.Expand := false; //  {"fieldCount":2,"values":["col1","col2"]}
       W.CancelAll;
-      fStoredClassRecordProps.SetJSONWriterColumnNames(W, 0);
+      fStoredClassRecordProps.SetJsonWriterColumnNames(W, 0);
     end;
-    W.EndJSONObject(KnownRowsCount, result);
+    W.EndJsonObject(KnownRowsCount, result);
   finally
     W.Free;
   end;
@@ -2673,13 +2842,10 @@ begin
   end;
 end;
 
-function TRestStorageInMemory.EngineList(const SQL: RawUTF8; ForceAJAX: boolean;
-  ReturnedRowCount: PPtrInt): RawUTF8;
-// - GetJSONValues/FindWhereEqual will handle basic REST commands (not all SQL)
-// only valid SQL command is "SELECT Field1,Field2 FROM Table WHERE ID=120;",
-// i.e one Table SELECT with one optional "WHERE fieldname = value" statement
-// - handle also basic "SELECT Count(*) FROM TableName;" SQL statement
-// Note: this is sufficient for OneFieldValue() and MultiFieldValue() to work
+function TRestStorageInMemory.EngineList(const SQL: RawUtf8; ForceAjax: boolean;
+  ReturnedRowCount: PPtrInt): RawUtf8;
+// - GetJsonValues/FindWhere(Equal) will handle basic REST commands (not all SQL)
+// - note: sufficient for OneFieldValue() and MultiFieldValue() to work
 var
   MS: TRawByteStringStream;
   ResCount: PtrInt;
@@ -2688,7 +2854,7 @@ var
 
   procedure SetCount(aCount: integer);
   begin
-    FormatUTF8('[{"Count(*)":%}]'#$A, [aCount], result);
+    FormatUtf8('[{"Count(*)":%}]'#$A, [aCount], result);
     ResCount := 1;
   end;
 
@@ -2697,30 +2863,32 @@ begin
   ResCount := 0;
   StorageLock(false, 'EngineList');
   try
-    if IdemPropNameU(fBasicSQLCount, SQL) then
+    if IdemPropNameU(fBasicSqlCount, SQL) then
       SetCount(TableRowCount(fStoredClass))
-    else if IdemPropNameU(fBasicSQLHasRows[false], SQL) or
-            IdemPropNameU(fBasicSQLHasRows[true], SQL) then
-      if TableRowCount(fStoredClass) = 0 then
+    else if IdemPropNameU(fBasicSqlHasRows[false], SQL) or
+            IdemPropNameU(fBasicSqlHasRows[true], SQL) then
+      if TableHasRows(fStoredClass) then
       begin
-        result := '{"fieldCount":1,"values":["RowID"]}'#$A;
-        ResCount := 0;
-      end
-      else
-      begin
-        // return one row with fake ID=1
+        // return one expanded row with fake ID=1 - enough for the ORM usecase
         result := '[{"RowID":1}]'#$A;
         ResCount := 1;
       end
+      else
+      begin
+        // return the not expanded field name if no row, as a regular SQL engine
+        result := '{"fieldCount":1,"values":["RowID"]}'#$A;
+        ResCount := 0;
+      end
     else
     begin
+      // parse SQL SELECT with a single where clause
       Stmt := TSelectStatement.Create(SQL,
         fStoredClassRecordProps.Fields.IndexByName,
-        fStoredClassRecordProps.SimpleFieldsBits[ooSelect]);
+        fStoredClassRecordProps.SimpleFieldSelect);
       try
-        if (Stmt.SQLStatement = '') or // parsing failed
+        if (Stmt.SqlStatement = '') or // parsing failed
            (length(Stmt.Where) > 1) or // only a SINGLE expression is allowed yet
-           not IdemPropNameU(Stmt.TableName, fStoredClassRecordProps.SQLTableName) then
+           not IdemPropNameU(Stmt.TableName, fStoredClassRecordProps.SqlTableName) then
           // invalid request -> return ''
           exit;
         if Stmt.SelectFunctionCount = 0 then
@@ -2728,8 +2896,9 @@ begin
           // save rows as JSON, with appropriate search according to Where.* arguments
           MS := TRawByteStringStream.Create;
           try
-            ForceAJAX := ForceAJAX or not Owner.Owner.NoAJAXJSON;
-            ResCount := GetJSONValues(MS, ForceAJAX, Stmt);
+            ForceAjax := ForceAjax or
+                         not Owner.Owner.NoAjaxJson;
+            ResCount := GetJsonValues(MS, ForceAjax, Stmt);
             result := MS.DataString;
           finally
             MS.Free;
@@ -2763,7 +2932,7 @@ begin
               if (Stmt.Where = nil) and
                  FindMax(Stmt.Select[0].Field, max) then
               begin
-                FormatUTF8('[{"Max()":%}]'#$A, [max], result);
+                FormatUtf8('[{"Max()":%}]'#$A, [max], result);
                 ResCount := 1;
               end;
           else
@@ -2794,7 +2963,7 @@ begin
     begin
       timer.Start;
       for f := 0 to high(fUnique) do
-        if f in fIsUnique then
+        if byte(f) in fIsUnique then
           fUnique[f].Hasher.Clear;
       fValues.Hasher.Clear;
       fValues.Clear;
@@ -2810,13 +2979,13 @@ begin
   end;
 end;
 
-procedure TRestStorageInMemory.LoadFromJSON(const aJSON: RawUTF8);
+procedure TRestStorageInMemory.LoadFromJson(const aJson: RawUtf8);
 var
   tmp: TSynTempBuffer;
 begin
-  tmp.Init(aJSON);
+  tmp.Init(aJson);
   try
-    LoadFromJSON(tmp.buf, tmp.len);
+    LoadFromJson(tmp.buf, tmp.len);
   finally
     tmp.Done;
   end;
@@ -2826,10 +2995,10 @@ procedure TRestStorageInMemory.ComputeStateAfterLoad(
   var loaded: TPrecisionTimer; binary: boolean);
 const
   _CALLER: array[boolean] of string[7] = (
-    'JSON', 'Binary');
+    'Json', 'Binary');
 var
   f, c: PtrInt;
-  cf: RawUTF8;
+  cf: RawUtf8;
   timer: TPrecisionTimer;
 begin
   // now fValue[] contains the just loaded data
@@ -2841,9 +3010,9 @@ begin
     cf := 'ID'
   else
     for f := 0 to high(fUnique) do
-      if f in fIsUnique then
+      if byte(f) in fIsUnique then
       begin
-        c := fUnique[f].Hasher.ReHash({forced=}true, {grow=}false);
+        c := fUnique[f].Hasher.ReHash({forced=}true);
         if c > 0 then
         begin
           cf := fUnique[f].PropInfo.Name;
@@ -2853,37 +3022,41 @@ begin
   if c > 0 then
   begin
     DropValues({andupdatefile=}false);
-    raise ERestStorage.CreateUTF8('%.LoadFrom%: found % % in %.% field',
+    raise ERestStorage.CreateUtf8('%.LoadFrom%: found % % in %.% field',
       [self, _CALLER[binary], Plural('duplicate', c), fStoredClass, {%H-}cf]);
   end;
   if binary then
   begin
-    fMaxID := FindMaxID(pointer(fValue), fCount);
-    fUnSortedID := false; // by SaveToBinary design
+    // IDs are sorted by SaveToBinary design
+    if fCount = 0 then
+      fMaxID := 0
+    else
+      fMaxID := fValue[fCount - 1].IDValue;
+    fUnSortedID := false;
   end
   else
-  // JSON may have been tampered
+    // JSON may have been tampered, so we actually ensure IDs are sorted
     fMaxID := FindMaxIDAndCheckSorted(pointer(fValue), fCount, fUnSortedID);
   InternalLog('LoadFrom% % count=% load=% index=%',
     [_CALLER[binary], fStoredClass, fCount, loaded.Stop, timer.Stop]);
 end;
 
-procedure TRestStorageInMemory.LoadFromJSON(
-  JSONBuffer: PUTF8Char; JSONBufferLen: integer);
+procedure TRestStorageInMemory.LoadFromJson(
+  JsonBuffer: PUtf8Char; JsonBufferLen: integer);
 var
-  T: TOrmTableJSON;
+  T: TOrmTableJson;
   timer: TPrecisionTimer;
 begin
-  StorageLock(true, 'LoadFromJSON');
+  StorageLock(true, 'LoadFromJson');
   try
     timer.Start;
     if fCount > 0 then
       DropValues({andupdatefile=}false);
     fModified := false;
-    if JSONBuffer = nil then
+    if JsonBuffer = nil then
       exit;
-    T := TOrmTableJSON.CreateFromTables(
-      [fStoredClass], '', JSONBuffer, JSONBufferLen);
+    T := TOrmTableJson.CreateFromTables(
+      [fStoredClass], '', JsonBuffer, JsonBufferLen);
     try
       if T.FieldIndexID < 0 then // no ID field -> load is impossible
         exit;
@@ -2897,19 +3070,19 @@ begin
   end;
 end;
 
-procedure TRestStorageInMemory.SaveToJSON(Stream: TStream; Expand: boolean);
+procedure TRestStorageInMemory.SaveToJson(Stream: TStream; Expand: boolean);
 var
   i, j: PtrInt;
-  W: TJSONSerializer;
+  W: TJsonSerializer;
   ndx: TIntegerDynArray;
 begin
   if self = nil then
     exit;
-  StorageLock(false, 'SaveToJSON');
+  StorageLock(false, 'SaveToJson');
   try
     if fUnSortedID then
       fValues.CreateOrderedIndex(ndx, nil); // write in ascending ID order
-    W := fStoredClassRecordProps.CreateJSONWriter(Stream, Expand, true,
+    W := fStoredClassRecordProps.CreateJsonWriter(Stream, Expand, true,
       ALL_FIELDS, fCount, {bufsize=}1 shl 20);
     try
       if Expand then
@@ -2922,10 +3095,10 @@ begin
           j := i
         else
           j := ndx[i];
-        fValue[j].GetJSONValues(W);
-        W.Add(',');
+        fValue[j].GetJsonValues(W);
+        W.AddComma;
       end;
-      W.EndJSONObject(fCount, fCount);
+      W.EndJsonObject(fCount, fCount);
     finally
       W.Free;
     end;
@@ -2934,7 +3107,7 @@ begin
   end;
 end;
 
-function TRestStorageInMemory.SaveToJSON(Expand: boolean): RawUTF8;
+function TRestStorageInMemory.SaveToJson(Expand: boolean): RawUtf8;
 var
   MS: TRawByteStringStream;
 begin
@@ -2944,7 +3117,7 @@ begin
   begin
     MS := TRawByteStringStream.Create;
     try
-      SaveToJSON(MS, Expand);
+      SaveToJson(MS, Expand);
       result := MS.DataString;
     finally
       MS.Free;
@@ -2980,8 +3153,8 @@ var
   i, n, f: PtrInt;
   ID32: TIntegerDynArray;
   rec: TOrm;
-  id: TID;
-  s: RawUTF8;
+  id: QWord;
+  s: RawUtf8;
   prop: TOrmPropInfo;
   timer: TPrecisionTimer;
 begin
@@ -2994,56 +3167,54 @@ begin
     exit;
   StorageLock(true, 'LoadFromBinary');
   try
-    // check header: expect same exact RTTI
-    R.Init(MS.Memory, MS.Size);
-    R.VarUTF8(s);
-    if (s <> '') and  // new fixed format
-       not IdemPropNameU(s, 'TOrmProperties') then // old buggy format
-      exit;
-    if not fStoredClassRecordProps.CheckBinaryHeader(R) then
-      exit;
-    // create instances and read their IDs
-    if fCount > 0 then
-      DropValues({andupdatefile=}false);
-    fModified := false;
-    n := R.ReadVarUInt32Array(ID32);
-    SetLength(fValue, abs(n)); // allocate all at once
-    if n < 0 then
-    begin
-      // was wkFakeMarker -> TID were stored as VarUInt64 diffs
-      n := abs(n);
-      id := 0;
-      for i := 0 to n - 1 do
+    try
+      // check header: expect same exact RTTI
+      R.Init(MS.Memory, MS.Size);
+      R.VarUtf8(s);
+      if (s <> '') and // 0='' in recent mORMot 1.18 format
+         not IdemPropNameU(s, 'TSqlRecordProperties') then // old buggy format
+        exit;
+      if not fStoredClassRecordProps.CheckBinaryHeader(R) then
+        exit;
+      // create instances and read their IDs
+      if fCount > 0 then
+        DropValues({andupdatefile=}false);
+      fModified := false;
+      n := R.ReadVarUInt32Array(ID32);
+      SetLength(fValue, abs(n)); // allocate all at once
+      if n < 0 then
       begin
-        rec := fStoredClass.Create;  // avoid URW699 with Delphi6/Kylix
-        id := id + {$ifdef FPC_OR_UNICODE}TID{$endif}(R.VarUInt64);
-        rec.IDValue := id;
-        fValue[i] := rec;
-      end;
-    end
-    else
-      for i := 0 to n - 1 do
-      begin
-        rec := fStoredClass.Create;
-        rec.IDValue := ID32[i];
-        fValue[i] := rec;
-      end;
-    // read content, grouped by field (for better compression)
-    for f := 0 to fStoredClassRecordProps.Fields.Count - 1 do
-    begin
-      prop := fStoredClassRecordProps.Fields.List[f];
-      for i := 0 to n - 1 do
-      begin
-        R.P := prop.SetBinary(fValue[i], R.P, R.Last);
-        if R.P = nil then
+        // was wkFakeMarker -> TID were stored as VarUInt64 diffs
+        n := abs(n);
+        id := 0;
+        for i := 0 to n - 1 do
         begin
-          DropValues(false); // on error, reset all values
-          exit;
+          rec := fStoredClass.Create;
+          inc(id, R.VarUInt64);
+          rec.IDValue := id;
+          fValue[i] := rec;
         end;
+      end
+      else
+        // ReadVarUInt32Array() decoded TID into ID32[]
+        for i := 0 to n - 1 do
+        begin
+          rec := fStoredClass.Create;
+          rec.IDValue := ID32[i];
+          fValue[i] := rec;
+        end;
+      // read content, grouped by field (for better compression)
+      for f := 0 to fStoredClassRecordProps.Fields.Count - 1 do
+      begin
+        prop := fStoredClassRecordProps.Fields.List[f];
+        for i := 0 to n - 1 do
+          prop.SetBinary(fValue[i], R);
       end;
+      ComputeStateAfterLoad(timer, {binary=}true);
+      result := true;
+    except
+      DropValues(false); // on error, reset all values and return false
     end;
-    ComputeStateAfterLoad(timer, {binary=}true);
-    result := true;
   finally
     StorageUnlock;
     MS.Free;
@@ -3074,7 +3245,7 @@ begin
   S := TResourceStream.Create(Instance, ResourceName, pointer(10));
   try
     if not LoadFromBinary(S) then
-      raise ERestStorage.CreateUTF8('%.LoadFromResource with invalid % content',
+      raise ERestStorage.CreateUtf8('%.LoadFromResource with invalid % content',
         [self, fStoredClass]);
   finally
     S.Free;
@@ -3101,7 +3272,7 @@ begin
     StorageLock(false, 'SaveToBinary');
     try
       // primitive magic and fields signature for file type identification
-      W.Write1(0); // ClassName='TOrmProperties' in old buggy format
+      W.Write1(0); // ClassName='TSqlRecordProperties' in old buggy format
       fStoredClassRecordProps.SaveBinaryHeader(W);
       // write IDs - in increasing order
       if fUnSortedID then
@@ -3138,7 +3309,7 @@ begin
             j := ndx[i];
           newID := fValue[j].IDValue;
           if newID <= lastID then
-            raise ERestStorage.CreateUTF8('%.SaveToBinary(%): duplicated ID',
+            raise ERestStorage.CreateUtf8('%.SaveToBinary(%): duplicated ID',
               [self, fStoredClass]);
           W.WriteVarUInt64(newID - lastID);
           lastID := newID;
@@ -3168,7 +3339,7 @@ begin
 end;
 
 function TRestStorageInMemory.EngineRetrieve(TableModelIndex: integer;
-  ID: TID): RawUTF8;
+  ID: TID): RawUtf8;
 var
   i: PtrInt;
 begin
@@ -3179,7 +3350,7 @@ begin
     if i < 0 then
       result := ''
     else
-      result := fValue[i].GetJSONValues(true, true, ooSelect);
+      result := fValue[i].GetJsonValues(true, true, ooSelect);
   finally
     StorageUnLock;
   end;
@@ -3207,12 +3378,12 @@ begin
 end;
 
 function TRestStorageInMemory.EngineUpdateFieldIncrement(
-  TableModelIndex: integer; ID: TID; const FieldName: RawUTF8;
+  TableModelIndex: integer; ID: TID; const FieldName: RawUtf8;
   Increment: Int64): boolean;
 var
   i, err: integer;
   P: TOrmPropInfo;
-  V: RawUTF8;
+  V: RawUtf8;
   wasString: boolean;
   int: Int64;
 begin
@@ -3257,10 +3428,10 @@ begin
 end;
 
 function TRestStorageInMemory.EngineUpdateField(TableModelIndex: integer;
-  const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUTF8): boolean;
+  const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUtf8): boolean;
 var
   P: TOrmPropInfo;
-  WhereValueString, SetValueString, SetValueJson: RawUTF8;
+  WhereValueString, SetValueString, SetValueJson: RawUtf8;
   i, WhereFieldIndex: PtrInt;
   SetValueWasString: boolean;
   match: TSynList;
@@ -3274,7 +3445,7 @@ begin
      (WhereValue = '') then
     exit;
   // handle destination field RTTI
-  P := fStoredClassRecordProps.Fields.ByRawUTF8Name(SetFieldName);
+  P := fStoredClassRecordProps.Fields.ByRawUtf8Name(SetFieldName);
   if P = nil then
     exit; // don't allow setting ID field, which is Read Only
   if P.PropertyIndex in fIsUnique then
@@ -3284,7 +3455,7 @@ begin
   end;
   SetValueWasString := SetValue[1] = '"';
   if SetValueWasString then
-    UnQuoteSQLStringVar(pointer(SetValue), SetValueString)
+    UnQuoteSqlStringVar(pointer(SetValue), SetValueString)
   else
     SetValueString := SetValue;
   // handle search field RTTI
@@ -3301,7 +3472,7 @@ begin
     inc(WhereFieldIndex); // FindWhereEqual() expects index = RTTI+1
   end;
   if WhereValue[1] = '"' then
-    UnQuoteSQLStringVar(pointer(WhereValue), WhereValueString)
+    UnQuoteSqlStringVar(pointer(WhereValue), WhereValueString)
   else
     WhereValueString := WhereValue;
   // search indexes, then apply updates
@@ -3311,8 +3482,11 @@ begin
     // find matching match[]
     if FindWhereEqual(WhereFieldIndex, WhereValueString,
         DoAddToListEvent, match, 0, 0) = 0 then
+    begin
       // match.Count=0 -> nothing to update
+      result := true; // as with SQL UPDATE
       exit;
+    end;
     // check that all records can be updated
     for i := 0 to match.Count - 1 do
       if not RecordCanBeUpdated(fStoredClass,
@@ -3327,7 +3501,7 @@ begin
       if Owner <> nil then
       begin
         if {%H-}SetValueJson = '' then
-          JSONEncodeNameSQLValue(P.Name, SetValue, SetValueJson);
+          JsonEncodeNameSQLValue(P.Name, SetValue, SetValueJson);
         Owner.InternalUpdateEvent(oeUpdate, fStoredClassProps.TableIndex,
           rec.IDValue, SetValueJson, nil);
       end;
@@ -3341,7 +3515,7 @@ begin
 end;
 
 function TRestStorageInMemory.EngineUpdate(TableModelIndex: integer; ID: TID;
-  const SentData: RawUTF8): boolean;
+  const SentData: RawUtf8): boolean;
 var
   i: PtrInt;
   rec: TOrm;
@@ -3388,7 +3562,7 @@ begin
 end;
 
 function TRestStorageInMemory.UpdateOne(Rec: TOrm;
-  const SentData: RawUTF8): boolean;
+  const SentData: RawUtf8): boolean;
 var
   i: PtrInt;
 begin
@@ -3418,7 +3592,7 @@ begin
 end;
 
 function TRestStorageInMemory.UpdateOne(ID: TID;
-  const Values: TSQLVarDynArray): boolean;
+  const Values: TSqlVarDynArray): boolean;
 var
   i: PtrInt;
   rec: TOrm;
@@ -3436,7 +3610,7 @@ begin
     begin
       // use temp rec to ensure no collision when updated Unique field
       rec := fValue[i].CreateCopy; // copy since can be a partial update
-      if not rec.SetFieldSQLVars(Values) or
+      if not rec.SetFieldSqlVars(Values) or
          not UniqueFieldsUpdateOK(rec, i) then
       begin
         rec.Free;
@@ -3447,13 +3621,13 @@ begin
     end
     else
       // direct in-place (partial) update
-      if not fValue[i].SetFieldSQLVars(Values) then
+      if not fValue[i].SetFieldSqlVars(Values) then
         exit;
     fModified := true;
     result := true;
     if Owner <> nil then
       Owner.InternalUpdateEvent(oeUpdate, fStoredClassProps.TableIndex,
-        ID, fValue[i].GetJSONValues(True, False, ooUpdate), nil);
+        ID, fValue[i].GetJsonValues(True, False, ooUpdate), nil);
   finally
     StorageUnLock;
   end;
@@ -3489,7 +3663,7 @@ begin
   if (Value <> nil) and
      (Value.IDValue > 0) and
      (POrmClass(Value)^ = fStoredClass) then
-    with Value.RecordProps do
+    with Value.Orm do
       if BlobFields <> nil then
       begin
         StorageLock(false, 'RetrieveBlobFields');
@@ -3546,7 +3720,7 @@ begin
   if (Value <> nil) and
      (Value.IDValue > 0) and
      (POrmClass(Value)^ = fStoredClass) then
-    with Value.RecordProps do
+    with Value.Orm do
     if BlobFields <> nil then
     begin
       StorageLock(true, 'UpdateBlobFields');
@@ -3616,7 +3790,7 @@ begin
         if BinaryFile then
           SaveToBinary(F)
         else
-          SaveToJSON(F, true);
+          SaveToJson(F, true);
       finally
         F.Free;
       end;
@@ -3646,30 +3820,30 @@ end;
 
 procedure TRestStorageInMemory.ReloadFromFile;
 var
-  JSON: RawUTF8;
-  Stream: TStream;
+  json: RawUtf8;
+  stream: TStream;
 begin
   if (fFileName <> '') and
      FileExists(fFileName) then
   begin
     if fBinaryFile then
     begin
-      Stream := FileStreamSequentialRead(fFileName);
+      stream := FileStreamSequentialRead(fFileName);
       try
-        LoadFromBinary(Stream)
+        LoadFromBinary(stream)
       finally
-        Stream.Free;
+        stream.Free;
       end;
     end
     else
     begin
-      JSON := AnyTextFileToRawUTF8(fFileName, true);
-      LoadFromJSON(pointer(JSON), length(JSON)); // buffer parsed in-place
+      json := AnyTextFileToRawUtf8(fFileName, true);
+      LoadFromJson(pointer(json), length(json)); // buffer parsed in-place
     end;
   end;
 end;
 
-function TRestStorageInMemory.SearchField(const FieldName, FieldValue: RawUTF8;
+function TRestStorageInMemory.SearchField(const FieldName, FieldValue: RawUtf8;
   out ResultID: TIDDynArray): boolean;
 var
   n, WhereField, i: integer;
@@ -3698,6 +3872,7 @@ begin
       SetLength(ResultID, n);
       for i := 0 to n - 1 do
         ResultID[i] := TOrm(match.List[i]).IDValue;
+      result := true;
     finally
       StorageUnLock;
     end;
@@ -3706,8 +3881,10 @@ begin
   end;
 end;
 
-function TRestStorageInMemory.SearchEvent(const FieldName, FieldValue: RawUTF8;
-  OnFind: TFindWhereEqualEvent; Dest: pointer; FoundLimit, FoundOffset: PtrInt): integer;
+function TRestStorageInMemory.SearchEvent(const FieldName, FieldValue: RawUtf8;
+  const OnFind: TOnFindWhereEqual; Dest: pointer;
+  FoundLimit, FoundOffset: PtrInt; CaseInsensitive: boolean;
+  Op: TSelectStatementOperator): integer;
 begin
   result := 0;
   if (self = nil) or
@@ -3716,38 +3893,46 @@ begin
     exit;
   StorageLock(false, 'SearchEvent');
   try
-    result := FindWhereEqual(FieldName, FieldValue, OnFind, Dest,
-      FoundLimit, FoundOffset);
+    result := FindWhere(FieldName, FieldValue, Op, OnFind, Dest,
+      FoundLimit, FoundOffset, CaseInsensitive);
   finally
     StorageUnlock;
   end;
 end;
 
 function TRestStorageInMemory.SearchCopy(
-  const FieldName, FieldValue: RawUTF8): pointer;
+  const FieldName, FieldValue: RawUtf8;
+  CaseInsensitive: boolean; Op: TSelectStatementOperator): pointer;
 begin
-  if SearchEvent(FieldName, FieldValue, DoCopyEvent, @result, 1, 0) = 0 then
+  if SearchEvent(FieldName, FieldValue, DoCopyEvent,
+      @result, 1, 0, CaseInsensitive, Op) = 0 then
     result := nil;
 end;
 
 function TRestStorageInMemory.SearchInstance(
-  const FieldName, FieldValue: RawUTF8): pointer;
+  const FieldName, FieldValue: RawUtf8;
+  CaseInsensitive: boolean; Op: TSelectStatementOperator): pointer;
 begin
-  if SearchEvent(FieldName, FieldValue, DoInstanceEvent, @result, 1, 0) = 0 then
+  if SearchEvent(FieldName, FieldValue, DoInstanceEvent,
+      @result, 1, 0, CaseInsensitive, Op) = 0 then
     result := nil;
 end;
 
 function TRestStorageInMemory.SearchIndex(
-  const FieldName, FieldValue: RawUTF8): integer;
+  const FieldName, FieldValue: RawUtf8;
+  CaseInsensitive: boolean; Op: TSelectStatementOperator): integer;
 begin
-  if SearchEvent(FieldName, FieldValue, DoIndexEvent, @result, 1, 0) = 0 then
+  if SearchEvent(FieldName, FieldValue, DoIndexEvent,
+      @result, 1, 0, CaseInsensitive, Op) = 0 then
     result := -1;
 end;
 
 function TRestStorageInMemory.SearchCount(
-  const FieldName, FieldValue: RawUTF8): integer;
+  const FieldName, FieldValue: RawUtf8;
+  CaseInsensitive: boolean; Op: TSelectStatementOperator): integer;
 begin
-  result := SearchEvent(FieldName, FieldValue, DoNothingEvent, nil, 0, 0);
+  result := SearchEvent(FieldName, FieldValue, DoNothingEvent,
+      nil, 0, 0, CaseInsensitive, Op);
 end;
 
 class procedure TRestStorageInMemory.DoNothingEvent(
@@ -3794,7 +3979,7 @@ begin
 end;
 
 procedure TRestStorageInMemoryExternal.StorageLock(WillModifyContent: boolean;
-  const msg: RawUTF8);
+  const msg: RawUtf8);
 begin
   inherited StorageLock(WillModifyContent, msg);
   if WillModifyContent and
@@ -3805,25 +3990,25 @@ end;
 
 
 
-{ ************ TOrmVirtualTableJSON/TOrmVirtualTableBinary Virtual Tables }
+{ ************ TOrmVirtualTableJson/TOrmVirtualTableBinary Virtual Tables }
 
 
-{ TOrmVirtualTableCursorJSON }
+{ TOrmVirtualTableCursorJson }
 
-function TOrmVirtualTableCursorJSON.Column(aColumn: integer;
-  var aResult: TSQLVar): boolean;
+function TOrmVirtualTableCursorJson.Column(aColumn: integer;
+  var aResult: TSqlVar): boolean;
 var
   store: TRestStorageInMemory;
 begin
   if (self = nil) or
      (fCurrent > fMax) or
-     (TOrmVirtualTableJSON(Table).static = nil) then
+     (TOrmVirtualTableJson(Table).Static = nil) then
   begin
     result := false;
     exit;
   end;
-  store := TOrmVirtualTableJSON(Table).fStaticInMemory;
-  if Cardinal(fCurrent) >= Cardinal(store.fCount) then
+  store := TOrmVirtualTableJson(Table).fStaticInMemory;
+  if cardinal(fCurrent) >= cardinal(store.fCount) then
     result := false
   else
   begin
@@ -3837,22 +4022,22 @@ begin
         if cardinal(aColumn) >= cardinal(Count) then
           aResult.VType := ftNull
         else
-          List[aColumn].GetFieldSQLVar(
+          List[aColumn].GetFieldSqlVar(
             store.fValue[fCurrent], aResult, fColumnTemp);
     result := true;
   end;
 end;
 
-function TOrmVirtualTableCursorJSON.Search(
+function TOrmVirtualTableCursorJson.Search(
   const Prepared: TOrmVirtualTablePrepared): boolean;
 var
   store: TRestStorageInMemory;
 begin
   result := false;
   inherited Search(Prepared); // mark EOF by default
-  if not Table.InheritsFrom(TOrmVirtualTableJSON) then
+  if not Table.InheritsFrom(TOrmVirtualTableJson) then
     exit;
-  store := TOrmVirtualTableJSON(Table).fStaticInMemory;
+  store := TOrmVirtualTableJson(Table).fStaticInMemory;
   if store = nil then
     exit;
   if store.fCount > 0 then
@@ -3872,7 +4057,7 @@ begin
         with Prepared.Where[0] do
           if Column in store.fIsUnique then
           begin
-            store.fStoredClassRecordProps.Fields.List[Column].SetFieldSQLVar(
+            store.fStoredClassRecordProps.Fields.List[Column].SetFieldSqlVar(
               store.fSearchRec, Value);
             fMax := store.fUnique[Column].Find(store.fSearchRec);
             if fMax >= 0 then
@@ -3884,16 +4069,16 @@ end;
 
 
 
-{ TOrmVirtualTableJSON }
+{ TOrmVirtualTableJson }
 
-constructor TOrmVirtualTableJSON.Create(aModule: TOrmVirtualTableModule;
-  const aTableName: RawUTF8; FieldCount: integer; Fields: PPUTF8CharArray);
+constructor TOrmVirtualTableJson.Create(aModule: TOrmVirtualTableModule;
+  const aTableName: RawUtf8; FieldCount: integer; Fields: PPUtf8CharArray);
 begin
   inherited Create(aModule, aTableName, FieldCount, Fields);
   fStaticInMemory := fStatic as TRestStorageInMemory;
 end;
 
-function TOrmVirtualTableJSON.Delete(aRowID: Int64): boolean;
+function TOrmVirtualTableJson.Delete(aRowID: Int64): boolean;
 begin
   result := (static <> nil) and static.Delete(StaticTable, aRowID);
   if result and
@@ -3902,7 +4087,7 @@ begin
     StaticStorage.Owner.CacheOrNil.NotifyDeletion(StaticTable, aRowID);
 end;
 
-function TOrmVirtualTableJSON.Drop: boolean;
+function TOrmVirtualTableJson.Drop: boolean;
 begin
   if (self <> nil) and
      (static <> nil) then
@@ -3915,19 +4100,19 @@ begin
     result := false;
 end;
 
-class procedure TOrmVirtualTableJSON.GetTableModuleProperties(
+class procedure TOrmVirtualTableJson.GetTableModuleProperties(
   var aProperties: TVirtualTableModuleProperties);
 begin
   aProperties.Features := [vtWrite, vtWhereIDPrepared];
-  aProperties.CursorClass := TOrmVirtualTableCursorJSON;
+  aProperties.CursorClass := TOrmVirtualTableCursorJson;
   aProperties.StaticClass := TRestStorageInMemoryExternal; // will flush Cache
   if InheritsFrom(TOrmVirtualTableBinary) then
     aProperties.FileExtension := 'data';
-  // default will follow the class name, e.g. '.json' for TOrmVirtualTableJSON
+  // default will follow the class name, e.g. '.json' for TOrmVirtualTableJson
 end;
 
-function TOrmVirtualTableJSON.Insert(aRowID: Int64;
-  var Values: TSQLVarDynArray; out insertedRowID: Int64): boolean;
+function TOrmVirtualTableJson.Insert(aRowID: Int64;
+  var Values: TSqlVarDynArray; out insertedRowID: Int64): boolean;
 var
   rec: TOrm;
 begin
@@ -3937,12 +4122,12 @@ begin
     exit;
   rec := StaticTable.Create;
   try
-    if rec.SetFieldSQLVars(Values) then
+    if rec.SetFieldSqlVars(Values) then
     begin
       if aRowID > 0 then
         rec.IDValue := aRowID;
       insertedRowID := fStaticInMemory.AddOne(rec, aRowID > 0,
-        rec.GetJSONValues(true, false, ooInsert));
+        rec.GetJsonValues(true, false, ooInsert));
       if insertedRowID > 0 then
       begin
         if fStaticInMemory.Owner <> nil then
@@ -3956,7 +4141,7 @@ begin
   end;
 end;
 
-function TOrmVirtualTableJSON.Prepare(
+function TOrmVirtualTableJson.Prepare(
   var Prepared: TOrmVirtualTablePrepared): boolean;
 begin
   result := inherited Prepare(Prepared); // optimize ID=? WHERE clause
@@ -3968,7 +4153,7 @@ begin
         if (Column >= 0) and
            (Column in fStaticInMemory.fIsUnique) then
         begin
-          Value.VType := ftNull; // mark TOrmVirtualTableCursorJSON expects it
+          Value.VType := ftNull; // mark TOrmVirtualTableCursorJson expects it
           OmitCheck := true;
           Prepared.EstimatedCost := costSecondaryIndex;
           Prepared.EstimatedRows := 10;
@@ -3978,8 +4163,8 @@ begin
   end;
 end;
 
-function TOrmVirtualTableJSON.Update(oldRowID, newRowID: Int64;
-  var Values: TSQLVarDynArray): boolean;
+function TOrmVirtualTableJson.Update(oldRowID, newRowID: Int64;
+  var Values: TSqlVarDynArray): boolean;
 var
   i: PtrInt;
 begin
@@ -4016,7 +4201,7 @@ type
   // CREATE TABLE statement
   TOrmLogFile = class(TOrmVirtualTableAutoID)
   protected
-    fContent: RawUTF8;
+    fContent: RawUtf8;
     fDateTime: TDateTime;
     fLevel: TSynLogInfo;
   published
@@ -4025,17 +4210,17 @@ type
     /// the log event level
     property Level: TSynLogInfo read fLevel;
     /// the textual message associated to the log event
-    property Content: RawUTF8 read fContent;
+    property Content: RawUtf8 read fContent;
   end;
 
 constructor TOrmVirtualTableLog.Create(aModule: TOrmVirtualTableModule;
-  const aTableName: RawUTF8; FieldCount: integer; Fields: PPUTF8CharArray);
+  const aTableName: RawUtf8; FieldCount: integer; Fields: PPUtf8CharArray);
 var
   aFileName: TFileName;
 begin
   inherited Create(aModule, aTableName, FieldCount, Fields);
   if FieldCount = 1 then
-    aFileName := UTF8ToString(Fields[0])
+    Utf8ToFileName(Fields[0], aFileName)
   else
     aFileName := aModule.FileName(aTableName);
   fLogFile := TSynLogFile.Create(aFileName);
@@ -4059,7 +4244,7 @@ end;
 { TOrmVirtualTableCursorLog }
 
 function TOrmVirtualTableCursorLog.Column(aColumn: integer;
-  var aResult: TSQLVar): boolean;
+  var aResult: TSqlVar): boolean;
 var
   LogFile: TSynLogFile;
 begin
@@ -4118,14 +4303,14 @@ constructor TRestStorageRemote.Create(aClass: TOrmClass;
   aServer: TRestOrmServer; aRemoteRest: TRestOrm);
 begin
   if aRemoteRest = nil then
-    raise ERestStorage.CreateUTF8('%.Create(nil)', [self]);
+    raise ERestStorage.CreateUtf8('%.Create(nil)', [self]);
   inherited Create(aClass, aServer);
   fRemoteTableIndex := aRemoteRest.Model.GetTableIndexExisting(aClass);
   fRemoteRest := aRemoteRest;
 end;
 
 function TRestStorageRemote.EngineAdd(TableModelIndex: integer;
-  const SentData: RawUTF8): TID;
+  const SentData: RawUtf8): TID;
 begin
   result := fRemoteRest.EngineAdd(fRemoteTableIndex, SentData);
 end;
@@ -4137,24 +4322,24 @@ begin
 end;
 
 function TRestStorageRemote.EngineDeleteWhere(TableModelIndex: integer;
-  const SQLWhere: RawUTF8; const IDs: TIDDynArray): boolean;
+  const SqlWhere: RawUtf8; const IDs: TIDDynArray): boolean;
 begin
-  result := fRemoteRest.EngineDeleteWhere(fRemoteTableIndex, SQLWhere, IDs);
+  result := fRemoteRest.EngineDeleteWhere(fRemoteTableIndex, SqlWhere, IDs);
 end;
 
-function TRestStorageRemote.EngineExecute(const aSQL: RawUTF8): boolean;
+function TRestStorageRemote.EngineExecute(const aSql: RawUtf8): boolean;
 begin
-  result := fRemoteRest.EngineExecute(aSQL);
+  result := fRemoteRest.EngineExecute(aSql);
 end;
 
-function TRestStorageRemote.EngineList(const SQL: RawUTF8; ForceAJAX: boolean;
-  ReturnedRowCount: PPtrInt): RawUTF8;
+function TRestStorageRemote.EngineList(const SQL: RawUtf8; ForceAjax: boolean;
+  ReturnedRowCount: PPtrInt): RawUtf8;
 begin
-  result := fRemoteRest.EngineList(SQL, ForceAJAX, ReturnedRowCount);
+  result := fRemoteRest.EngineList(SQL, ForceAjax, ReturnedRowCount);
 end;
 
 function TRestStorageRemote.EngineRetrieve(TableModelIndex: integer;
-  ID: TID): RawUTF8;
+  ID: TID): RawUtf8;
 begin
   result := fRemoteRest.EngineRetrieve(fRemoteTableIndex, ID);
 end;
@@ -4171,7 +4356,7 @@ begin
 end;
 
 function TRestStorageRemote.EngineUpdate(TableModelIndex: integer;
-  ID: TID; const SentData: RawUTF8): boolean;
+  ID: TID; const SentData: RawUtf8): boolean;
 begin
   result := fRemoteRest.EngineUpdate(fRemoteTableIndex, ID, SentData);
 end;
@@ -4188,14 +4373,14 @@ begin
 end;
 
 function TRestStorageRemote.EngineUpdateField(TableModelIndex: integer;
-  const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUTF8): boolean;
+  const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUtf8): boolean;
 begin
   result := fRemoteRest.EngineUpdateField(fRemoteTableIndex,
     SetFieldName, SetValue, WhereFieldName, WhereValue);
 end;
 
 function TRestStorageRemote.EngineUpdateFieldIncrement(TableModelIndex: integer;
-  ID: TID; const FieldName: RawUTF8; Increment: Int64): boolean;
+  ID: TID; const FieldName: RawUtf8; Increment: Int64): boolean;
 begin
   result := fRemoteRest.EngineUpdateFieldIncrement(fRemoteTableIndex,
     ID, FieldName, Increment);
@@ -4217,7 +4402,7 @@ var
   i, n: PtrInt;
 begin
   if aShardRange < MIN_SHARD then
-    raise ERestStorage.CreateUTF8('%.Create(%,aShardRange=%<%) does not make sense',
+    raise ERestStorage.CreateUtf8('%.Create(%,aShardRange=%<%) does not make sense',
       [self, aClass, aShardRange, MIN_SHARD]);
   inherited Create(aClass, aServer);
   fShardRange := aShardRange;
@@ -4255,7 +4440,10 @@ begin
       rest := fShards[i];
       if rest = nil then
         continue;
-      rest.Free;
+      if rest.RefCount <> 1 then
+        raise ERestStorage.CreateUtf8('%.Destroy: %.RefCount=%',
+          [self, rest.RefCount]);
+      IInterface(rest)._Release; // manual reference counting
       for j := i + 1 to high(fShards) do
         if fShards[j] = rest then
           fShards[j] := nil; // same instance re-used in fShards[]
@@ -4264,17 +4452,29 @@ begin
 end;
 
 procedure TRestStorageShard.ConsolidateShards;
-begin // do nothing by default
+begin
+  // do nothing by default
 end;
 
 procedure TRestStorageShard.RemoveShard(aShardIndex: integer);
+var
+  rest: TRestOrm;
 begin
   StorageLock(true, 'RemoveShard');
   try
     if (fShards <> nil) and
        (cardinal(aShardIndex) <= cardinal(fShardLast)) then
     begin
-      FreeAndNil(fShards[aShardIndex]);
+      rest := fShards[aShardIndex];
+      if (rest = nil) or
+         (rest.RefCount <> 1) then
+        raise ERestStorage.CreateUtf8('%.RemoveShard(%): %?',
+          [self, aShardIndex, fShards[aShardIndex]]);
+      if rest <> nil then
+      begin
+        IInterface(rest)._Release; // manual reference counting
+        fShards[aShardIndex] := nil;
+      end;
       fShardTableIndex[aShardIndex] := -1;
     end;
   finally
@@ -4286,13 +4486,13 @@ procedure TRestStorageShard.InternalAddNewShard;
 var
   rest: TRestOrm;
   i: PtrInt;
-  log: ISynLog; // for Enter auto-leave to work with FPC
+  {%H-}log: ISynLog;
 begin
   log := fOwner.Owner.Enter('InternalAddNewShard: #% for %',
     [fShardLast + 1, fStoredClass], self);
   rest := InitNewShard;
   if rest = nil then
-    raise ERestStorage.CreateUTF8('%.InitNewShard(%) =nil',
+    raise ERestStorage.CreateUtf8('%.InitNewShard(%) =nil',
       [self, fStoredClass]);
   inc(fShardNextID, fShardRange);
   SetLength(fShardTableIndex, fShardLast + 1);
@@ -4346,13 +4546,13 @@ begin
 end;
 
 function TRestStorageShard.EngineAdd(TableModelIndex: integer;
-  const SentData: RawUTF8): TID;
+  const SentData: RawUtf8): TID;
 var
-  data: RawUTF8;
+  data: RawUtf8;
   i: PtrInt;
 begin
-  if JSONGetID(pointer(SentData), result) then
-    raise ERestStorage.CreateUTF8('%.EngineAdd(%) unexpected ID in %',
+  if JsonGetID(pointer(SentData), result) then
+    raise ERestStorage.CreateUtf8('%.EngineAdd(%) unexpected ID in %',
       [self, fStoredClass, SentData]);
   StorageLock(true, 'EngineAdd');
   try
@@ -4361,17 +4561,17 @@ begin
     begin
       InternalAddNewShard;
       if fShardLastID >= fShardNextID then
-        raise ERestStorage.CreateUTF8('%.EngineAdd(%) fShardNextID',
+        raise ERestStorage.CreateUtf8('%.EngineAdd(%) fShardNextID',
           [self, fStoredClass]);
     end;
     result := fShardLastID;
     i := PosExChar('{', SentData);
     if i = 0 then
-      FormatUTF8('{ID:%}', [result], data)
+      FormatUtf8('{ID:%}', [result], data)
     else
     begin
       data := SentData;
-      insert(FormatUTF8('ID:%,', [result]), data, i + 1);
+      insert(FormatUtf8('ID:%,', [result]), data, i + 1);
     end;
     if fShardBatch <> nil then
       InternalShardBatch(fShardLast).RawAdd(data)
@@ -4409,13 +4609,13 @@ begin
 end;
 
 function TRestStorageShard.EngineDeleteWhere(TableModelIndex: integer;
-  const SQLWhere: RawUTF8; const IDs: TIDDynArray): boolean;
+  const SqlWhere: RawUtf8; const IDs: TIDDynArray): boolean;
 var
   i: PtrInt;
   ndx: cardinal;
   id: array of TInt64DynArray; // IDs split per shard
   idn: TIntegerDynArray;
-  sql: RawUTF8;
+  sql: RawUtf8;
 begin
   result := false;
   if (IDs = nil) or
@@ -4440,7 +4640,7 @@ begin
     for i := 0 to high(id) do
       if id[i] <> nil then
       begin
-        sql := Int64DynArrayToCSV(pointer(id[i]), idn[i], 'ID in (', ')');
+        sql := Int64DynArrayToCsv(pointer(id[i]), idn[i], 'ID in (', ')');
         if not fShards[i].EngineDeleteWhere(
             fShardTableIndex[i], sql, TIDDynArray(id[i])) then
           result := false;
@@ -4450,13 +4650,13 @@ begin
   end;
 end;
 
-function TRestStorageShard.EngineExecute(const aSQL: RawUTF8): boolean;
+function TRestStorageShard.EngineExecute(const aSql: RawUtf8): boolean;
 begin
   StorageLock(false, 'EngineExecute');
   try
     if (fShardLast >= 0) and
        not (ssoNoExecute in fOptions) then
-      result := fShards[fShardLast].EngineExecute(aSQL)
+      result := fShards[fShardLast].EngineExecute(aSql)
     else
       result := false;
   finally
@@ -4481,8 +4681,8 @@ begin
       inc(result, fShards[i].TableRowCount(fStoredClass));
 end;
 
-function TRestStorageShard.EngineList(const SQL: RawUTF8;
-  ForceAJAX: boolean; ReturnedRowCount: PPtrInt): RawUTF8;
+function TRestStorageShard.EngineList(const SQL: RawUtf8;
+  ForceAjax: boolean; ReturnedRowCount: PPtrInt): RawUtf8;
 var
   ResCount: PtrInt;
 begin
@@ -4490,15 +4690,16 @@ begin
   StorageLock(false, 'EngineList');
   try
     ResCount := 0;
-    if IdemPropNameU(fBasicSQLCount, SQL) then
+    if IdemPropNameU(fBasicSqlCount, SQL) then
     begin
-      FormatUTF8('[{"Count(*)":%}]'#$A, [TableRowCount(fStoredClass)], result);
+      FormatUtf8('[{"Count(*)":%}]'#$A, [TableRowCount(fStoredClass)], result);
       ResCount := 1;
     end
-    else if IdemPropNameU(fBasicSQLHasRows[false], SQL) or
-            IdemPropNameU(fBasicSQLHasRows[true], SQL) then
+    else if IdemPropNameU(fBasicSqlHasRows[false], SQL) or
+            IdemPropNameU(fBasicSqlHasRows[true], SQL) then
       if fShards <> nil then
-      begin // return one row with fake ID=1
+      begin
+        // return one row with fake ID=1
         result := '[{"RowID":1}]'#$A;
         ResCount := 1;
       end
@@ -4508,7 +4709,7 @@ begin
     begin
       if (fShardLast >= 0) and
          not (ssoNoList in fOptions) then
-        result := fShards[fShardLast].EngineList(SQL, ForceAJAX, @ResCount);
+        result := fShards[fShardLast].EngineList(SQL, ForceAjax, @ResCount);
     end;
     if ReturnedRowCount <> nil then
       ReturnedRowCount^ := ResCount;
@@ -4518,7 +4719,7 @@ begin
 end;
 
 function TRestStorageShard.EngineRetrieve(TableModelIndex: integer;
-  ID: TID): RawUTF8;
+  ID: TID): RawUtf8;
 var
   tableIndex: integer;
   rest: TRestOrm;
@@ -4552,7 +4753,7 @@ begin
 end;
 
 function TRestStorageShard.EngineUpdate(TableModelIndex: integer;
-  ID: TID; const SentData: RawUTF8): boolean;
+  ID: TID; const SentData: RawUtf8): boolean;
 var
   tableIndex, shardIndex: integer;
   rest: TRestOrm;
@@ -4590,7 +4791,7 @@ begin
 end;
 
 function TRestStorageShard.EngineUpdateField(TableModelIndex: integer;
-  const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUTF8): boolean;
+  const SetFieldName, SetValue, WhereFieldName, WhereValue: RawUtf8): boolean;
 begin
   result := false;
   StorageLock(true, 'EngineUpdateField');
@@ -4605,7 +4806,7 @@ begin
 end;
 
 function TRestStorageShard.EngineUpdateFieldIncrement(TableModelIndex: integer;
-  ID: TID; const FieldName: RawUTF8; Increment: Int64): boolean;
+  ID: TID; const FieldName: RawUtf8; Increment: Int64): boolean;
 var
   tableIndex: integer;
   rest: TRestOrm;
@@ -4621,7 +4822,7 @@ begin
   end;
 end;
 
-function TRestStorageShard.InternalBatchStart(Method: TURIMethod;
+function TRestStorageShard.InternalBatchStart(Method: TUriMethod;
   BatchOptions: TRestBatchOptions): boolean;
 begin
   result := false;
@@ -4631,7 +4832,7 @@ begin
   StorageLock(true, 'InternalBatchStart');
   try
     if fShardBatch <> nil then
-      raise ERestStorage.CreateUTF8('%.InternalBatchStop should have been called', [self]);
+      raise ERestStorage.CreateUtf8('%.InternalBatchStop should have been called', [self]);
     if fShardLast < 0 then
       // new DB -> force fShardBatch<>nil
       SetLength(fShardBatch, 1)
@@ -4648,10 +4849,10 @@ end;
 function TRestStorageShard.InternalShardBatch(ShardIndex: integer): TRestBatch;
 begin
   if cardinal(ShardIndex) > cardinal(fShardLast) then
-    raise ERestStorage.CreateUTF8('%.InternalShardBatch(%)',
+    raise ERestStorage.CreateUtf8('%.InternalShardBatch(%)',
       [self, ShardIndex]);
   if fShardBatch = nil then
-    raise ERestStorage.CreateUTF8('%.InternalBatchStart should have been called',
+    raise ERestStorage.CreateUtf8('%.InternalBatchStart should have been called',
       [self]);
   if ShardIndex >= length(fShardBatch) then
     // InitNewShard just called
@@ -4659,9 +4860,9 @@ begin
   if fShardBatch[ShardIndex] = nil then
     if fShards[ShardIndex] <> nil then
       fShardBatch[ShardIndex] := TRestBatch.Create(fShards[ShardIndex],
-        fStoredClass, 10000, [boExtendedJSON])
+        fStoredClass, 10000, [boExtendedJson])
     else
-      raise ERestStorage.CreateUTF8('%.InternalShardBatch fShards[%]=nil',
+      raise ERestStorage.CreateUtf8('%.InternalShardBatch fShards[%]=nil',
         [self, ShardIndex]);
   result := fShardBatch[ShardIndex];
 end;
@@ -4682,7 +4883,16 @@ begin
   end;
 end;
 
+
+function ToText(t: TOrmVirtualTableTransaction): PShortString;
+begin
+  result := GetEnumName(TypeInfo(TOrmVirtualTableTransaction), ord(t));
+end;
+
+
 initialization
+  // set late-binding return of TOrmVirtualTableClass.ModuleName
   GetVirtualTableModuleName := @_GetVirtualTableModuleName;
+
 end.
 

@@ -11,7 +11,7 @@ unit mormot.core.perf;
     - TSynMonitor Process Information Classes
     - TSynMonitorUsage Process Information Database Storage
     - Operating System Monitoring
-    - TSynFPUException Wrapper for FPU Flags Preservation
+    - TSynFpuException Wrapper for FPU Flags Preservation
 
   *****************************************************************************
 }
@@ -33,7 +33,8 @@ uses
   mormot.core.text,
   mormot.core.variants,
   mormot.core.json,
-  mormot.core.log;
+  mormot.core.log,
+  mormot.lib.static; // for TFpuFlags
 
 
 
@@ -155,7 +156,7 @@ type
     procedure Resume;
       {$ifdef HASINLINE}inline;{$endif}
     /// resume a paused timer until the method ends
-    // - will internaly create a TInterfaceObject class to let the compiler
+    // - will internally create a TInterfaceObject class to let the compiler
     // generate a try..finally block as expected to call Pause at method ending
     // - is therefore very convenient to have consistent Resume/Pause calls
     // - for proper use, expect TPrecisionTimer to be initialized to 0 before
@@ -203,13 +204,16 @@ type
     function Started: boolean;
     /// time elapsed in micro seconds after counter stopped
     // - not to be used in normal code, but e.g. for custom performance analysis
-    property TimeInMicroSec: TSynMonitorTotalMicroSec read fTime write fTime;
+    property TimeInMicroSec: TSynMonitorTotalMicroSec
+      read fTime write fTime;
     /// timing in micro seconds of the last process
     // - not to be used in normal code, but e.g. for custom performance analysis
-    property LastTimeInMicroSec: TSynMonitorOneMicroSec read fLastTime write fLastTime;
+    property LastTimeInMicroSec: TSynMonitorOneMicroSec
+      read fLastTime write fLastTime;
     /// how many times the Pause method was called, i.e. the number of tasks
     // processeed
-    property PauseCount: TSynMonitorCount read fPauseCount;
+    property PauseCount: TSynMonitorCount
+      read fPauseCount;
   end;
 
   /// interface to a reference counted high resolution timer instance
@@ -226,7 +230,7 @@ type
     /// compute the per second count
     function PerSec(Count: cardinal): cardinal;
     /// compute the time elapsed by count, with appened time resolution (us,ms,s)
-    function ByCount(Count: cardinal): RawUTF8;
+    function ByCount(Count: cardinal): RawUtf8;
   end;
 
   /// reference counted high resolution timer (for accurate speed statistics)
@@ -255,7 +259,7 @@ type
     /// compute the per second count
     function PerSec(Count: cardinal): cardinal;
     /// compute the time elapsed by count, with appened time resolution (us,ms,s)
-    function ByCount(Count: cardinal): RawUTF8;
+    function ByCount(Count: cardinal): RawUtf8;
   end;
 
 
@@ -275,9 +279,11 @@ type
       {$ifdef FPC_OR_UNICODE}inline;{$endif} // Delphi 2007 is buggy as hell
   published
     /// micro seconds time elapsed, as raw number
-    property MicroSec: TSynMonitorTotalMicroSec read fMicroSeconds write fMicroSeconds;
+    property MicroSec: TSynMonitorTotalMicroSec
+      read fMicroSeconds write fMicroSeconds;
     /// micro seconds time elapsed, as '... us-ns-ms-s' text
-    property Text: TShort16 read GetAsText;
+    property Text: TShort16
+      read GetAsText;
   end;
 
   /// able to serialize any immediate timing as raw micro-seconds number or text
@@ -292,9 +298,11 @@ type
       {$ifdef FPC_OR_UNICODE}inline;{$endif} // Delphi 2007 is buggy as hell
   published
     /// micro seconds time elapsed, as raw number
-    property MicroSec: TSynMonitorOneMicroSec read fMicroSeconds write fMicroSeconds;
+    property MicroSec: TSynMonitorOneMicroSec
+      read fMicroSeconds write fMicroSeconds;
     /// micro seconds time elapsed, as '... us-ns-ms-s' text
-    property Text: TShort16 read GetAsText;
+    property Text: TShort16
+      read GetAsText;
   end;
 
   TSynMonitorSizeParent = class(TSynPersistent)
@@ -313,9 +321,11 @@ type
     function GetAsText: TShort16;
   published
     /// number of bytes, as raw number
-    property Bytes: TSynMonitorTotalBytes read fBytes write fBytes;
+    property Bytes: TSynMonitorTotalBytes
+      read fBytes write fBytes;
     /// number of bytes, as '... B-KB-MB-GB' text
-    property Text: TShort16 read GetAsText;
+    property Text: TShort16
+      read GetAsText;
   end;
 
   /// able to serialize any immediate size as bytes number
@@ -327,9 +337,11 @@ type
     function GetAsText: TShort16;
   published
     /// number of bytes, as raw number
-    property Bytes: TSynMonitorOneBytes read fBytes write fBytes;
+    property Bytes: TSynMonitorOneBytes
+      read fBytes write fBytes;
     /// number of bytes, as '... B-KB-MB-GB' text
-    property Text: TShort16 read GetAsText;
+    property Text: TShort16
+      read GetAsText;
   end;
 
   /// able to serialize any bandwith as bytes count per second
@@ -341,9 +353,11 @@ type
     function GetAsText: TShort16;
   published
     /// number of bytes per second, as raw number
-    property BytesPerSec: QWord read fBytesPerSec write fBytesPerSec;
+    property BytesPerSec: QWord
+      read fBytesPerSec write fBytesPerSec;
     /// number of bytes per second, as '... B-KB-MB-GB/s' text
-    property Text: TShort16 read GetAsText;
+    property Text: TShort16
+      read GetAsText;
   end;
 
   /// a generic value object able to handle any task / process statistic
@@ -353,7 +367,7 @@ type
   // Lock/UnLock to access its individual properties
   TSynMonitor = class(TSynPersistentLock)
   protected
-    fName: RawUTF8;
+    fName: RawUtf8;
     fTaskCount: TSynMonitorCount64;
     fTotalTime: TSynMonitorTime;
     fLastTime: TSynMonitorOneTime;
@@ -376,7 +390,7 @@ type
     /// initialize the instance nested class properties
     // - you can specify identifier associated to this monitored resource
     // which would be used for TSynMonitorUsage persistence
-    constructor Create(const aName: RawUTF8); reintroduce; overload; virtual;
+    constructor Create(const aName: RawUtf8); reintroduce; overload; virtual;
     /// initialize the instance nested class properties
     constructor Create; overload; override;
     /// finalize the instance
@@ -403,7 +417,7 @@ type
     // - thread-safe method
     procedure ProcessStartTask; virtual;
     /// should be called when an error occurred
-    // - typical use is with ObjectToVariantDebug(E,...) kind of information
+    // - typical use is with ObjectToVariant(E,...) kind of information
     // - thread-safe method
     procedure ProcessError(const info: variant); virtual;
     /// should be called when an error occurred
@@ -412,7 +426,7 @@ type
     procedure ProcessErrorNumber(info: integer);
     /// should be called when an error occurred
     // - just a wraper around overloaded ProcessError(), so a thread-safe method
-    procedure ProcessErrorFmt(const Fmt: RawUTF8; const Args: array of const);
+    procedure ProcessErrorFmt(const Fmt: RawUtf8; const Args: array of const);
     /// should be called when an Exception occurred
     // - just a wraper around overloaded ProcessError(), so a thread-safe method
     procedure ProcessErrorRaised(E: Exception);
@@ -424,10 +438,13 @@ type
     procedure Sum(another: TSynMonitor);
     /// returns a JSON content with all published properties information
     // - thread-safe method
-    function ComputeDetailsJSON: RawUTF8;
+    function ComputeDetailsJson: RawUtf8;
     /// appends a JSON content with all published properties information
     // - thread-safe method
     procedure ComputeDetailsTo(W: TBaseWriter); virtual;
+    /// returns a TDocVariant with all published properties information
+    // - thread-safe method
+    function ComputeDetails: variant;
     /// used to allow thread safe timing
     // - by default, the internal TPrecisionTimer is not thread safe: you can
     // use this method to update the timing from many threads
@@ -447,32 +464,41 @@ type
     // customize JSON Serialization to set woEnumSetsAsText
     function RttiBeforeWriteObject(W: TBaseWriter;
       var Options: TTextWriterWriteObjectOptions): boolean; override;
-    // set the rcfSynPersistentHook flag to call RttiBeforeWriteObject
-    class procedure RttiCustomSet(Rtti: TRttiCustom); override;
     /// an identifier associated to this monitored resource
     // - is used e.g. for TSynMonitorUsage persistence/tracking
-    property Name: RawUTF8 read fName write fName;
+    property Name: RawUtf8
+      read fName write fName;
   published
     /// indicates if this thread is currently working on some process
-    property Processing: boolean read fProcessing write fProcessing;
+    property Processing: boolean
+      read fProcessing write fProcessing;
     /// how many times the task was performed
-    property TaskCount: TSynMonitorCount64 read fTaskCount write fTaskCount;
+    property TaskCount: TSynMonitorCount64
+      read fTaskCount write fTaskCount;
     /// the whole time spend during all working process
-    property TotalTime: TSynMonitorTime read fTotalTime;
+    property TotalTime: TSynMonitorTime
+      read fTotalTime;
     /// the time spend during the last task processing
-    property LastTime: TSynMonitorOneTime read fLastTime;
+    property LastTime: TSynMonitorOneTime
+      read fLastTime;
     /// the lowest time spent during any working process
-    property MinimalTime: TSynMonitorOneTime read fMinimalTime;
+    property MinimalTime: TSynMonitorOneTime
+      read fMinimalTime;
     /// the time spent in average during any working process
-    property AverageTime: TSynMonitorOneTime read fAverageTime;
+    property AverageTime: TSynMonitorOneTime
+      read fAverageTime;
     /// the highest time spent during any working process
-    property MaximalTime: TSynMonitorOneTime read fMaximalTime;
+    property MaximalTime: TSynMonitorOneTime
+      read fMaximalTime;
     /// average of how many tasks did occur per second
-    property PerSec: QWord read fPerSec;
+    property PerSec: QWord
+      read fPerSec;
     /// how many errors did occur during the processing
-    property Errors: TSynMonitorCount read fInternalErrors;
+    property Errors: TSynMonitorCount
+      read fInternalErrors;
     /// information about the last error which occured during the processing
-    property LastError: variant read fLastInternalError;
+    property LastError: variant
+      read fLastInternalError;
   end;
   /// references a TSynMonitor instance
   PSynMonitor = ^TSynMonitor;
@@ -495,9 +521,11 @@ type
     procedure AddSize(const Bytes: QWord);
   published
     /// how many total data has been hanlded during all working process
-    property Size: TSynMonitorSize read fSize;
+    property Size: TSynMonitorSize
+      read fSize;
     /// data processing bandwith, returned as B/KB/MB per second
-    property Throughput: TSynMonitorThroughput read fThroughput;
+    property Throughput: TSynMonitorThroughput
+      read fThroughput;
   end;
 
 
@@ -521,13 +549,17 @@ type
     procedure AddSize(const Incoming, Outgoing: QWord);
   published
     /// how many data has been received
-    property Input: TSynMonitorSize read fInput;
+    property Input: TSynMonitorSize
+      read fInput;
     /// how many data has been sent back
-    property Output: TSynMonitorSize read fOutput;
+    property Output: TSynMonitorSize
+      read fOutput;
     /// incoming data processing bandwith, returned as B/KB/MB per second
-    property InputThroughput: TSynMonitorThroughput read fInputThroughput;
+    property InputThroughput: TSynMonitorThroughput
+      read fInputThroughput;
     /// outgoing data processing bandwith, returned as B/KB/MB per second
-    property OutputThroughput: TSynMonitorThroughput read fOutputThroughput;
+    property OutputThroughput: TSynMonitorThroughput
+      read fOutputThroughput;
   end;
 
 
@@ -557,12 +589,15 @@ type
     function AddCurrentRequestCount(diff: integer): integer;
   published
     /// current count of connected clients
-    property ClientsCurrent: TSynMonitorOneCount read fClientsCurrent;
+    property ClientsCurrent: TSynMonitorOneCount
+      read fClientsCurrent;
     /// max count of connected clients
-    property ClientsMax: TSynMonitorOneCount read fClientsMax;
+    property ClientsMax: TSynMonitorOneCount
+      read fClientsMax;
     /// how many concurrent requests are currently processed
-    // - modified via AddCurrentRequestCount() in TRestServer.URI()
-    property CurrentRequestCount: integer read fCurrentRequestCount;
+    // - modified via AddCurrentRequestCount() in TRestServer.Uri()
+    property CurrentRequestCount: integer
+      read fCurrentRequestCount;
   end;
 
   /// a list of simple process statistics
@@ -638,12 +673,12 @@ type
     procedure FromTimeLog(const TimeLog: TTimeLog);
     /// computes an ID corresponding to the current UTC date/time
     // - minutes and seconds will be ignored
-    procedure FromNowUTC;
+    procedure FromNowUtc;
     /// returns the date/time
     // - minutes and seconds will set to 0
     function ToTimeLog: TTimeLog;
     /// convert to Iso-8601 encoded text
-    function Text(Expanded: boolean; FirstTimeChar: AnsiChar = 'T'): RawUTF8;
+    function Text(Expanded: boolean; FirstTimeChar: AnsiChar = 'T'): RawUtf8;
     /// retrieve the resolution of the stored information
     // - i.e. either mugHour, mugDay, mugMonth or mugYear, which will store
     // a true 0..23 hour value (for mugHour), or 29/30/31 pseudo-hour (i.e.
@@ -663,7 +698,7 @@ type
     Info: PRttiProp;
     /// property type, as recognized by MonitorPropUsageValue()
     Kind: TSynMonitorType;
-    Name: RawUTF8;
+    Name: RawUtf8;
     Values: array[mugHour..mugYear] of TInt64DynArray;
     ValueLast: Int64;
   end;
@@ -672,7 +707,7 @@ type
 
   TSynMonitorUsageTrack = record
     Instance: TObject;
-    Name: RawUTF8;
+    Name: RawUtf8;
     Props: TSynMonitorUsageTrackPropDynArray;
   end;
 
@@ -691,7 +726,7 @@ type
     fLastInstance: TObject;
     fLastTrack: PSynMonitorUsageTrack;
     fPrevious: TTimeLogBits;
-    fComment: RawUTF8;
+    fComment: RawUtf8;
     function TrackPropLock(Instance: TObject;
       Info: PRttiProp): PSynMonitorUsageTrackProp;
     // those methods will be protected (e.g. in Modified) by fSafe.Lock:
@@ -705,7 +740,7 @@ type
     function LoadDB(ID: integer; Gran: TSynMonitorUsageGranularity;
       out Track: variant): boolean; virtual; abstract;
     // may be overriden for testing purposes
-    procedure SetCurrentUTCTime(out minutes: TTimeLogBits); virtual;
+    procedure SetCurrentUtcTime(out minutes: TTimeLogBits); virtual;
   public
     /// finalize the statistics, saving any pending information
     destructor Destroy; override;
@@ -715,7 +750,7 @@ type
     // - the instance will be stored in fTracked[].Instance: ensure it will
     // stay available during the whole TSynMonitorUsage process
     function Track(Instance: TObject;
-      const Name: RawUTF8 = ''): integer; overload; virtual;
+      const Name: RawUtf8 = ''): integer; overload; virtual;
     /// track the values of the given object instances
     // - will recognize the TSynMonitor* properties as TSynMonitorType from
     // RTTI, using MonitorPropUsageValue(), within any (nested) object
@@ -725,11 +760,12 @@ type
     /// to be called when tracked properties changed on a tracked class instance
     function Modified(Instance: TObject): integer; overload;
     /// to be called when tracked properties changed on a tracked class instance
-    function Modified(Instance: TObject; const PropNames: array of RawUTF8;
+    function Modified(Instance: TObject; const PropNames: array of RawUtf8;
       ModificationTime: TTimeLog = 0): integer; overload; virtual;
     /// some custom text, associated with the current stored state
     // - will be persistented by Save() methods
-    property Comment: RawUTF8 read fComment write fComment;
+    property Comment: RawUtf8
+      read fComment write fComment;
   end;
 
 const
@@ -773,7 +809,8 @@ type
   // - called just after the measurement of each process CPU and RAM consumption
   // - run from the background thread, so should not directly make VCL calls,
   // unless BackgroundExecute is run from a VCL timer
-  TOnSystemUseMeasured = procedure(ProcessID: integer; const Data: TSystemUseData) of object;
+  TOnSystemUseMeasured = procedure(ProcessID: integer;
+    const Data: TSystemUseData) of object;
 
   /// internal storage of CPU and RAM usage for one process
   TSystemUseProcess = record
@@ -801,7 +838,7 @@ type
     fOnMeasured: TOnSystemUseMeasured;
     fTimer: TObject;
     fUnsubscribeProcessOnAccessError: boolean;
-    function ProcessIndex(aProcessID: integer): integer;
+    function ProcessIndex(aProcessID: integer): PtrInt;
   public
     /// a VCL's TTimer.OnTimer compatible event
     // - to be run every few seconds and retrieve the CPU and RAM use:
@@ -863,9 +900,9 @@ type
     // - returns '' if the Process ID was not registered via Create/Subscribe
     // - you can customize the maximum depth, with aDepth < HistoryDepth
     // - the memory history (in MB) can be optionally returned in aDestMemoryMB
-    // - on Linux, will return the /proc/loadavg pseudo-file content
+    // - on POSIX, will call RetrieveLoadAvg function for system-wide info
     function HistoryText(aProcessID: integer = 0; aDepth: integer = 0;
-      aDestMemoryMB: PRawUTF8 = nil): RawUTF8;
+      aDestMemoryMB: PRawUtf8 = nil): RawUtf8;
     /// returns total (Kernel+User) CPU usage percent history of the supplied process
     // - aProcessID=0 will return information from the current process
     // - returns null if the Process ID was not registered via Create/Subscribe
@@ -888,13 +925,16 @@ type
     property UnsubscribeProcessOnAccessError: boolean
       read fUnsubscribeProcessOnAccessError write fUnsubscribeProcessOnAccessError;
     /// how many items are stored internally, and returned by the History() method
-    property HistoryDepth: integer read fHistoryDepth;
+    property HistoryDepth: integer
+      read fHistoryDepth;
     /// executed when TSystemUse.BackgroundExecute finished its measurement
-    property OnMeasured: TOnSystemUseMeasured read fOnMeasured write fOnMeasured;
+    property OnMeasured: TOnSystemUseMeasured
+      read fOnMeasured write fOnMeasured;
     /// low-level access to the associated timer running BackgroundExecute
     // - equals nil if has been associated to no timer
     // - holds e.g. a TRestBackgroundTimer from TRest.SystemUseTrack
-    property Timer: TObject read fTimer write fTimer;
+    property Timer: TObject
+      read fTimer write fTimer;
   end;
 
   /// value object able to gather information about the current system memory
@@ -928,47 +968,56 @@ type
     /// some text corresponding to current 'free/total' memory information
     // - returns e.g. '10.3 GB / 15.6 GB'
     class function FreeAsText(nospace: boolean = false;
-      processfree: PRawUTF8 = nil): ShortString;
+      processfree: PRawUtf8 = nil): ShortString;
     /// how many physical memory is currently installed, as text (e.g. '32 GB');
     class function PhysicalAsText(nospace: boolean = false): TShort16;
     /// returns a JSON object with the current system memory information
     // - numbers would be given in KB (Bytes shl 10)
-    class function ToJSON: RawUTF8;
+    class function ToJson: RawUtf8;
     /// fill a TDocVariant with the current system memory information
     // - numbers would be given in KB (Bytes shl 10)
     class function ToVariant: variant;
   published
     /// Total of allocated memory used by the program
-    property AllocatedUsed: TSynMonitorOneSize read GetAllocatedUsed;
+    property AllocatedUsed: TSynMonitorOneSize
+      read GetAllocatedUsed;
     /// Total of allocated memory reserved by the program
-    property AllocatedReserved: TSynMonitorOneSize read GetAllocatedReserved;
+    property AllocatedReserved: TSynMonitorOneSize
+      read GetAllocatedReserved;
     /// Percent of memory in use for the system
-    property MemoryLoadPercent: integer read GetMemoryLoadPercent;
+    property MemoryLoadPercent: integer
+      read GetMemoryLoadPercent;
     /// Total of physical memory for the system
-    property PhysicalMemoryTotal: TSynMonitorOneSize read GetPhysicalMemoryTotal;
+    property PhysicalMemoryTotal: TSynMonitorOneSize
+      read GetPhysicalMemoryTotal;
     /// Free of physical memory for the system
-    property PhysicalMemoryFree: TSynMonitorOneSize read GetPhysicalMemoryFree;
+    property PhysicalMemoryFree: TSynMonitorOneSize
+      read GetPhysicalMemoryFree;
     /// Total of paging file for the system
-    property PagingFileTotal: TSynMonitorOneSize read GetPagingFileTotal;
+    property PagingFileTotal: TSynMonitorOneSize
+      read GetPagingFileTotal;
     /// Free of paging file for the system
-    property PagingFileFree: TSynMonitorOneSize read GetPagingFileFree;
-    {$ifdef MSWINDOWS}
+    property PagingFileFree: TSynMonitorOneSize
+      read GetPagingFileFree;
+    {$ifdef OSWINDOWS}
     /// Total of virtual memory for the system
     // - property not defined under Linux, since not applying to this OS
-    property VirtualMemoryTotal: TSynMonitorOneSize read GetVirtualMemoryTotal;
+    property VirtualMemoryTotal: TSynMonitorOneSize
+      read GetVirtualMemoryTotal;
     /// Free of virtual memory for the system
     // - property not defined under Linux, since not applying to this OS
-    property VirtualMemoryFree: TSynMonitorOneSize read GetVirtualMemoryFree;
-    {$endif MSWINDOWS}
+    property VirtualMemoryFree: TSynMonitorOneSize
+      read GetVirtualMemoryFree;
+    {$endif OSWINDOWS}
   end;
 
   /// value object able to gather information about a system drive
   TSynMonitorDisk = class(TSynPersistent)
   protected
     fName: TFileName;
-    {$ifdef MSWINDOWS}
+    {$ifdef OSWINDOWS}
     fVolumeName: SynUnicode;
-    {$endif MSWINDOWS}
+    {$endif OSWINDOWS}
     fAvailableSize: TSynMonitorOneSize;
     fFreeSize: TSynMonitorOneSize;
     fTotalSize: TSynMonitorOneSize;
@@ -985,28 +1034,33 @@ type
     destructor Destroy; override;
     /// some text corresponding to current 'free/total' disk information
     // - could return e.g. 'D: 64.4 GB / 213.4 GB'
-    class function FreeAsText: RawUTF8;
+    class function FreeAsText: RawUtf8;
   published
     /// the disk name
-    property Name: TFileName read GetName;
-    {$ifdef MSWINDOWS}
+    property Name: TFileName
+      read GetName;
+    {$ifdef OSWINDOWS}
     /// the volume name (only available on Windows)
-    property VolumeName: SynUnicode read fVolumeName write fVolumeName;
+    property VolumeName: SynUnicode
+      read fVolumeName write fVolumeName;
     /// space currently available on this disk for the current user
     // - may be less then FreeSize, if user quotas are specified (only taken
     // into account under Windows: on POSIX, AvailableSize=FreeSize)
-    property AvailableSize: TSynMonitorOneSize read GetAvailable;
-    {$endif MSWINDOWS}
+    property AvailableSize: TSynMonitorOneSize
+      read GetAvailable;
+    {$endif OSWINDOWS}
     /// free space currently available on this disk
-    property FreeSize: TSynMonitorOneSize read GetFree;
+    property FreeSize: TSynMonitorOneSize
+      read GetFree;
     /// total space
-    property TotalSize: TSynMonitorOneSize read GetTotal;
+    property TotalSize: TSynMonitorOneSize
+      read GetTotal;
   end;
 
 
 /// convert Intel CPU features as plain CSV text
 function ToText(const aIntelCPUFeatures: TIntelCpuFeatures;
-  const Sep: RawUTF8 = ','): RawUTF8; overload;
+  const Sep: RawUtf8 = ','): RawUtf8; overload;
 
 
 /// retrieve low-level information about all mounted disk partitions as text
@@ -1016,53 +1070,52 @@ function ToText(const aIntelCPUFeatures: TIntelCpuFeatures;
 // - uses internally a cache unless nocache is true
 // - includes the free space if withfreespace is true - e.g. '(80 GB / 115 GB)'
 function GetDiskPartitionsText(nocache: boolean = false;
-  withfreespace: boolean = false; nospace: boolean = false): RawUTF8;
+  withfreespace: boolean = false; nospace: boolean = false): RawUtf8;
 
 {$ifdef CPUINTEL}
 /// returns the global Intel/AMD CpuFeatures flags as ready-to-be-displayed text
-function CpuFeaturesText: RawUTF8;
+function CpuFeaturesText: RawUtf8;
 {$endif CPUINTEL}
 
 /// returns a JSON object containing basic information about the computer
 // - including Host, User, CPU, OS, freemem, freedisk...
-function SystemInfoJson: RawUTF8;
+function SystemInfoJson: RawUtf8;
+
+/// returns a TDocVariant array of the latest intercepted exception texts
+// - runs ToText() over all information returned by overloaded GetLastExceptions
+// - defined in this unit to have TDocVariant at hand
+function GetLastExceptions(Depth: integer = 0): variant; overload;
 
 
-{ ************ TSynFPUException Wrapper for FPU Flags Preservation }
 
-{$ifdef CPUINTEL}
+{ ************ TSynFpuException Wrapper for FPU Flags Preservation }
+
 type
   /// a simple class which will set FPU exception flags for a code block
   // - using an IUnknown interface to let the compiler auto-generate a
   // try..finally block statement to reset the FPU exception register
   // - to be used e.g. as such:
   // !begin
-  // !  with TSynFPUException.ForLibrayCode do begin
+  // !  with TSynFpuException.ForLibrayCode do
+  // !  begin
   // !    ... now FPU exceptions will be ignored
   // !    ... so here it is safe to call external libray code
   // !  end; // now FPU exception will be reset as with standard Delphi
   // - it will avoid any unexpected invalid floating point operation in your
   // code, whereas it was in fact triggerred in some external library code
-  TSynFPUException = class(TSynInterfacedObject)
+  TSynFpuException = class(TSynInterfacedObject)
   protected
-    {$ifndef CPU64}
-    fExpected8087, fSaved8087: word;
-    {$else}
-    fExpectedMXCSR, fSavedMXCSR: word;
-    {$endif}
-    function VirtualAddRef: Integer; override;
-    function VirtualRelease: Integer; override;
+    fExpected: TFpuFlags;
+    fSaved: cardinal;
+    function VirtualAddRef: integer; override;
+    function VirtualRelease: integer; override;
   public
     /// internal constructor
     // - do not call this constructor directly, but rather use
     // ForLibraryCode/ForDelphiCode class methods
     // - for cpu32 flags are $1372 for Delphi, or $137F for library (mask all exceptions)
     // - for cpu64 flags are $1920 for Delphi, or $1FA0 for library (mask all exceptions)
-    {$ifndef CPU64}
-    constructor Create(Expected8087Flag: word); reintroduce;
-    {$else}
-    constructor Create(ExpectedMXCSR: word); reintroduce;
-    {$endif CPU75}
+    constructor Create(ExpectedFlags: TFpuFlags); reintroduce;
     /// after this method call, all FPU exceptions will be ignored
     // - until the method finishes (a try..finally block is generated by
     // the compiler), then FPU exceptions will be reset into "Delphi" mode
@@ -1079,12 +1132,8 @@ type
     class function ForDelphiCode: IUnknown;
   end;
 
-{$endif CPUINTEL}
-
 
 implementation
-
-
 
 { ************ Performance Counters }
 
@@ -1130,7 +1179,8 @@ begin
 end;
 
 function TPrecisionTimer.FromExternalQueryPerformanceCounters(const CounterDiff: QWord): QWord;
-begin // mimics Pause from already known elapsed time
+begin
+  // mimics Pause from already known elapsed time
   FromExternalMicroSeconds(CounterDiff);
   result := fLastTime;
 end;
@@ -1179,9 +1229,10 @@ function TPrecisionTimer.PerSec(const Count: QWord): QWord;
 begin
   if fStart <> 0 then
     Pause;
-  if fTime <= 0 then // avoid negative value in case of incorrect Start/Stop sequence
+  if fTime <= 0 then
+    // avoid negative or div per 0 in case of incorrect Start/Stop sequence
     result := 0
-  else // avoid div per 0 exception
+  else
     result := (Count * 1000000) div fTime;
 end;
 
@@ -1191,7 +1242,7 @@ begin
 end;
 
 type
-  /// a class used internaly by TPrecisionTimer.ProfileMethod
+  /// a class used internally by TPrecisionTimer.ProfileMethod
   TPrecisionTimerProfiler = class(TInterfacedObject)
   protected
     fTimer: PPrecisionTimer;
@@ -1221,7 +1272,7 @@ end;
 
 { TLocalPrecisionTimer }
 
-function TLocalPrecisionTimer.ByCount(Count: cardinal): RawUTF8;
+function TLocalPrecisionTimer.ByCount(Count: cardinal): RawUtf8;
 begin
   result := fTimer.ByCount(Count);
 end;
@@ -1342,7 +1393,7 @@ begin
   fMaximalTime := TSynMonitorOneTime.Create;
 end;
 
-constructor TSynMonitor.Create(const aName: RawUTF8);
+constructor TSynMonitor.Create(const aName: RawUtf8);
 begin
   Create;
   fName := aName;
@@ -1369,13 +1420,8 @@ begin
 end;
 
 procedure TSynMonitor.Changed;
-begin // do nothing by default - overriden classes may track modified changes
-end;
-
-class procedure TSynMonitor.RttiCustomSet(Rtti: TRttiCustom);
 begin
-  // let's call RttiBeforeWriteObject
-  Rtti.Flags := Rtti.Flags + [rcfSynPersistentHook];
+  // do nothing by default - overriden classes may track modified changes
 end;
 
 function TSynMonitor.RttiBeforeWriteObject(W: TBaseWriter;
@@ -1387,13 +1433,14 @@ begin
    exclude(Options, woFullExpand);
    include(Options, woEnumSetsAsText);
  end;
- result := false; // continue serialization as usual
+ // call fSafe.Lock + continue serialization as usual
+ result := inherited RttiBeforeWriteObject(W, Options);
 end;
 
 procedure TSynMonitor.ProcessStart;
 begin
   if fProcessing then
-    raise ESynException.CreateUTF8('Unexpected %.ProcessStart', [self]);
+    raise ESynException.CreateUtf8('Unexpected %.ProcessStart', [self]);
   fSafe^.Lock;
   try
     InternalTimer.Resume;
@@ -1419,7 +1466,7 @@ end;
 procedure TSynMonitor.ProcessStartTask;
 begin
   if fProcessing then
-    raise ESynException.CreateUTF8('Reentrant %.ProcessStart', [self]);
+    raise ESynException.CreateUtf8('Reentrant %.ProcessStart', [self]);
   fSafe^.Lock;
   try
     InternalTimer.Resume;
@@ -1510,9 +1557,9 @@ begin
   end;
 end;
 
-procedure TSynMonitor.ProcessErrorFmt(const Fmt: RawUTF8; const Args: array of const);
+procedure TSynMonitor.ProcessErrorFmt(const Fmt: RawUtf8; const Args: array of const);
 begin
-  ProcessError(RawUTF8ToVariant(FormatUTF8(Fmt, Args)));
+  ProcessError(RawUtf8ToVariant(FormatUtf8(Fmt, Args)));
 end;
 
 procedure TSynMonitor.ProcessErrorRaised(E: Exception);
@@ -1583,7 +1630,7 @@ begin
   end;
 end;
 
-function TSynMonitor.ComputeDetailsJSON: RawUTF8;
+function TSynMonitor.ComputeDetailsJson: RawUtf8;
 var
   W: TBaseWriter;
   temp: TTextWriterStackBuffer;
@@ -1595,6 +1642,11 @@ begin
   finally
     W.Free;
   end;
+end;
+
+function TSynMonitor.ComputeDetails: variant;
+begin
+  _Json(ComputeDetailsJson, result{%H-}, JSON_OPTIONS_FAST);
 end;
 
 
@@ -1798,7 +1850,7 @@ end;
 
 { TSynMonitorUsage }
 
-function TSynMonitorUsage.Track(Instance: TObject; const Name: RawUTF8): integer;
+function TSynMonitorUsage.Track(Instance: TObject; const Name: RawUtf8): integer;
 
   procedure ClassTrackProps(c: TClass;
     var props: TSynMonitorUsageTrackPropDynArray);
@@ -1841,7 +1893,7 @@ function TSynMonitorUsage.Track(Instance: TObject; const Name: RawUTF8): integer
 
 var
   i, n: PtrInt;
-  instanceName: RawUTF8;
+  instanceName: RawUtf8;
 begin
   result := -1;
   if Instance = nil then
@@ -1860,7 +1912,7 @@ begin
       if fTracked[i].Instance = Instance then
         exit
       else if IdemPropNameU(fTracked[i].Name, instanceName) then
-        raise ESynException.CreateUTF8('%.Track("%") name already exists',
+        raise ESynException.CreateUtf8('%.Track("%") name already exists',
           [self, instanceName]);
     SetLength(fTracked, n + 1);
     fTracked[n].Instance := Instance;
@@ -1936,13 +1988,13 @@ begin
     result := 0;
 end;
 
-procedure TSynMonitorUsage.SetCurrentUTCTime(out minutes: TTimeLogBits);
+procedure TSynMonitorUsage.SetCurrentUtcTime(out minutes: TTimeLogBits);
 begin
-  minutes.FromUTCTime;
+  minutes.FromUtcTime;
 end;
 
 function TSynMonitorUsage.Modified(Instance: TObject;
-  const PropNames: array of RawUTF8; ModificationTime: TTimeLog): integer;
+  const PropNames: array of RawUtf8; ModificationTime: TTimeLog): integer;
 
   procedure save(const track: TSynMonitorUsageTrack);
 
@@ -1969,7 +2021,7 @@ function TSynMonitorUsage.Modified(Instance: TObject;
     v, diff: Int64;
   begin
     if ModificationTime = 0 then
-      SetCurrentUTCTime(time)
+      SetCurrentUtcTime(time)
     else
       time.Value := ModificationTime;
     time.Value := time.Value and AS_MINUTES; // save every minute
@@ -2068,7 +2120,7 @@ var
   data, val: TDocVariantData;
 begin
   if Gran < low(fValues) then
-    raise ESynException.CreateUTF8('%.Save(%) unexpected', [self, ToText(Gran)^]);
+    raise ESynException.CreateUtf8('%.Save(%) unexpected', [self, ToText(Gran)^]);
   TDocVariant.IsOfTypeOrNewFast(fValues[Gran]);
   for t := 0 to length(fTracked) - 1 do
   begin
@@ -2103,8 +2155,8 @@ begin
   _Safe(fValues[Gran]).SortByName;
   ID.Truncate(Gran);
   if not SaveDB(ID.Value, fValues[Gran], Gran) then
-    fLog.SynLog.Log(sllWarning, '%.Save(ID=%=%,%) failed',
-      [ClassType, ID.Value, ID.Text(true), ToText(Gran)^]);
+    fLog.SynLog.Log(sllWarning, 'Save(ID=%=%,%) failed',
+      [ID.Value, ID.Text(true), ToText(Gran)^], self);
 end;
 
 procedure TSynMonitorUsage.LoadTrack(var Track: TSynMonitorUsageTrack);
@@ -2194,11 +2246,11 @@ begin
            (bits.Year - USAGE_ID_YEAROFFSET) shl USAGE_ID_SHIFT[mugYear];
 end;
 
-procedure TSynMonitorUsageID.FromNowUTC;
+procedure TSynMonitorUsageID.FromNowUtc;
 var
   now: TTimeLogBits;
 begin
-  now.FromUTCTime;
+  now.FromUtcTime;
   From(now.Value);
 end;
 
@@ -2267,7 +2319,7 @@ begin
 end;
 
 function TSynMonitorUsageID.Text(Expanded: boolean;
-  FirstTimeChar: AnsiChar): RawUTF8;
+  FirstTimeChar: AnsiChar): RawUtf8;
 var
   bits: TTimeLogBits;
 begin
@@ -2286,7 +2338,7 @@ end;
 { ************ Operating System Monitoring }
 
 function ToText(const aIntelCPUFeatures: TIntelCpuFeatures;
-  const Sep: RawUTF8): RawUTF8;
+  const Sep: RawUtf8): RawUtf8;
 var
   f: TIntelCpuFeature;
   List: PShortString;
@@ -2309,9 +2361,9 @@ end;
 {$ifdef CPUINTEL}
 
 var
-  _CpuFeatures: RawUTF8;
+  _CpuFeatures: RawUtf8;
 
-function CpuFeaturesText: RawUTF8;
+function CpuFeaturesText: RawUtf8;
 begin
   if _CpuFeatures = '' then
     _CpuFeatures := LowerCase(ToText(CpuFeatures, ' '));
@@ -2320,9 +2372,9 @@ end;
 
 {$endif CPUINTEL}
 
-function SystemInfoJson: RawUTF8;
+function SystemInfoJson: RawUtf8;
 var
-  cpu, mem, free: RawUTF8;
+  cpu, mem, free: RawUtf8;
 begin
   cpu := TSystemUse.Current(false).HistoryText(0, 15, @mem);
   if mem = '' then
@@ -2330,12 +2382,32 @@ begin
   else
     free := TSynMonitorMemory.FreeAsText;
   with SystemInfo do
-    result := JSONEncode(['host', ExeVersion.Host, 'user', ExeVersion.User,
-      'os', OSVersionText, 'cpu', CpuInfoText, 'bios', BiosInfoText,
-      {$ifdef MSWINDOWS}{$ifndef CPU64}'wow64', IsWow64, {$endif}{$endif MSWINDOWS}
+    result := JsonEncode([
+      'host', Executable.Host,
+      'user', Executable.User,
+      'os', OSVersionText,
+      'cpu', CpuInfoText,
+      'bios', BiosInfoText,
+      {$ifdef OSWINDOWS}{$ifdef CPU32}'wow64', IsWow64, {$endif}{$endif OSWINDOWS}
       {$ifdef CPUINTEL}'cpufeatures', CpuFeaturesText, {$endif}
-      'processcpu', cpu, 'processmem', mem, 'freemem', free,
+      'processcpu', cpu,
+      'processmem', mem,
+      'freemem', free,
       'disk', GetDiskPartitionsText(false, true)]);
+end;
+
+function GetLastExceptions(Depth: integer): variant;
+var
+  info: TSynLogExceptionInfoDynArray;
+  i: PtrInt;
+begin
+  VarClear(result{%H-});
+  GetLastExceptions(info, Depth);
+  if info = nil then
+    exit;
+  TDocVariantData(result).InitFast(length(info), dvArray);
+  for i := 0 to high(info) do
+    TDocVariantData(result).AddItemText(ToText(info[i]));
 end;
 
 
@@ -2352,7 +2424,7 @@ begin
      not fProcessInfo.Start then
     exit;
   fTimer := Sender;
-  now := NowUTC;
+  now := NowUtc;
   fSafe.Lock;
   try
     inc(fDataIndex);
@@ -2376,7 +2448,7 @@ end;
 constructor TSystemUse.Create(const aProcessID: array of integer;
   aHistoryDepth: integer);
 var
-  i: integer;
+  i: PtrInt;
   it, kt, ut: Int64;
 begin
   inherited Create;
@@ -2389,11 +2461,11 @@ begin
   SetLength(fProcess, length(aProcessID));
   for i := 0 to high(aProcessID) do
   begin
-    {$ifdef MSWINDOWS}
+    {$ifdef OSWINDOWS}
     if aProcessID[i] = 0 then
       fProcess[i].ID := GetCurrentProcessID
     else
-    {$endif MSWINDOWS}
+    {$endif OSWINDOWS}
       fProcess[i].ID := aProcessID[i];
     SetLength(fProcess[i].Data, fHistoryDepth);
   end;
@@ -2406,14 +2478,14 @@ end;
 
 procedure TSystemUse.Subscribe(aProcessID: integer);
 var
-  i, n: integer;
+  i, n: PtrInt;
 begin
   if self = nil then
     exit;
-  {$ifdef MSWINDOWS}
+  {$ifdef OSWINDOWS}
   if aProcessID = 0 then
     aProcessID := GetCurrentProcessID;
-  {$endif MSWINDOWS}
+  {$endif OSWINDOWS}
   fSafe.Lock;
   try
     n := length(fProcess);
@@ -2430,7 +2502,7 @@ end;
 
 function TSystemUse.Unsubscribe(aProcessID: integer): boolean;
 var
-  i: integer;
+  i: PtrInt;
 begin
   result := false;
   if self = nil then
@@ -2448,12 +2520,13 @@ begin
   end;
 end;
 
-function TSystemUse.ProcessIndex(aProcessID: integer): integer;
-begin // caller should have made fSafe.Enter
-  {$ifdef MSWINDOWS}
+function TSystemUse.ProcessIndex(aProcessID: integer): PtrInt;
+begin
+  // caller should have made fSafe.Enter
+  {$ifdef OSWINDOWS}
   if aProcessID = 0 then
     aProcessID := GetCurrentProcessID;
-  {$endif MSWINDOWS}
+  {$endif OSWINDOWS}
   if self <> nil then
     for result := 0 to high(fProcess) do
       if fProcess[result].ID = aProcessID then
@@ -2463,7 +2536,7 @@ end;
 
 function TSystemUse.Data(out aData: TSystemUseData; aProcessID: integer): boolean;
 var
-  i: integer;
+  i: PtrInt;
 begin
   result := false;
   if self <> nil then
@@ -2520,7 +2593,7 @@ end;
 
 function TSystemUse.HistoryData(aProcessID, aDepth: integer): TSystemUseDataDynArray;
 var
-  i, n, last: integer;
+  i, n, last: PtrInt;
 begin
   result := nil;
   if self = nil then
@@ -2560,7 +2633,7 @@ end;
 
 function TSystemUse.History(aProcessID, aDepth: integer): TSingleDynArray;
 var
-  i, n: integer;
+  i, n: PtrInt;
   data: TSystemUseDataDynArray;
 begin
   result := nil;
@@ -2591,39 +2664,37 @@ begin
 end;
 
 function TSystemUse.HistoryText(aProcessID, aDepth: integer;
-  aDestMemoryMB: PRawUTF8): RawUTF8;
+  aDestMemoryMB: PRawUtf8): RawUtf8;
 var
   data: TSystemUseDataDynArray;
-  mem: RawUTF8;
-  i: integer;
+  mem: RawUtf8;
+  i: PtrInt;
 begin
   result := '';
   mem := '';
   data := HistoryData(aProcessID, aDepth);
-  {$ifdef LINUXNOTBSD}
-  // bsd: see VM_LOADAVG
-  // https://www.retro11.de/ouxr/211bsd/usr/src/lib/libc/gen/getloadavg.c.html
+  {$ifndef OSWINDOWS}
   if data = nil then
-    result := StringFromFile('/proc/loadavg', {HasNoSize=}true)
+    result := RetrieveLoadAvg // from '/proc/loadavg' or libc getloadavg()
   else
-  {$endif LINUXNOTBSD}
+  {$endif OSWINDOWS}
     for i := 0 to high(data) do
       with data[i] do
       begin
-        result := FormatUTF8('%% ', [result, TwoDigits(Kernel + User)]);
+        result := FormatUtf8('%% ', [result, TwoDigits(Kernel + User)]);
         if aDestMemoryMB <> nil then
-          mem := FormatUTF8('%% ', [mem, TwoDigits(WorkKB / 1024)]);
+          mem := FormatUtf8('%% ', [mem, TwoDigits(WorkKB / 1024)]);
       end;
-  result := trim(result);
+  result := TrimU(result);
   if aDestMemoryMB <> nil then
-    aDestMemoryMB^ := trim(mem);
+    aDestMemoryMB^ := TrimU(mem);
 end;
 
 function TSystemUse.HistoryVariant(aProcessID, aDepth: integer): variant;
 var
   res: TDocVariantData absolute result;
   data: TSystemUseDataDynArray;
-  i: integer;
+  i: PtrInt;
 begin
   VarClear(result{%H-});
   data := HistoryData(aProcessID, aDepth);
@@ -2640,19 +2711,21 @@ end;
 var
   _DiskPartitions: TDiskPartitions;
 
-function GetDiskPartitionsText(nocache, withfreespace, nospace: boolean): RawUTF8;
+function GetDiskPartitionsText(nocache, withfreespace, nospace: boolean): RawUtf8;
 var
-  i: integer;
+  i: PtrInt;
   parts: TDiskPartitions;
 
   function GetInfo(var p: TDiskPartition): shortstring;
   const
-    F: array[boolean] of RawUTF8 = ('% % (% / %)', '% % (%/%)');
+    F: array[boolean] of RawUtf8 = ('% % (% / %)', '% % (%/%)');
   var
     av, fr, tot: QWord;
   begin
-    if not withfreespace or not GetDiskInfo(p.mounted, av, fr, tot) then
-      FormatShort('% % (%)', [p.mounted, p.name, KB(p.size, nospace)], result)
+    if not withfreespace or
+       not GetDiskInfo(p.mounted, av, fr, tot) then
+      FormatShort('% % (%)',
+        [p.mounted, p.name, KB(p.size, nospace)], result)
     else
       FormatShort(F[nospace],
         [p.mounted, p.name, KB(fr, nospace), KB(tot, nospace)], result);
@@ -2663,9 +2736,10 @@ begin
      nocache then
   begin
     _DiskPartitions := GetDiskPartitions;
-    {$ifndef MSWINDOWS}
-    DynArray(TypeInfo(TDiskPartitions), _DiskPartitions).Sort(SortDynArrayDiskPartitions);
-    {$endif MSWINDOWS}
+    {$ifdef OSPOSIX}
+    DynArray(TypeInfo(TDiskPartitions), _DiskPartitions).
+      Sort(SortDynArrayDiskPartitions);
+    {$endif OSPOSIX}
   end;
   parts := _DiskPartitions;
   if parts = nil then
@@ -2673,7 +2747,7 @@ begin
   else
     ShortStringToAnsi7String(GetInfo(parts[0]), result);
   for i := 1 to high(parts) do
-    result := FormatUTF8('%, %', [result, GetInfo(parts[i])]);
+    result := FormatUtf8('%, %', [result, GetInfo(parts[i])]);
 end;
 
 
@@ -2705,16 +2779,16 @@ begin
 end;
 
 class function TSynMonitorMemory.FreeAsText(nospace: boolean;
-  processfree: PRawUTF8): ShortString;
+  processfree: PRawUtf8): ShortString;
 const
-  F: array[boolean] of RawUTF8 = ('% / %', '%/%');
+  F: array[boolean] of RawUtf8 = ('% / %', '%/%');
 begin
   with TSynMonitorMemory.Create(nospace) do
   try
     RetrieveMemoryInfo;
     FormatShort(F[nospace], [fPhysicalMemoryFree.Text, fPhysicalMemoryTotal.Text], result);
     if processfree <> nil then
-      FormatUTF8(F[noSpace], [fAllocatedUsed.Text, FAllocatedReserved.Text], processfree^);
+      FormatUtf8(F[noSpace], [fAllocatedUsed.Text, FAllocatedReserved.Text], processfree^);
   finally
     Free;
   end;
@@ -2735,16 +2809,16 @@ begin
   result := PhysicalAsTextCache;
 end;
 
-class function TSynMonitorMemory.ToJSON: RawUTF8;
+class function TSynMonitorMemory.ToJson: RawUtf8;
 begin
   with TSynMonitorMemory.Create(false) do
   try
     RetrieveMemoryInfo;
-    FormatUTF8('{Allocated:{reserved:%,used:%},Physical:{total:%,free:%,percent:%},' +
-      {$ifdef MSWINDOWS}'Virtual:{total:%,free:%},' + {$endif}'Paged:{total:%,free:%}}',
+    FormatUtf8('{Allocated:{reserved:%,used:%},Physical:{total:%,free:%,percent:%},' +
+      {$ifdef OSWINDOWS}'Virtual:{total:%,free:%},' + {$endif}'Paged:{total:%,free:%}}',
       [fAllocatedReserved.Bytes shr 10, fAllocatedUsed.Bytes shr 10,
       fPhysicalMemoryTotal.Bytes shr 10, fPhysicalMemoryFree.Bytes shr 10,
-      fMemoryLoadPercent, {$ifdef MSWINDOWS}fVirtualMemoryTotal.Bytes shr 10,
+      fMemoryLoadPercent, {$ifdef OSWINDOWS}fVirtualMemoryTotal.Bytes shr 10,
       fVirtualMemoryFree.Bytes shr 10, {$endif} fPagingFileTotal.Bytes shr 10,
       fPagingFileFree.Bytes shr 10], result);
   finally
@@ -2754,7 +2828,7 @@ end;
 
 class function TSynMonitorMemory.ToVariant: variant;
 begin
-  result := _JsonFast(ToJSON);
+  result := _JsonFast(ToJson);
 end;
 
 function TSynMonitorMemory.GetAllocatedUsed: TSynMonitorOneSize;
@@ -2876,13 +2950,13 @@ begin
   result := fTotalSize;
 end;
 
-class function TSynMonitorDisk.FreeAsText: RawUTF8;
+class function TSynMonitorDisk.FreeAsText: RawUtf8;
 var
   name: TFileName;
   avail, free, total: QWord;
 begin
   GetDiskInfo(name, avail, free, total);
-  FormatUTF8('% % / %', [name, KB(free), KB(total)], result);
+  FormatUtf8('% % / %', [name, KB(free), KB(total)], result);
 end;
 
 procedure TSynMonitorDisk.RetrieveDiskInfo;
@@ -2894,110 +2968,82 @@ begin
   begin
     fLastDiskInfoRetrievedTix := tix;
     GetDiskInfo(fName, PQWord(@fAvailableSize.Bytes)^, PQWord(@fFreeSize.Bytes)^,
-      PQWord(@fTotalSize.Bytes)^ {$ifdef MSWINDOWS}, @fVolumeName{$endif});
+      PQWord(@fTotalSize.Bytes)^ {$ifdef OSWINDOWS}, @fVolumeName{$endif});
   end;
 end;
 
 
-{ ************ TSynFPUException Wrapper for FPU Flags Preservation }
+{ ************ TSynFpuException Wrapper for FPU Flags Preservation }
 
-{$ifdef CPUINTEL}
+{ TSynFpuException }
 
-{ TSynFPUException }
-
-function TSynFPUException.VirtualAddRef: integer;
+function TSynFpuException.VirtualAddRef: integer;
 begin
   if fRefCount = 0 then
-  begin
-    {$ifndef CPU64}
-    fSaved8087 := Get8087CW;
-    Set8087CW(fExpected8087); // set FPU exceptions mask
-    {$else}
-    fSavedMXCSR := GetMXCSR;
-    SetMXCSR(fExpectedMXCSR); // set FPU exceptions mask
-    {$endif}
-  end;
+    // set FPU exceptions mask
+    fSaved := SetFpuFlags(fExpected);
   inc(fRefCount);
-  result := 1; // should never be 0 (mark release of TSynFPUException instance)
+  result := 1; // should never be 0 (mark release of TSynFpuException instance)
 end;
 
-function TSynFPUException.VirtualRelease: integer;
+function TSynFpuException.VirtualRelease: integer;
 begin
   dec(fRefCount);
   if fRefCount = 0 then
-    {$ifndef CPU64}
-    Set8087CW(fSaved8087);
-    {$else}
-    SetMXCSR(fSavedMXCSR);
-    {$endif}
-  result := 1; // should never be 0 (mark release of TSynFPUException instance)
+    ResetFpuFlags(fSaved);
+  result := 1; // should never be 0 (mark release of TSynFpuException instance)
 end;
 
 var
-  GlobalSynFPUExceptionInstances: TObjectDynArray;
+  GlobalSynFpuExceptionInstances: TObjectDynArray;
 
 threadvar
-  GlobalSynFPUExceptionDelphi,
-  GlobalSynFPUExceptionLibrary: TSynFPUException;
+  GlobalSynFpuExceptionDelphi,
+  GlobalSynFpuExceptionLibrary: TSynFpuException;
 
-{$ifndef CPU64}
-constructor TSynFPUException.Create(Expected8087Flag: word);
-begin // $1372=Delphi $137F=library (mask all exceptions)
-  inherited Create;
-  fExpected8087 := Expected8087Flag;
-end;
-{$else}
-constructor TSynFPUException.Create(ExpectedMXCSR: word);
-begin // $1920=Delphi $1FA0=library (mask all exceptions)
-  inherited Create;
-  fExpectedMXCSR := ExpectedMXCSR;
-end;
-{$endif CPU64}
-
-class function TSynFPUException.ForLibraryCode: IUnknown;
-var
-  obj: TSynFPUException;
+constructor TSynFpuException.Create(ExpectedFlags: TFpuFlags);
 begin
-  result := GlobalSynFPUExceptionLibrary; // threadvar instances
+  // $1920=Delphi $1FA0=library (mask all exceptions)
+  inherited Create;
+  fExpected := ExpectedFlags;
+end;
+
+class function TSynFpuException.ForLibraryCode: IUnknown;
+var
+  obj: TSynFpuException;
+begin
+  result := GlobalSynFpuExceptionLibrary; // threadvar instances
   if result <> nil then
     exit;
-  {$ifndef CPU64}
-  obj := TSynFPUException.Create($137F);
-  {$else}
-  obj := TSynFPUException.Create($1FA0);
-  {$endif CPU64}
-  ObjArrayAdd(GlobalSynFPUExceptionInstances, obj);
-  GlobalSynFPUExceptionLibrary := obj;
+  obj := TSynFpuException.Create(ffLibrary);
+  ObjArrayAdd(GlobalSynFpuExceptionInstances, obj);
+  GlobalSynFpuExceptionLibrary := obj;
   result := obj;
 end;
 
-class function TSynFPUException.ForDelphiCode: IUnknown;
+class function TSynFpuException.ForDelphiCode: IUnknown;
 var
-  obj: TSynFPUException;
+  obj: TSynFpuException;
 begin
-  result := GlobalSynFPUExceptionDelphi;
+  result := GlobalSynFpuExceptionDelphi;
   if result <> nil then
     exit;
-  {$ifndef CPU64}
-  obj := TSynFPUException.Create($1372);
-  {$else}
-  obj := TSynFPUException.Create($1920);
-  {$endif CPU64}
-  ObjArrayAdd(GlobalSynFPUExceptionInstances, obj);
-  GlobalSynFPUExceptionDelphi := obj;
+  obj := TSynFpuException.Create(ffPascal);
+  ObjArrayAdd(GlobalSynFpuExceptionInstances, obj);
+  GlobalSynFpuExceptionDelphi := obj;
   result := obj;
 end;
 
-{$endif CPUINTEL}
 
 
 initialization
 
 finalization
   {$ifdef CPUINTEL}
-  ObjArrayClear(GlobalSynFPUExceptionInstances);
+  ObjArrayClear(GlobalSynFpuExceptionInstances);
   {$endif CPUINTEL}
   ProcessSystemUse.Free;
+  
 end.
 
 

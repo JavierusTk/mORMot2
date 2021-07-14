@@ -21,6 +21,22 @@ begin
   result := WideCharToMultiByte(CodePage, 0, W, LW, A, LA, @DefaultCharVar, nil);
 end;
 
+
+function LibraryOpen(const LibraryName: TFileName): TLibHandle;
+begin
+  result := Windows.LoadLibrary(pointer(LibraryName));
+end;
+
+procedure LibraryClose(Lib: TLibHandle);
+begin
+  if pointer(Lib) <> nil then
+    Windows.FreeLibrary(Lib);
+end;
+
+// Delphi Unicode has an ambiguous GetProcAddress() overload with PWideChar
+function LibraryResolve(Lib: TLibHandle; ProcName: PAnsiChar): pointer;
+  external kernel32 name 'GetProcAddress';
+
 procedure FileTimeToInt64(const FT: TFileTime; out I64: Int64);
 begin
   {$ifdef CPU64}
@@ -28,7 +44,7 @@ begin
   PInt64Rec(@I64)^.Hi := FT.dwHighDateTime;
   {$else}
   I64 := PInt64(@FT)^;
-  {$endif}
+  {$endif CPU64}
 end;
 
 const
@@ -40,31 +56,31 @@ function FileTimeToUnixTime(const FT: TFileTime): Int64;
 {$ifdef CPU64}
 var
   nano100: Int64; // TFileTime is in 100 ns unit
-{$endif}
+{$endif CPU64}
 begin
   {$ifdef CPU64}
   FileTimeToInt64(ft, nano100);
   result := (nano100 - UnixFileTimeDelta) div 10000000;
   {$else} // use PInt64 to avoid URW699 with Delphi 6 / Kylix
   result := (PInt64(@ft)^ - UnixFileTimeDelta) div 10000000;
-  {$endif}
+  {$endif CPU64}
 end;
 
 function FileTimeToUnixMSTime(const FT: TFileTime): Int64;
 {$ifdef CPU64}
 var
   nano100: Int64; // TFileTime is in 100 ns unit
-{$endif}
+{$endif CPU64}
 begin
   {$ifdef CPU64}
   FileTimeToInt64(ft, nano100);
   result := (nano100 - UnixFileTimeDelta) div 10000;
   {$else} 
   result := (PInt64(@ft)^ - UnixFileTimeDelta) div 10000;
-  {$endif}
+  {$endif CPU64}
 end;
 
-function UnixTimeUTC: Int64;
+function UnixTimeUtc: Int64;
 var
   ft: TFileTime;
 begin
@@ -73,9 +89,11 @@ begin
 end;
 
 var
+  // redirect to a separated slower but more accurate API since Windows 8
+  // - points to GetSystemTimeAsFileTime() before Windows 8
   GetSystemTimePreciseAsFileTime: procedure(var ft: TFILETIME); stdcall;
 
-function UnixMSTimeUTC: Int64;
+function UnixMSTimeUtc: Int64;
 var
   ft: TFileTime;
 begin
@@ -83,7 +101,7 @@ begin
   result := FileTimeToUnixMSTime(ft);
 end;
 
-function UnixMSTimeUTCFast: Int64;
+function UnixMSTimeUtcFast: Int64;
 var
   ft: TFileTime;
 begin
@@ -103,6 +121,7 @@ function  CloseHandle;                external kernel32;
 procedure FileClose;                  external kernel32 name 'CloseHandle';
 function  GetCurrentThreadId;         external kernel32;
 function  GetCurrentProcessId;        external kernel32;
+function  WaitForSingleObject;        external kernel32;
 function  GetEnvironmentStringsW;     external kernel32;
 function  FreeEnvironmentStringsW;    external kernel32;
 function  RtlCaptureStackBackTrace;   external kernel32;
@@ -115,11 +134,19 @@ function  CreateIoCompletionPort;     external kernel32;
 function  GetQueuedCompletionStatus;  external kernel32;
 function  PostQueuedCompletionStatus; external kernel32;
 function  GetDesktopWindow;           external user32;
+function  Unicode_InPlaceUpper;       external user32 name 'CharUpperBuffW';
+function  Unicode_InPlaceLower;       external user32 name 'CharLowerBuffW';
 
-procedure DisplayFatalError(const title, msg: RawUTF8);
+{$I-}
+procedure DisplayFatalError(const title, msg: RawUtf8);
 begin
-  MessageBoxA(0, pointer(msg), pointer(title), MB_OK or MB_ICONWARNING);
+  // better than a MessageBox() especially for services
+  AllocConsole;
+  writeln(title);
+  writeln(msg);
+  ioresult;
 end;
+{$I+}
 
 function GetModuleHandle(lpModuleName: PChar): HMODULE;
 begin
@@ -134,7 +161,7 @@ end;
 function ExpandEnvVars(const aStr: string): string;
 // adapted from http://delphidabbler.com/articles?article=6
 var
-  size: Integer;
+  size: integer;
 begin
   // Get required buffer size
   size := ExpandEnvironmentStrings(pointer(aStr), nil, 0);
@@ -198,7 +225,7 @@ begin
 end;
 
 function FileInfoByHandle(aFileHandle: THandle;
-  out FileId, FileSize, LastWriteAccess, FileCreateDateTime: Int64): Boolean;
+  out FileId, FileSize, LastWriteAccess, FileCreateDateTime: Int64): boolean;
 var
   lastreadaccess: Int64;
   lp: TByHandleFileInformation;
@@ -264,7 +291,7 @@ var
   r: TQWordRec;
 begin
   r.V := Offset;
-  r.L := SetFilePointer(Handle, R.L, @R.H, Origin);
+  r.L := SetFilePointer(Handle, r.L, @r.H, Origin);
   if (r.Li = -1) and
      (GetLastError <> 0) then
     result := -1
@@ -282,13 +309,13 @@ begin
   result := SysUtils.FileCreate(aFileName);
 end;
 
-function FileSetDateFrom(const Dest: TFileName; SourceHandle: integer): boolean;
+function FileSetDateFrom(const Dest: TFileName; SourceHandle: THandle): boolean;
 var
   FileTime: TFileTime;
   D: THandle;
 begin
   D := FileOpen(Dest, fmOpenWrite);
-  if D<>THandle(-1) then
+  if ValidHandle(D) then
   begin
     result := GetFileTime(SourceHandle, nil, nil, @FileTime) and
               SetFileTime(D, nil, nil, @FileTime);
@@ -317,7 +344,7 @@ begin
   result := Windows.CopyFile(pointer(Source), pointer(Target), FailIfExists);
 end;
 
-function FileOpenSequentialRead(const FileName: string): Integer;
+function FileOpenSequentialRead(const FileName: string): integer;
 begin
   if OSVersion >= wVista then // don't use the flag on XP
     result := CreateFile(pointer(FileName), GENERIC_READ,
@@ -327,33 +354,6 @@ begin
     result := FileOpen(FileName, fmOpenRead or fmShareDenyNone);
 end;
 
-function TMemoryMap.DoMap(aCustomOffset: Int64): boolean;
-begin
-  with PInt64Rec(@fFileSize)^ do
-    fMap := CreateFileMapping(fFile, nil, PAGE_READONLY, Hi, Lo, nil);
-  if fMap = 0 then
-    raise EOSException.Create('TMemoryMap.Map: CreateFileMapping()=0');
-  with PInt64Rec(@aCustomOffset)^ do
-    fBuf := MapViewOfFile(fMap, FILE_MAP_READ, Hi, Lo, fBufSize);
-  if fBuf = nil then
-  begin
-    // Windows failed to find a contiguous VA space -> fall back on direct read
-    CloseHandle(fMap);
-    fMap := 0;
-  end;
-  result := fMap <> 0;
-end;
-
-procedure TMemoryMap.DoUnMap;
-begin
-  if fMap <> 0 then
-  begin
-    UnmapViewOfFile(fBuf);
-    CloseHandle(fMap);
-    fMap := 0;
-  end;
-end;
-
 threadvar // mandatory: GetTickCount seems per-thread on XP :(
   LastTickXP: TQWordRec;
 
@@ -361,7 +361,8 @@ function GetTickCount64ForXP: Int64; stdcall;
 var
   t32: cardinal;
   p: PQWordRec;
-begin // warning: GetSystemTimeAsFileTime() is fast, but not monotonic!
+begin
+  // warning: GetSystemTimeAsFileTime() is fast, but not monotonic!
   t32 := Windows.GetTickCount; // we only have the 32-bit counter
   p := @LastTickXP;
   if t32 < p^.L then
@@ -371,13 +372,15 @@ begin // warning: GetSystemTimeAsFileTime() is fast, but not monotonic!
 end; // warning: FPC's GetTickCount64 doesn't handle 49 days wrap on XP :(
 
 {$ifdef FPC} // oddly not defined in fpc\rtl\win
-function SwitchToThread: BOOL; stdcall; external kernel32 name 'SwitchToThread';
+function SwitchToThread: BOOL;
+  stdcall; external kernel32 name 'SwitchToThread';
 {$endif FPC}
 
 procedure SleepHiRes(ms: cardinal);
 begin
-  if (ms <> 0) or not SwitchToThread then
-    Windows.Sleep(ms);
+  if (ms <> 0) or
+     not SwitchToThread then
+    Windows.Sleep(ms); // follow the HW timer: typically up to 16ms on Windows
 end;
 
 {$ifdef FPC}
@@ -386,23 +389,21 @@ end;
 
 {$ifdef NOSETTHREADNAME}
 
-procedure RawSetThreadName(ThreadID: TThreadID; const Name: RawUTF8);
+procedure RawSetThreadName(ThreadID: TThreadID; const Name: RawUtf8);
 begin
 end;
 
 {$else}
 
-procedure RawSetThreadName(ThreadID: TThreadID; const Name: RawUTF8);
+procedure RawSetThreadName(ThreadID: TThreadID; const Name: RawUtf8);
 var s: AnsiString;
     {$ifndef ISDELPHIXE2}
-    {$ifdef MSWINDOWS}
     info: record
       FType: LongWord;     // must be 0x1000
       FName: PAnsiChar;    // pointer to name (in user address space)
       FThreadID: LongWord; // thread ID (-1 indicates caller thread)
       FFlags: LongWord;    // reserved for future use, must be zero
     end;
-    {$endif MSWINDOWS}
     {$endif ISDELPHIXE2}
 begin
   if not IsDebuggerPresent then
@@ -430,7 +431,7 @@ const
   cSetThreadNameException = $406D1388;
 
   // https://docs.microsoft.com/en-us/archive/blogs/yizhang/interpreting-hresults-returned-from-netclr-0x8013xxxx
-  DOTNET_EXCEPTIONNAME: array[0..83] of PUTF8Char = (
+  DOTNET_EXCEPTIONNAME: array[0..83] of PUtf8Char = (
     'Access', 'AmbiguousMatch', 'appdomainUnloaded', 'Application', 'Argument',
     'ArgumentNull', 'ArgumentOutOfRange', 'Arithmetic', 'ArrayTypeMismatch',
     'BadImageFormat', 'CannotUnloadappdomain', 'ContextMarshal', 'Cryptographic',
@@ -488,7 +489,7 @@ begin
 end;
 
 function TSynLogExceptionContext.AdditionalInfo(
-  out ExceptionNames: TPUTF8CharDynArray): cardinal;
+  out ExceptionNames: TPUtf8CharDynArray): cardinal;
 var
   i: PtrInt;
 begin
@@ -511,15 +512,19 @@ var
   {$ifdef WIN64}
     {$define WITH_VECTOREXCEPT} // use AddVectoredExceptionHandler Win64 API
   {$else}
-    // Win32, Linux: intercept via the RaiseProc global variable
-    {$define WITH_RAISEPROC} // RaiseProc is set in main mormot.core.os.pas
-  {$endif}
+    {$ifdef FPC_USE_WIN32_SEH}
+      {$define WITH_VECTOREXCEPT} // new since FPC 3.2
+    {$else}
+      // Win32, Linux: intercept via the RaiseProc global variable
+      {$define WITH_RAISEPROC} // RaiseProc is set in main mormot.core.os.pas
+    {$endif FPC_USE_WIN32_SEH}
+  {$endif WIN64}
 {$else}
   {$ifdef CPU64}
     {$define WITH_VECTOREXCEPT}
   {$else}
     {$define WITH_RTLUNWINDPROC} //  use x86_64 asm -> Win32 only
-  {$endif}
+  {$endif CPU64}
 {$endif FPC}
 
 {$ifndef WITH_RAISEPROC}
@@ -531,8 +536,8 @@ type
     ExceptionFlags: DWord;
     OuterException: PExceptionRecord;
     ExceptionAddress: PtrUInt;
-    NumberParameters: Longint;
-    case {IsOsException:} Boolean of
+    NumberParameters: integer;
+    case {IsOsException:} boolean of
       true:
         (ExceptionInformation: array[0..14] of PtrUInt);
       false:
@@ -584,8 +589,8 @@ begin
     end;
     ctxt.EStack := stack;
     ctxt.EStackCount := 0;
-    ctxt.ETimestamp := UnixTimeUTC; // fast API call
-    _RawLogException(ctxt);
+    ctxt.ETimestamp := UnixTimeUtc; // fast API call
+    backuphandler(ctxt);
   except
     { ignore any nested exception }
   end;
@@ -642,6 +647,35 @@ end;
 
 {$endif NOEXCEPTIONINTERCEPT}
 
+{ TMemoryMap }
+
+function TMemoryMap.DoMap(aCustomOffset: Int64): boolean;
+begin
+  with PInt64Rec(@fFileSize)^ do
+    fMap := CreateFileMapping(fFile, nil, PAGE_READONLY, Hi, Lo, nil);
+  if fMap = 0 then
+    raise EOSException.Create('TMemoryMap.Map: CreateFileMapping()=0');
+  with PInt64Rec(@aCustomOffset)^ do
+    fBuf := MapViewOfFile(fMap, FILE_MAP_READ, Hi, Lo, fBufSize);
+  if fBuf = nil then
+  begin
+    // Windows failed to find a contiguous VA space -> fall back on direct read
+    CloseHandle(fMap);
+    fMap := 0;
+  end;
+  result := fMap <> 0;
+end;
+
+procedure TMemoryMap.DoUnMap;
+begin
+  if fMap <> 0 then
+  begin
+    UnmapViewOfFile(fBuf);
+    CloseHandle(fMap);
+    fMap := 0;
+  end;
+end;
+
 const
   STUB_SIZE = 65536; // 16*4 KB (4 KB = memory granularity)
 
@@ -672,8 +706,8 @@ var
     var lpCreationTime, lpExitTime, lpKernelTime, lpUserTime: TFileTime): BOOL; stdcall;
   GetProcessMemoryInfo: function(Process: THandle;
     var ppsmemCounters: TProcessMemoryCounters; cb: DWORD): BOOL; stdcall;
-  EnumProcessModules: function (hProcess: THandle; var lphModule: HMODULE; cb: DWORD;
-    var lpcbNeeded: DWORD): BOOL; stdcall;
+  // EnumProcessModules: function (hProcess: THandle; var lphModule: HMODULE; cb: DWORD;
+  //  var lpcbNeeded: DWORD): BOOL; stdcall;
   EnumProcesses: function(lpidProcess: PDWORD; cb: DWORD; var cbNeeded: DWORD): BOOL; stdcall;
   GetModuleFileNameExW: function(hProcess: THandle; hModule: HMODULE;
     lpBaseName: PWideChar; nSize: DWORD): DWORD; stdcall;
@@ -698,7 +732,7 @@ begin
     inc(P);
 end;
 
-function EnumAllProcesses(out Count: Cardinal): TCardinalDynArray;
+function EnumAllProcesses(out Count: cardinal): TCardinalDynArray;
 var n: cardinal;
 begin
   result := nil;
@@ -706,9 +740,11 @@ begin
   repeat
     SetLength(result, n);
     if EnumProcesses(pointer(result), n * 4, Count) then
+      // Count=n if buffer is too small
       Count := Count shr 2
-    else // Count=n if buffer is too small
-      Count := 0; // error
+    else
+      // error
+      Count := 0;
     if Count < n then
     begin
       if Count = 0 then
@@ -719,8 +755,9 @@ begin
   until n > 8192;
 end;
 
-procedure RawUnicodeToUtf8(P: PWideChar; Len: integer; out res: RawUTF8);
-var // defined here to avoid linking mormot.core.text.pas
+// local RTL wrapper function to avoid linking mormot.core.unicode.pas
+procedure RawUnicodeToUtf8(P: PWideChar; Len: integer; out res: RawUtf8);
+var
   tmp: TSynTempBuffer;
 begin
   if Len <= 0 then
@@ -733,23 +770,25 @@ begin
   tmp.Done;
 end;
 
-function GetErrorText(error: longint): RawUTF8;
+function GetErrorText(error: longint): RawUtf8;
 var
-  Len: Integer;
+  Len: integer;
   Buffer: array[0..511] of WideChar;
 begin
-  Len := FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM or FORMAT_MESSAGE_ARGUMENT_ARRAY,
-    nil, error, 0, Buffer{%H-}, SizeOf(Buffer), nil);
+  Len := FormatMessageW(
+    FORMAT_MESSAGE_FROM_SYSTEM or FORMAT_MESSAGE_ARGUMENT_ARRAY, nil,
+    error, 0, Buffer{%H-}, SizeOf(Buffer), nil);
   while (Len > 0) and
         (ord(Buffer[Len - 1]) in [0..32, ord('.')]) do
     dec(Len);
   RawUnicodeToUtf8(Buffer, Len, result);
 end;
 
-function EnumProcessName(PID: Cardinal): RawUTF8;
-var h: THandle;
-    len: DWORD;
-    name: array[0..4095] of WideChar;
+function EnumProcessName(PID: cardinal): RawUtf8;
+var
+  h: THandle;
+  len: DWORD;
+  name: array[0..4095] of WideChar;
 begin
   result := '';
   if PID = 0 then
@@ -762,8 +801,9 @@ begin
         len := high(name);
         if QueryFullProcessImageNameW(h, 0, name, @len) then
           RawUnicodeToUtf8(name, len, result);
-      end else
-        if GetModuleFileNameExW(h,0,name,high(name)) <> 0 then
+      end
+      else
+        if GetModuleFileNameExW(h, 0, name, high(name)) <> 0 then
           RawUnicodeToUtf8(name, StrLenW(name), result);
     finally
       CloseHandle(h);
@@ -774,12 +814,18 @@ function RetrieveSystemTimes(out IdleTime, KernelTime, UserTime: Int64): boolean
 var
   ftidl, ftkrn, ftusr: TFileTime;
 begin
-  result := Assigned(GetSystemTimes) and GetSystemTimes(ftidl, ftkrn, ftusr);
+  result := Assigned(GetSystemTimes) and
+            GetSystemTimes(ftidl, ftkrn, ftusr);
   if not result then
     exit;
   FileTimeToInt64(ftidl, IdleTime);
   FileTimeToInt64(ftkrn, KernelTime);
   FileTimeToInt64(ftusr, UserTime);
+end;
+
+function RetrieveLoadAvg: RawUtf8;
+begin
+  result := ''; // call RetrieveSystemTimes() instead
 end;
 
 function RetrieveProcessInfo(PID: cardinal; out KernelTime, UserTime: Int64;
@@ -790,7 +836,8 @@ var
   mem: TProcessMemoryCounters;
 begin
   result := false;
-  if not Assigned(GetProcessTimes) or not Assigned(GetProcessMemoryInfo) then
+  if not Assigned(GetProcessTimes) or
+     not Assigned(GetProcessMemoryInfo) then
     exit;
   h := OpenProcess(OpenProcessAccess, false, PID);
   if h = 0 then
@@ -817,8 +864,10 @@ end;
 function TProcessInfo.Init: boolean;
 begin
   FillCharFast(self, SizeOf(self), 0);
-  result := Assigned(GetSystemTimes) and Assigned(GetProcessTimes) and
-    Assigned(GetProcessMemoryInfo); // no monitoring API under oldest Windows
+  // no monitoring API available under oldest Windows
+  result := Assigned(GetSystemTimes) and
+            Assigned(GetProcessTimes) and
+            Assigned(GetProcessMemoryInfo);
 end;
 
 function TProcessInfo.Start: boolean;
@@ -826,7 +875,8 @@ var
   ftidl, ftkrn, ftusr: TFileTime;
   sidl, skrn, susr: Int64;
 begin
-  result := Assigned(GetSystemTimes) and GetSystemTimes(ftidl, ftkrn, ftusr);
+  result := Assigned(GetSystemTimes) and
+            GetSystemTimes(ftidl, ftkrn, ftusr);
   if not result then
     exit;
   FileTimeToInt64(ftidl, sidl);
@@ -894,16 +944,18 @@ begin
   end
   else
   begin
-    Kernel := SimpleRoundTo2Digits((fDiffKernel * 100) / fDiffTotal);
-    User := SimpleRoundTo2Digits((fDiffUser * 100) / fDiffTotal);
+    Kernel := {%H-}SimpleRoundTo2Digits((fDiffKernel * 100) / fDiffTotal);
+    User := {%H-}SimpleRoundTo2Digits((fDiffUser * 100) / fDiffTotal);
     Idle := 100 - Kernel - User; // ensure sum is always 100%
     result := true;
   end;
 end;
 
 {$ifndef UNICODE} // missing API for FPC and oldest Delphi
+
 type
   DWORDLONG = QWord;
+
   TMemoryStatusEx = record
     dwLength: DWORD;
     dwMemoryLoad: DWORD;
@@ -917,7 +969,9 @@ type
   end;
 
 // information about the system's current usage of both physical and virtual memory
-function GlobalMemoryStatusEx(var lpBuffer: TMemoryStatusEx): BOOL; stdcall; external kernel32;
+function GlobalMemoryStatusEx(var lpBuffer: TMemoryStatusEx): BOOL;
+  stdcall; external kernel32;
+
 {$endif UNICODE}
 
 function GetMemoryInfo(out info: TMemoryInfo; withalloc: boolean): boolean;
@@ -958,7 +1012,8 @@ begin
       end;
   end;
   {$else}
-  if withalloc and Assigned(GetProcessMemoryInfo) then
+  if withalloc and
+     Assigned(GetProcessMemoryInfo) then
   begin
     FillcharFast(mem, SizeOf(mem), 0);
     mem.cb := SizeOf(mem);
@@ -991,7 +1046,7 @@ var
 begin
   if aDriveFolderOrFile = '' then
     aDriveFolderOrFile := SysUtils.UpperCase(
-      ExtractFileDrive(ExeVersion.ProgramFilePath));
+      ExtractFileDrive(Executable.ProgramFilePath));
   dn := SynUnicode(aDriveFolderOrFile);
   if (dn <> '') and
      (dn[2] = ':') and
@@ -1004,7 +1059,8 @@ begin
     GetVolumeInformationW(pointer(dn), tmp, MAX_PATH, nil, dummy, flags, nil, 0);
     aVolumeName^ := tmp;
   end;
-  result := GetDiskFreeSpaceExW(pointer(dn), aAvailableBytes, aTotalBytes, aFreeBytes);
+  result := GetDiskFreeSpaceExW(pointer(dn),
+    aAvailableBytes, aTotalBytes, aFreeBytes);
 end;
 
 function GetDiskPartitions: TDiskPartitions;
@@ -1020,7 +1076,8 @@ begin
   drives := GetLogicalDrives;
   m := 1 shl 2;
   for drive := 3 to 26 do
-  begin // retrieve partitions mounted as C..Z drives
+  begin
+    // retrieve partitions mounted as C..Z drives
     if drives and m <> 0 then
     begin
       fn[1] := char(64 + drive);
@@ -1074,7 +1131,7 @@ begin
     SetConsoleTextAttribute(StdOut, TextAttr);
 end;
 
-function ConsoleKeyPressed(ExpectedKey: Word): Boolean;
+function ConsoleKeyPressed(ExpectedKey: Word): boolean;
 var
   lpNumberOfEvents: DWORD;
   lpBuffer: TInputRecord;
@@ -1122,14 +1179,40 @@ begin
   end;
 end;
 
-function Utf8ToConsole(const S: RawUTF8): RawByteString;
+{$ifndef FPC}
 var
-  tmp: SynUnicode;
+  // Delphi doesn't define this global variable need by ConsoleReadBody
+  StdInputHandle: THandle;
+{$endif FPC}
+
+function ConsoleStdInputLen: integer;
 begin
-  tmp := UTF8Decode(S);
-  SetLength(result, length(tmp) * 4);
-  CharToOemW(pointer(tmp), pointer(result));
-  SetLength(result, StrLen(pointer(result)));
+  {$ifndef FPC}
+  if StdInputHandle = 0 then
+    StdInputHandle := GetStdHandle(STD_INPUT_HANDLE);
+  {$endif FPC}
+  if not PeekNamedPipe(StdInputHandle, nil, 0, nil, @result, nil) then
+    result := 0;
+end;
+
+function Utf8ToConsole(const S: RawUtf8): RawByteString;
+var
+  utf16: SynUnicode;
+  tmp: TSynTempBuffer;
+  i: integer;
+begin
+  for i := 1 to length(S) do
+    if S[i] > #127 then
+    begin
+      utf16 := Utf8Decode(S);
+      tmp.Init(length(utf16) * 3);
+      CharToOemBuffW(pointer(utf16), tmp.buf, tmp.len);
+      SetString(result, PAnsiChar(tmp.buf), StrLen(tmp.buf));
+      tmp.Done;
+      writeln(result);
+      exit;
+    end;
+  result := S;
 end;
 
 {$I+}
@@ -1141,19 +1224,19 @@ var
   Size, Size2: DWord;
   Pt: Pointer;
   Trans: PWordArray;
-  LanguageInfo: RawUTF8;
+  LanguageInfo: RawUtf8;
   Info: ^TVSFixedFileInfo;
   FileTime: TFILETIME;
   SystemTime: TSYSTEMTIME;
   tmp: TFileName;
 
-  function ReadResourceByName(const From: RawUTF8): RawUTF8;
+  function ReadResourceByName(const From: RawUtf8): RawUtf8;
   var
     StrValPt: pointer;
     sz: DWord;
     u: SynUnicode;
   begin
-    u := UTF8Decode('\StringFileInfo\' + LanguageInfo + '\' + From);
+    u := Utf8Decode('\StringFileInfo\' + LanguageInfo + '\' + From);
     VerQueryValueW(Pt, pointer(u), StrValPt, sz);
     if sz > 0 then
       RawUnicodeToUtf8(StrValPt, StrLenW(StrValPt), result)
@@ -1167,7 +1250,7 @@ begin
   begin
     // GetFileVersionInfo modifies the filename parameter data while parsing
     // Copy the string const into a local variable to create a writeable copy
-    SetString(tmp, PChar(aFileName), length(aFileName));
+    SetString(tmp, PChar(pointer(aFileName)), length(aFileName));
     Size := GetFileVersionInfoSize(pointer(tmp), Size2);
     if Size > 0 then
     begin
@@ -1197,7 +1280,7 @@ begin
         VerQueryValue(Pt, '\VarFileInfo\Translation', pointer(Trans), Size2);
         if Size2 >= 4 then
         begin
-          LanguageInfo := RawUTF8(format('%4.4x%4.4x', [Trans^[0], Trans^[1]]));
+          LanguageInfo := RawUtf8(format('%4.4x%4.4x', [Trans^[0], Trans^[1]]));
           CompanyName := ReadResourceByName('CompanyName');
           FileDescription := ReadResourceByName('FileDescription');
           FileVersion := ReadResourceByName('FileVersion');
@@ -1220,7 +1303,7 @@ begin
     DecodeDate(fBuildDateTime, BuildYear, M, D);
 end;
 
-procedure GetUserHost(out User, Host: RawUTF8);
+procedure GetUserHost(out User, Host: RawUtf8);
 var
   tmp: array[byte] of WideChar;
   tmpsize: cardinal;
@@ -1234,9 +1317,9 @@ begin
 end;
 
 // avoid unneeded reference to ShlObj.pas
-function SHGetFolderPath(hwnd: hwnd; csidl: Integer; hToken: THandle; dwFlags: DWord;
-  pszPath: PChar): HRESULT; stdcall; external 'SHFolder.dll' name
-  {$ifdef UNICODE} 'SHGetFolderPathW'; {$else} 'SHGetFolderPathA'; {$endif}
+function SHGetFolderPath(hwnd: hwnd; csidl: integer; hToken: THandle;
+  dwFlags: DWord; pszPath: PChar): HRESULT;
+    stdcall; external 'SHFolder.dll' name 'SHGetFolderPath' + _AW;
 
 var
   _SystemPath: array[TSystemPath] of TFileName;
@@ -1260,8 +1343,9 @@ begin
   result := _SystemPath[kind];
   if result <> '' then
     exit;
-  if (kind = spLog) and IsDirectoryWritable(ExeVersion.ProgramFilePath) then
-    result := EnsureDirectoryExists(ExeVersion.ProgramFilePath + 'log')
+  if (kind = spLog) and
+     IsDirectoryWritable(Executable.ProgramFilePath) then
+    result := EnsureDirectoryExists(Executable.ProgramFilePath + 'log')
   else if (csidl[kind] <> 0) and
           (SHGetFolderPath(0, csidl[kind], 0, 0, @tmp) = S_OK) then
     result := IncludeTrailingPathDelimiter(tmp)
@@ -1303,9 +1387,12 @@ end;
 
 const
   _HKEY: array[TWinRegistryRoot] of HKEY = (
-    HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, HKEY_USERS);
+    HKEY_CLASSES_ROOT,
+    HKEY_CURRENT_USER,
+    HKEY_LOCAL_MACHINE,
+    HKEY_USERS);
 
-function TWinRegistry.ReadOpen(root: TWinRegistryRoot; const keyname: RawUTF8;
+function TWinRegistry.ReadOpen(root: TWinRegistryRoot; const keyname: RawUtf8;
   closefirst: boolean): boolean;
 var
   tmp: TSynTempBuffer;
@@ -1327,7 +1414,7 @@ begin
     RegCloseKey(key);
 end;
 
-function TWinRegistry.ReadString(const entry: SynUnicode; andtrim: boolean): RawUTF8;
+function TWinRegistry.ReadString(const entry: SynUnicode; andtrim: boolean): RawUtf8;
 var
   rtype, rsize: DWORD;
   tmp: TSynTempBuffer;
@@ -1343,7 +1430,7 @@ begin
         RawUnicodeToUtf8(tmp.buf, StrLenW(tmp.buf), result);
     end;
     if andtrim then
-      result := Trim(result);
+      result := TrimU(result);
   end;
   tmp.Done;
 end;
@@ -1377,19 +1464,20 @@ begin
   result := RegQueryValueExW(key, pointer(entry), nil, nil, Data, @DataLen) = 0;
 end;
 
-function TWinRegistry.ReadEnumEntries: TRawUTF8DynArray;
+function TWinRegistry.ReadEnumEntries: TRawUtf8DynArray;
 var
   count, maxlen, i, len: DWORD;
   tmp: TSynTempBuffer;
 begin
   result := nil;
+  count := 0;
   if (RegQueryInfoKeyW(key, nil, nil, nil, @count, @maxlen,
        nil, nil, nil, nil, nil, nil) <> 0) or
-     ({%H-}count = 0) then
+     (count = 0) then
     exit;
   SetLength(result, count);
   inc(maxlen);
-  tmp.Init(maxlen * 3);
+  tmp.Init(maxlen * 2);
   for i := 0 to count - 1 do
   begin
     len := maxlen;
@@ -1400,20 +1488,508 @@ begin
 end;
 
 
-{ TWinCryptoAPI }
+const
+  SE_CREATE_TOKEN_NAME           = 'SeCreateTokenPrivilege';
+  SE_ASSIGNPRIMARYTOKEN_NAME     = 'SeAssignPrimaryTokenPrivilege';
+  SE_LOCK_MEMORY_NAME            = 'SeLockMemoryPrivilege';
+  SE_INCREASE_QUOTA_NAME         = 'SeIncreaseQuotaPrivilege';
+  SE_UNSOLICITED_INPUT_NAME      = 'SeUnsolicitedInputPrivilege';
+  SE_MACHINE_ACCOUNT_NAME        = 'SeMachineAccountPrivilege';
+  SE_TCB_NAME                    = 'SeTcbPrivilege';
+  SE_SECURITY_NAME               = 'SeSecurityPrivilege';
+  SE_TAKE_OWNERSHIP_NAME         = 'SeTakeOwnershipPrivilege';
+  SE_LOAD_DRIVER_NAME            = 'SeLoadDriverPrivilege';
+  SE_SYSTEM_PROFILE_NAME         = 'SeSystemProfilePrivilege';
+  SE_SYSTEMTIME_NAME             = 'SeSystemtimePrivilege';
+  SE_PROF_SINGLE_PROCESS_NAME    = 'SeProfileSingleProcessPrivilege';
+  SE_INC_BASE_PRIORITY_NAME      = 'SeIncreaseBasePriorityPrivilege';
+  SE_CREATE_PAGEFILE_NAME        = 'SeCreatePagefilePrivilege';
+  SE_CREATE_PERMANENT_NAME       = 'SeCreatePermanentPrivilege';
+  SE_BACKUP_NAME                 = 'SeBackupPrivilege';
+  SE_RESTORE_NAME                = 'SeRestorePrivilege';
+  SE_SHUTDOWN_NAME               = 'SeShutdownPrivilege';
+  SE_DEBUG_NAME                  = 'SeDebugPrivilege';
+  SE_AUDIT_NAME                  = 'SeAuditPrivilege';
+  SE_SYSTEM_ENVIRONMENT_NAME     = 'SeSystemEnvironmentPrivilege';
+  SE_CHANGE_NOTIFY_NAME          = 'SeChangeNotifyPrivilege';
+  SE_REMOTE_SHUTDOWN_NAME        = 'SeRemoteShutdownPrivilege';
+  SE_UNDOCK_NAME                 = 'SeUndockPrivilege';
+  SE_SYNC_AGENT_NAME             = 'SeSyncAgentPrivilege';
+  SE_ENABLE_DELEGATION_NAME      = 'SeEnableDelegationPrivilege';
+  SE_MANAGE_VOLUME_NAME          = 'SeManageVolumePrivilege';
+  SE_IMPERSONATE_NAME            = 'SeImpersonatePrivilege';
+  SE_CREATE_GLOBAL_NAME          = 'SeCreateGlobalPrivilege';
+  SE_TRUSTED_CREDMAN_ACCESS_NAME = 'SeTrustedCredManAccessPrivilege';
+  SE_RELABEL_NAME                = 'SeRelabelPrivilege';
+  SE_INC_WORKING_SET_NAME        = 'SeIncreaseWorkingSetPrivilege';
+  SE_TIME_ZONE_NAME              = 'SeTimeZonePrivilege';
+  SE_CREATE_SYMBOLIC_LINK_NAME   = 'SeCreateSymbolicLinkPrivilege';
 
-function TWinCryptoAPI.Available: boolean;
+  MAX_SE_NAME_LENGTH = 31;
+
+  WinSystemPrivilegeToSE_NAME: array[TWinSystemPrivilege] of string = (
+    SE_CREATE_TOKEN_NAME,
+    SE_ASSIGNPRIMARYTOKEN_NAME,
+    SE_LOCK_MEMORY_NAME,
+    SE_INCREASE_QUOTA_NAME,
+    SE_UNSOLICITED_INPUT_NAME,
+    SE_MACHINE_ACCOUNT_NAME,
+    SE_TCB_NAME,
+    SE_SECURITY_NAME,
+    SE_TAKE_OWNERSHIP_NAME,
+    SE_LOAD_DRIVER_NAME,
+    SE_SYSTEM_PROFILE_NAME,
+    SE_SYSTEMTIME_NAME,
+    SE_PROF_SINGLE_PROCESS_NAME,
+    SE_INC_BASE_PRIORITY_NAME,
+    SE_CREATE_PAGEFILE_NAME,
+    SE_CREATE_PERMANENT_NAME,
+    SE_BACKUP_NAME,
+    SE_RESTORE_NAME,
+    SE_SHUTDOWN_NAME,
+    SE_DEBUG_NAME,
+    SE_AUDIT_NAME,
+    SE_SYSTEM_ENVIRONMENT_NAME,
+    SE_CHANGE_NOTIFY_NAME,
+    SE_REMOTE_SHUTDOWN_NAME,
+    SE_UNDOCK_NAME,
+    SE_SYNC_AGENT_NAME,
+    SE_ENABLE_DELEGATION_NAME,
+    SE_MANAGE_VOLUME_NAME,
+    SE_IMPERSONATE_NAME,
+    SE_CREATE_GLOBAL_NAME,
+    SE_TRUSTED_CREDMAN_ACCESS_NAME,
+    SE_RELABEL_NAME,
+    SE_INC_WORKING_SET_NAME,
+    SE_TIME_ZONE_NAME,
+    SE_CREATE_SYMBOLIC_LINK_NAME
+  );
+
+type
+  PTOKEN_PRIVILEGES = ^TOKEN_PRIVILEGES;
+  TOKEN_PRIVILEGES = packed record
+    PrivilegeCount : DWORD;
+    Privileges : array[0..0] of LUID_AND_ATTRIBUTES;
+  end;
+
+function OpenProcessToken(ProcessHandle: THandle; DesiredAccess: DWORD;
+  var TokenHandle: THandle): BOOL;
+    stdcall; external advapi32 name 'OpenProcessToken';
+function LookupPrivilegeValue(lpSystemName, lpName: PChar;
+  var lpLuid: TLargeInteger): BOOL;
+    stdcall; external advapi32 name 'LookupPrivilegeValue' + _AW;
+function LookupPrivilegeName(lpSystemName: LPCSTR; var lpLuid: TLargeInteger;
+  lpName: PChar; var cbName: DWORD): BOOL;
+    stdcall; external advapi32 name 'LookupPrivilegeName' + _AW;
+function AdjustTokenPrivileges(TokenHandle: THandle; DisableAllPrivileges: BOOL;
+  const NewState: TOKEN_PRIVILEGES; BufferLength: DWORD;
+  PreviousState: PTokenPrivileges; ReturnLength: PDWORD): BOOL;
+    stdcall; external advapi32 name 'AdjustTokenPrivileges';
+
+
+{ TSynWindowsPrivileges }
+
+procedure TSynWindowsPrivileges.Init(aTokenPrivilege: TPrivilegeTokenType);
+var
+  access: cardinal;
+begin
+  Token := 0;
+  fAvailable := [];
+  fEnabled := [];
+  fDefEnabled := [];
+  access := TOKEN_QUERY or TOKEN_ADJUST_PRIVILEGES;
+  if aTokenPrivilege = pttProcess then
+  begin
+    if not OpenProcessToken(GetCurrentProcess, access, Token) then
+      raise EOSException.Create(
+        'TSynWindowsPrivileges cannot open process token');
+  end
+  else if not OpenThreadToken(GetCurrentThread, access, false, Token) then
+    if GetLastError = ERROR_NO_TOKEN then
+    begin
+      if not ImpersonateSelf(SecurityImpersonation) or
+         not OpenThreadToken(GetCurrentThread, access, false, Token) then
+        raise EOSException.Create(
+          'TSynWindowsPrivileges cannot open thread token');
+    end
+    else
+      raise EOSException.Create(
+        'TSynWindowsPrivileges cannot open thread token');
+  LoadPrivileges;
+end;
+
+procedure TSynWindowsPrivileges.Done(aRestoreInitiallyEnabled: boolean);
+var
+  p: TWinSystemPrivilege;
+  new: TWinSystemPrivileges;
+begin
+  if aRestoreInitiallyEnabled then
+  begin
+    new := fEnabled - fDefEnabled;
+    for p := low(p) to high(p) do
+      if p in new then
+        Disable(p);
+  end;
+  CloseHandle(Token);
+end;
+
+function TSynWindowsPrivileges.Enable(aPrivilege: TWinSystemPrivilege): boolean;
+begin
+  result := aPrivilege in fEnabled;
+  if result or
+     not (aPrivilege in fAvailable) or
+     not SetPrivilege(aPrivilege, true) then
+    exit;
+  Include(fEnabled, aPrivilege);
+  result := true;
+end;
+
+function TSynWindowsPrivileges.Disable(
+  aPrivilege: TWinSystemPrivilege): boolean;
+begin
+  result := not (aPrivilege in fEnabled);
+  if result or
+     not (aPrivilege in fAvailable) or
+     not SetPrivilege(aPrivilege, false) then
+    exit;
+  Exclude(fEnabled, aPrivilege);
+  result := true;
+end;
+
+procedure TSynWindowsPrivileges.LoadPrivileges;
+var
+  buf: TSynTempBuffer;
+  tp: PTOKEN_PRIVILEGES;
+  len: cardinal;
+  i: PtrInt;
+  name: string;
+  p: TWinSystemPrivilege;
+begin
+  if Token = 0 then
+    raise EOSException.Create(
+      'TSynWindowsPrivileges: invalid privileges token');
+  buf.Init;
+  try
+    len := 0;
+    if not GetTokenInformation(
+             Token, TokenPrivileges, buf.buf, buf.len, len) then
+      if GetLastError <> ERROR_INSUFFICIENT_BUFFER then
+        raise EOSException.CreateFmt(
+          'TSynWindowsPrivileges cannot get token information (error=%d)',
+          [GetLastError])
+      else
+      begin
+        buf.Done;
+        buf.Init(len); // we need a bigger buffer
+        if not GetTokenInformation(
+                 Token, TokenPrivileges, buf.buf, buf.len, len) then
+          raise EOSException.CreateFmt(
+            'TSynWindowsPrivileges cannot retrieve token information (error=%d)',
+            [GetLastError])
+      end;
+    tp := buf.buf;
+    SetLength(name, MAX_SE_NAME_LENGTH);
+    for i := 0 to tp.PrivilegeCount - 1 do
+    begin
+      len := length(name);
+      if not LookupPrivilegeName(
+               nil, tp.Privileges[i].Luid, pointer(name), len) then
+        if GetLastError <> ERROR_INSUFFICIENT_BUFFER then
+          raise EOSException.CreateFmt(
+            'TSynWindowsPrivileges LookupPrivilegeName=%d for Luid %d',
+            [GetLastError, PInt64(@tp.Privileges[i].Luid)^])
+        else
+        begin
+          SetLength(name, len);
+          if not LookupPrivilegeName(
+                   nil, tp.Privileges[i].Luid, pointer(name), len) then
+            raise EOSException.CreateFmt(
+              'TSynWindowsPrivileges LookupPrivilegeName=%d for Luid=%d',
+              [GetLastError, PInt64(@tp.Privileges[i].Luid)^])
+        end;
+      for p := low(p) to high(p) do
+        if CompareText(name, WinSystemPrivilegeToSE_NAME[p]) = 0 then
+        begin
+          Include(fAvailable, p);
+          if tp.Privileges[i].Attributes and SE_PRIVILEGE_ENABLED <> 0 then
+            Include(fDefEnabled, p);
+        end;
+    end;
+    fEnabled := fDefEnabled;
+  finally
+    buf.Done;
+  end;
+end;
+
+function TSynWindowsPrivileges.SetPrivilege(aPrivilege: TWinSystemPrivilege;
+  aEnablePrivilege: boolean): boolean;
+var
+  tp: TOKEN_PRIVILEGES;
+  id: TLargeInteger;
+  tpprev: TOKEN_PRIVILEGES;
+  cbprev: DWORD;
+begin
+  result := false;
+  cbprev := SizeOf(TOKEN_PRIVILEGES);
+  if not LookupPrivilegeValue(
+           nil, Pointer(WinSystemPrivilegeToSE_NAME[aPrivilege]), id) then
+    exit;
+  tp.PrivilegeCount := 1;
+  tp.Privileges[0].Luid := PInt64(@id)^;
+  tp.Privileges[0].Attributes := 0;
+  AdjustTokenPrivileges(
+    Token, false, tp, SizeOf(TOKEN_PRIVILEGES), @tpprev, @cbprev);
+  if GetLastError <> ERROR_SUCCESS then
+    exit;
+  tpprev.PrivilegeCount := 1;
+  tpprev.Privileges[0].Luid := PInt64(@id)^;
+  with tpprev.Privileges[0] do
+    if aEnablePrivilege then
+      Attributes := Attributes or SE_PRIVILEGE_ENABLED
+    else
+      Attributes := Attributes xor (SE_PRIVILEGE_ENABLED and Attributes);
+  AdjustTokenPrivileges(
+    Token, false, tpprev, cbprev, nil, nil);
+  if GetLastError <> ERROR_SUCCESS then
+    exit;
+  result := true;
+end;
+
+const
+  ntdll = 'NTDLL.DLL';
+
+type
+  _PPS_POST_PROCESS_INIT_ROUTINE = ULONG;
+
+  PUNICODE_STRING = ^UNICODE_STRING;
+  UNICODE_STRING = packed record
+    Length: word;
+    MaximumLength: word;
+    {$ifdef CPUX64}
+    _align: array[0..3] of byte;
+    {$endif CPUX64}
+    Buffer: PWideChar;
+  end;
+
+  PMS_PEB_LDR_DATA = ^MS_PEB_LDR_DATA;
+  MS_PEB_LDR_DATA = packed record
+    Reserved1: array[0..7] of byte;
+    Reserved2: array[0..2] of pointer;
+    InMemoryOrderModuleList: LIST_ENTRY;
+  end;
+
+  PMS_RTL_USER_PROCESS_PARAMETERS = ^MS_RTL_USER_PROCESS_PARAMETERS;
+  MS_RTL_USER_PROCESS_PARAMETERS = packed record
+    Reserved1: array[0..15] of byte;
+    Reserved2: array[0..9] of pointer;
+    ImagePathName: UNICODE_STRING;
+    CommandLine: UNICODE_STRING ;
+  end;
+
+  PMS_PEB = ^MS_PEB;
+  MS_PEB = packed record
+    Reserved1: array[0..1] of byte;
+    BeingDebugged: BYTE;
+    Reserved2: array[0..0] of byte;
+    {$ifdef CPUX64}
+    _align1: array[0..3] of byte;
+    {$endif CPUX64}
+    Reserved3: array[0..1] of pointer;
+    Ldr: PMS_PEB_LDR_DATA;
+    ProcessParameters: PMS_RTL_USER_PROCESS_PARAMETERS;
+    Reserved4: array[0..103] of byte;
+    Reserved5: array[0..51] of pointer;
+    PostProcessInitRoutine: _PPS_POST_PROCESS_INIT_ROUTINE;
+    Reserved6: array[0..127] of byte;
+    {$ifdef CPUX64}
+    _align2: array[0..3] of byte;
+    {$endif CPUX64}
+    Reserved7: array[0..0] of pointer;
+    SessionId: ULONG;
+    {$ifdef CPUX64}
+    _align3: array[0..3] of byte;
+    {$endif CPUX64}
+  end;
+
+  PMS_PROCESS_BASIC_INFORMATION = ^MS_PROCESS_BASIC_INFORMATION;
+  MS_PROCESS_BASIC_INFORMATION = packed record
+    ExitStatus: integer;
+    {$ifdef CPUX64}
+    _align1: array[0..3] of byte;
+    {$endif CPUX64}
+    PebBaseAddress: PMS_PEB;
+    AffinityMask: PtrUInt;
+    BasePriority: integer;
+    {$ifdef CPUX64}
+    _align2: array[0..3] of byte;
+    {$endif CPUX64}
+    UniqueProcessId: PtrUInt;
+    InheritedFromUniqueProcessId: PtrUInt;
+  end;
+
+  {$Z4}
+  PROCESSINFOCLASS = (
+    ProcessBasicInformation = 0,
+    ProcessDebugPort = 7,
+    ProcessWow64Information = 26,
+    ProcessImageFileName = 27,
+    ProcessBreakOnTermination = 29,
+    ProcessSubsystemInformation = 75);
+  {$Z1}
+
+  NTSTATUS = integer;
+
+function NtQueryInformationProcess(ProcessHandle: THandle;
+  ProcessInformationClass: PROCESSINFOCLASS; ProcessInformation: pointer;
+  ProcessInformationLength: ULONG; ReturnLength: PULONG): NTSTATUS;
+    stdcall; external ntdll name 'NtQueryInformationProcess';
+
+function ReadProcessMemory(hProcess: THandle; const lpBaseAddress: Pointer;
+  lpBuffer: Pointer; nSize: PtrUInt; var lpNumberOfBytesRead: PtrUInt): BOOL;
+    stdcall; external kernel32 name 'ReadProcessMemory';
+
+function InternalGetProcessInfo(aPID: DWORD;
+  out aInfo: TWinProcessInfo): boolean;
+var
+  bytesread: PtrUInt;
+  sizeneeded: DWORD;
+  pbi: PMS_PROCESS_BASIC_INFORMATION;
+  peb: MS_PEB;
+  peb_upp: MS_RTL_USER_PROCESS_PARAMETERS;
+  prochandle: THandle;
+  buf: TSynTempBuffer;
+begin
+  result := false;
+  Finalize(aInfo);
+  FillCharFast(aInfo, SizeOf(aInfo), 0);
+  if APID = 0 then
+    exit;
+  prochandle := OpenProcess(
+    PROCESS_QUERY_INFORMATION or PROCESS_VM_READ, FALSE, aPid);
+  if prochandle = INVALID_HANDLE_VALUE then
+    exit;
+  Include(aInfo.AvailableInfo, wpaiPID);
+  aInfo.PID := aPid;
+  buf.InitZero(0); // 0 to initialize the whole buf.tmp[] stack buffer to zero
+  try
+    sizeneeded := 0;
+    if NtQueryInformationProcess(prochandle,
+         ProcessBasicInformation, buf.buf, buf.len, @sizeneeded) < 0 then
+      exit;
+    if buf.len < integer(sizeneeded) then
+    begin
+      buf.Done;
+      buf.InitZero(sizeneeded);
+      if NtQueryInformationProcess(prochandle,
+           ProcessBasicInformation, buf.buf, buf.len, @sizeneeded) < 0 then
+        exit;
+    end;
+    Include(aInfo.AvailableInfo, wpaiBasic);
+    pbi := buf.buf;
+    with aInfo do
+    begin
+      PID := pbi^.UniqueProcessId;
+      ParentPID := pbi^.InheritedFromUniqueProcessId;
+      BasePriority := pbi^.BasePriority;
+      ExitStatus := pbi^.ExitStatus;
+      PEBBaseAddress := pbi^.PebBaseAddress;
+      AffinityMask := pbi^.AffinityMask;
+    end;
+    // read PEB (Process Environment Block)
+    if not Assigned(pbi.PebBaseAddress) then
+      exit;
+    bytesread := 0;
+    FillCharFast(peb, SizeOf(MS_PEB), 0);
+    if not ReadProcessMemory(prochandle, pbi.PebBaseAddress,
+             @peb, SizeOf(MS_PEB), bytesread) then
+      exit;
+    Include(aInfo.AvailableInfo, wpaiPEB);
+    aInfo.SessionID := peb.SessionId;
+    aInfo.BeingDebugged := peb.BeingDebugged;
+    FillCharFast(peb_upp, SizeOf(MS_RTL_USER_PROCESS_PARAMETERS), 0);
+    bytesread := 0;
+    if not ReadProcessMemory(prochandle, peb.ProcessParameters,
+         @peb_upp, SizeOf(MS_RTL_USER_PROCESS_PARAMETERS), bytesread) then
+      exit;
+    // command line info
+    if peb_upp.CommandLine.Length > 0 then
+    begin
+      SetLength(aInfo.CommandLine, peb_upp.CommandLine.Length shr 1);
+      bytesread := 0;
+      if not ReadProcessMemory(prochandle, peb_upp.CommandLine.Buffer,
+           pointer(aInfo.CommandLine), peb_upp.CommandLine.Length, bytesread) then
+        exit;
+      Include(aInfo.AvailableInfo, wpaiCommandLine);
+    end;
+    // image info
+    if peb_upp.ImagePathName.Length > 0 then
+    begin
+      SetLength(aInfo.ImagePath, peb_upp.ImagePathName.Length shr 1);
+      bytesread := 0;
+      if not ReadProcessMemory(prochandle, peb_upp.ImagePathName.Buffer,
+           pointer(aInfo.ImagePath), peb_upp.ImagePathName.Length, bytesread) then
+        exit;
+      Include(aInfo.AvailableInfo, wpaiImagePath);
+    end;
+    result := true;
+  finally
+    CloseHandle(prochandle);
+    buf.Done;
+  end;
+end;
+
+procedure GetProcessInfo(aPid: cardinal;
+  out aInfo: TWinProcessInfo);
+var
+  privileges: TSynWindowsPrivileges;
+begin
+  privileges.Init(pttThread);
+  try
+    privileges.Enable(wspDebug);
+    InternalGetProcessInfo(aPid, aInfo);
+  finally
+    privileges.Done;
+  end;
+end;
+
+procedure GetProcessInfo(const aPidList: TCardinalDynArray;
+  out aInfo: TWinProcessInfoDynArray);
+var
+  privileges: TSynWindowsPrivileges;
+  i: PtrInt;
+begin
+  SetLength(aInfo, Length(aPidList));
+  privileges.Init(pttThread);
+  try
+    privileges.Enable(wspDebug);
+    for i := 0 to High(aPidList) do
+      InternalGetProcessInfo(aPidList[i], aInfo[i]);
+  finally
+    privileges.Done;
+  end;
+end;
+
+
+
+{ TWinCryptoApi }
+
+function TWinCryptoApi.Available: boolean;
 begin
   if not Tested then
     Resolve;
   result := Assigned(AcquireContextA);
 end;
 
-procedure TWinCryptoAPI.Resolve;
+procedure TWinCryptoApi.Resolve;
 const
-  NAMES: array[0..7] of PChar = (
-    'CryptAcquireContextA', 'CryptReleaseContext', 'CryptImportKey',
-    'CryptSetKeyParam', 'CryptDestroyKey', 'CryptEncrypt', 'CryptDecrypt',
+  NAMES: array[0..7] of PAnsiChar = (
+    'CryptAcquireContextA',
+    'CryptReleaseContext',
+    'CryptImportKey',
+    'CryptSetKeyParam',
+    'CryptDestroyKey',
+    'CryptEncrypt',
+    'CryptDecrypt',
     'CryptGenRandom');
 var
   P: PPointer;
@@ -1439,8 +2015,8 @@ end;
 
 type
   {$ifdef FPC}
-  {$PACKRECORDS C} // mandatory under Win64
-  {$endif}
+  {$packrecords C} // mandatory under Win64
+  {$endif FPC}
   DATA_BLOB = record
     cbData: DWORD;
     pbData: PAnsiChar;
@@ -1448,8 +2024,8 @@ type
 
   PDATA_BLOB = ^DATA_BLOB;
   {$ifdef FPC}
-  {$PACKRECORDS DEFAULT}
-  {$endif}
+  {$packrecords DEFAULT}
+  {$endif FPC}
 
 const
   CRYPTDLL = 'Crypt32.dll';
@@ -1457,11 +2033,13 @@ const
 
 function CryptProtectData(const DataIn: DATA_BLOB; szDataDescr: PWideChar;
   OptionalEntropy: PDATA_BLOB; Reserved, PromptStruct: Pointer; dwFlags: DWORD;
-  var DataOut: DATA_BLOB): BOOL; stdcall; external CRYPTDLL name 'CryptProtectData';
+  var DataOut: DATA_BLOB): BOOL;
+    stdcall; external CRYPTDLL name 'CryptProtectData';
 
 function CryptUnprotectData(const DataIn: DATA_BLOB; szDataDescr: PWideChar;
   OptionalEntropy: PDATA_BLOB; Reserved, PromptStruct: Pointer; dwFlags: DWORD;
-  var DataOut: DATA_BLOB): Bool; stdcall; external CRYPTDLL name 'CryptUnprotectData';
+  var DataOut: DATA_BLOB): BOOL;
+    stdcall; external CRYPTDLL name 'CryptUnprotectData';
 
 function CryptDataForCurrentUserDPAPI(const Data, AppSecret: RawByteString;
   Encrypt: boolean): RawByteString;
@@ -1522,6 +2100,772 @@ begin
 end;
 
 
+{ ****************** Unix Daemon and Windows Service Support }
+
+const
+  // hardcoded to avoid linking mormot.core.rtti for GetEnumName()
+  _SERVICESTATE: array[TServiceState] of string[12] = (
+    'NotInstalled',
+    'Stopped',
+    'Starting',
+    'Stopping',
+    'Running',
+    'Resuming',
+    'Pausing',
+    'Paused',
+    'Error');
+
+function ToText(st: TServiceState): PShortString; overload;
+begin
+  result := @_SERVICESTATE[st];
+end;
+
+
+{ TServiceController }
+
+constructor TServiceController.CreateNewService(
+  const TargetComputer, DatabaseName, Name, DisplayName, Path,
+        OrderGroup, Dependencies, Username, Password: string;
+  DesiredAccess, ServiceType, StartType, ErrorControl: cardinal);
+var
+  Exe: TFileName;
+  backupError: cardinal;
+begin
+  inherited Create;
+  if Path = '' then
+  begin
+    if Assigned(WindowsServiceLog) then
+      WindowsServiceLog(sllError,
+        'CreateNewService("%","%") with Path=""', [Name, DisplayName], self);
+    exit;
+  end;
+  if TargetComputer = '' then
+    if GetDriveType(pointer(ExtractFileDrive(Path))) = DRIVE_REMOTE then
+    begin
+      Exe := ExpandUNCFileName(Path);
+      if (copy(Exe, 1, 12) <> '\\localhost\') or
+         (Exe[14] <> '$') then
+      begin
+        if Assigned(WindowsServiceLog) then
+          WindowsServiceLog(sllError,
+            'CreateNewService("%","%") on remote drive: Path="%" is %',
+            [Name, DisplayName, Path, Exe], self);
+        exit;
+      end;
+      system.delete(Exe, 1, 12); // \\localhost\c$\... -> c:\...
+      Exe[2] := ':';
+    end
+    else
+      Exe := Path;
+  fName := RawUtf8(Name);
+  fSCHandle := OpenSCManager(
+    pointer(TargetComputer), pointer(DatabaseName), SC_MANAGER_ALL_ACCESS);
+  if fSCHandle = 0 then
+  begin
+    backupError := GetLastError;
+    if Assigned(WindowsServiceLog) then
+      WindowsServiceLog(sllLastError, 'OpenSCManager(''%'',''%'') for [%]',
+        [TargetComputer, DatabaseName, fName], self);
+    SetLastError(backupError);
+    exit;
+  end;
+  fHandle := CreateService(fSCHandle,
+    pointer(Name), pointer(DisplayName), DesiredAccess, ServiceType, StartType,
+    ErrorControl, pointer({%H-}Exe), pointer(OrderGroup), nil, pointer(Dependencies),
+    pointer(Username), pointer(Password));
+  if fHandle = 0 then
+  begin
+    backupError := GetLastError;
+    if Assigned(WindowsServiceLog) then
+      WindowsServiceLog(sllLastError,
+        'CreateService("%","%","%")', [Name, DisplayName, Path], self);
+    SetLastError(backupError);
+  end;
+end;
+
+constructor TServiceController.CreateOpenService(
+  const TargetComputer, DataBaseName, Name: string; DesiredAccess: cardinal);
+var
+  backupError: cardinal;
+begin
+  inherited Create;
+  fName := RawUtf8(Name);
+  fSCHandle := OpenSCManager(
+    pointer(TargetComputer), pointer(DataBaseName), GENERIC_READ);
+  if fSCHandle = 0 then
+  begin
+    backupError := GetLastError;
+    if Assigned(WindowsServiceLog) then
+      WindowsServiceLog(sllLastError, 'OpenSCManager(''%'',''%'') for [%]',
+        [TargetComputer, DataBaseName, fName], self);
+    SetLastError(backupError);
+    exit;
+  end;
+  fHandle := OpenService(fSCHandle, pointer(Name), DesiredAccess);
+  if fHandle = 0 then
+  begin
+    backupError := GetLastError;
+    if Assigned(WindowsServiceLog) then
+      WindowsServiceLog(sllLastError, 'OpenService("%")', [Name], self);
+    SetLastError(backupError);
+  end;
+end;
+
+function TServiceController.Delete: boolean;
+begin
+  Result := FALSE;
+  if fHandle <> 0 then
+    if DeleteService(fHandle) then
+    begin
+      Result := CloseServiceHandle(fHandle);
+      fHandle := 0;
+    end
+    else if Assigned(WindowsServiceLog) then
+      WindowsServiceLog(sllLastError, 'DeleteService("%")', [fName], self);
+end;
+
+destructor TServiceController.Destroy;
+begin
+  if fHandle <> 0 then
+    CloseServiceHandle(fHandle);
+  if fSCHandle <> 0 then
+    CloseServiceHandle(fSCHandle);
+  inherited;
+end;
+
+function TServiceController.GetState: TServiceState;
+begin
+  if (self = nil) or
+     (fSCHandle = 0) or
+     (fHandle = 0) then
+    result := ssNotInstalled
+  else
+    result := CurrentStateToServiceState(Status.dwCurrentState);
+  if Assigned(WindowsServiceLog) then
+    WindowsServiceLog(sllTrace, 'GetState(%)=%', [fName, _SERVICESTATE[result]], self);
+end;
+
+function TServiceController.GetStatus: TServiceStatus;
+begin
+  FillCharFast(fStatus, SizeOf(fStatus), 0);
+  QueryServiceStatus(fHandle, fStatus);
+  Result := fStatus;
+end;
+
+function TServiceController.Pause: boolean;
+begin
+  Result := ControlService(fHandle, SERVICE_CONTROL_PAUSE, fStatus);
+end;
+
+function TServiceController.Refresh: boolean;
+begin
+  Result := ControlService(fHandle, SERVICE_CONTROL_INTERROGATE, fStatus);
+end;
+
+function TServiceController.Resume: boolean;
+begin
+  Result := ControlService(fHandle, SERVICE_CONTROL_CONTINUE, fStatus);
+end;
+
+function TServiceController.Shutdown: boolean;
+begin
+  Result := ControlService(fHandle, SERVICE_CONTROL_SHUTDOWN, fStatus);
+end;
+
+function TServiceController.Start(const Args: array of PChar): boolean;
+begin
+  if length(Args) = 0 then
+    Result := StartService(fHandle, 0, nil)
+  else
+    Result := StartService(fHandle, length(Args), @Args[0]);
+end;
+
+function TServiceController.Stop: boolean;
+begin
+  Result := ControlService(fHandle, SERVICE_CONTROL_STOP, fStatus);
+end;
+
+procedure TServiceController.SetDescription(const Description: string);
+var
+  desc: SynUnicode;
+begin
+  if Description = '' then
+    exit;
+  desc := SynUnicode(Description);
+  ChangeServiceConfig2(fHandle, SERVICE_CONFIG_DESCRIPTION, @desc);
+end;
+
+class procedure TServiceController.CheckParameters(const ExeFileName: TFileName;
+  const ServiceName, DisplayName, Description, Dependencies: string);
+var
+  param: string;
+  i: integer;
+
+  procedure ShowError(const Msg: RawUtf8);
+  begin
+    if Assigned(WindowsServiceLog) then
+      WindowsServiceLog(sllLastError, 'During % for %', [Msg, param]);
+    if not IsConsole then
+      exit;
+    {$I-} // ignore if no console has been allocated
+    writeln(ServiceName, ': Error "', Msg, '" for ', param);
+    ioresult;
+    {$I+}
+  end;
+
+begin
+  for i := 1 to ParamCount do
+  begin
+    param := SysUtils.LowerCase(paramstr(i));
+    if Assigned(WindowsServiceLog) then
+      WindowsServiceLog(sllInfo,
+        'Controling % with command [%]', [ServiceName, param]);
+    if param = '/install' then
+      TServiceController.Install(
+        ServiceName, DisplayName, Description, true, ExeFileName, Dependencies)
+    else
+      with TServiceController.CreateOpenService('', '', ServiceName) do
+      try
+        if State = ssErrorRetrievingState then
+          ShowError('State')
+        else if param = '/uninstall' then
+        begin
+          if not Stop then
+            ShowError('Stop');
+          if not Delete then
+            ShowError('Delete');
+        end
+        else if param = '/stop' then
+        begin
+          if not Stop then
+            ShowError('Stop');
+        end
+        else if param = '/start' then
+        begin
+          if not Start([]) then
+            ShowError('Start');
+        end;
+      finally
+        Free;
+      end;
+  end;
+end;
+
+class function TServiceController.Install(
+  const Name, DisplayName, Description: string;
+  AutoStart: boolean; ExeName: TFileName; Dependencies: string): TServiceState;
+var
+  ctrl: TServiceController;
+  start: cardinal;
+begin
+  if AutoStart then
+    start := SERVICE_AUTO_START
+  else
+    start := SERVICE_DEMAND_START;
+  if ExeName = '' then
+    ExeName := Executable.ProgramFileName;
+  ctrl := TServiceController.CreateNewService(
+    '', '', Name, DisplayName, ExeName, '', Dependencies, '', '',
+    SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS, start);
+  try
+    result := ctrl.State;
+    if result <> ssNotInstalled then
+      ctrl.SetDescription(Description);
+  finally
+    ctrl.Free;
+  end;
+end;
+
+
+{ TService }
+
+constructor TService.Create(const aServiceName, aDisplayName: string);
+begin
+  fSName := aServiceName;
+  fDName := aDisplayName;
+  if aDisplayName = '' then
+    fDName := aServiceName;
+  fServiceType := SERVICE_WIN32_OWN_PROCESS or SERVICE_INTERACTIVE_PROCESS;
+  fStartType := SERVICE_AUTO_START;
+  fStatusRec.dwServiceType := fServiceType;
+  fStatusRec.dwCurrentState := SERVICE_STOPPED;
+  fStatusRec.dwControlsAccepted := 31;
+  fStatusRec.dwWin32ExitCode := NO_ERROR;
+  if Assigned(WindowsServiceLog) then
+    WindowsServiceLog(sllInfo, 'Create: % (%) running as [%]',
+      [ServiceName, aDisplayName, Executable.ProgramFullSpec], self);
+end;
+
+procedure TService.CtrlHandle(Code: cardinal);
+begin
+  DoCtrlHandle(Code);
+end;
+
+procedure TService.DoCtrlHandle(Code: cardinal);
+begin
+  if Assigned(WindowsServiceLog) then
+    WindowsServiceLog(sllInfo, '%: command % received from OS', [ServiceName, Code], self);
+  try
+    case Code of
+      SERVICE_CONTROL_STOP:
+        begin
+          ReportStatus(SERVICE_STOP_PENDING, NO_ERROR, 0);
+          try
+            if Assigned(fOnStop) then
+              fOnStop(Self);
+            ReportStatus(SERVICE_STOPPED, NO_ERROR, 0);
+          except
+            ReportStatus(SERVICE_STOPPED, ERROR_CAN_NOT_COMPLETE, 0);
+          end;
+        end;
+      SERVICE_CONTROL_PAUSE:
+        begin
+          ReportStatus(SERVICE_PAUSE_PENDING, NO_ERROR, 0);
+          try
+            if Assigned(fOnPause) then
+              fOnPause(Self);
+            ReportStatus(SERVICE_PAUSED, NO_ERROR, 0)
+          except
+            ReportStatus(SERVICE_PAUSED, ERROR_CAN_NOT_COMPLETE, 0)
+          end;
+        end;
+      SERVICE_CONTROL_CONTINUE:
+        begin
+          ReportStatus(SERVICE_CONTINUE_PENDING, NO_ERROR, 0);
+          try
+            if Assigned(fOnResume) then
+              fOnResume(Self);
+            ReportStatus(SERVICE_RUNNING, NO_ERROR, 0);
+          except
+            ReportStatus(SERVICE_RUNNING, ERROR_CAN_NOT_COMPLETE, 0);
+          end;
+        end;
+      SERVICE_CONTROL_SHUTDOWN:
+        begin
+          if Assigned(fOnShutdown) then
+            fOnShutdown(Self);
+          Code := 0;
+        end;
+      SERVICE_CONTROL_INTERROGATE:
+        begin
+          SetServiceStatus(fStatusHandle, fStatusRec);
+          if Assigned(fOnInterrogate) then
+            fOnInterrogate(Self);
+        end;
+    end;
+    if Assigned(fOnControl) then
+      fOnControl(Self, Code);
+  except
+  end;
+  if Assigned(WindowsServiceLog) then
+    WindowsServiceLog(sllInfo, '%: command % finished', [ServiceName, Code], self);
+end;
+
+procedure TService.Execute;
+begin
+  try
+    if Assigned(fOnStart) then
+      fOnStart(@Self);
+    ReportStatus(SERVICE_RUNNING, NO_ERROR, 0);
+    if Assigned(fOnExecute) then
+      fOnExecute(@Self);
+  except
+    ReportStatus(SERVICE_RUNNING, ERROR_CAN_NOT_COMPLETE, 0);
+  end;
+end;
+
+function TService.GetArgCount: Integer;
+begin
+  result := length(fArgsList);
+end;
+
+function TService.GetArgs(Idx: Integer): string;
+begin
+  if cardinal(Idx) > cardinal(high(fArgsList)) then
+    result := ''
+  else
+    // avoid GPF
+    result := fArgsList[Idx];
+end;
+
+function TService.GetControlHandler: TServiceControlHandler;
+begin
+  Result := fControlHandler;
+  if not Assigned(Result) then
+    if Assigned(WindowsServiceLog) then
+      WindowsServiceLog(sllError, '%.GetControlHandler with ControlHandler=nil: ' +
+        'use TServiceSingle or assign a custom ControlHandler', [self], self);
+end;
+
+function TService.GetInstalled: boolean;
+begin
+  with TServiceController.CreateOpenService(
+    '', '', fSName, SERVICE_QUERY_STATUS) do
+  try
+    result := Handle <> 0;
+  finally
+    Free;
+  end;
+end;
+
+function TService.Install(const Params: string): boolean;
+var
+  schService: SC_HANDLE;
+  schSCManager: SC_HANDLE;
+  ServicePath: TFileName;
+begin
+  result := false;
+  if installed then
+    exit;
+  ServicePath := Executable.ProgramFileName;
+  if Params <> '' then
+    ServicePath := ServicePath + ' ' + Params;
+  schSCManager := OpenSCManager(nil, nil, SC_MANAGER_ALL_ACCESS);
+  if schSCManager > 0 then
+  begin
+    schService := CreateService(schSCManager, pointer(fSName), pointer(fDName),
+      SERVICE_ALL_ACCESS, fServiceType, fStartType, SERVICE_ERROR_NORMAL,
+      pointer(ServicePath), nil, nil, nil, nil, nil);
+    if schService > 0 then
+    begin
+      result := true;
+      CloseServiceHandle(schService);
+    end;
+  end;
+end;
+
+procedure TService.Remove;
+begin
+  with TServiceController.CreateOpenService(
+    '', '', fSName, SERVICE_ALL_ACCESS) do
+  try
+    if Handle = 0 then
+      exit;
+    Stop;
+    Delete;
+  finally
+    Free;
+  end;
+end;
+
+function TService.ReportStatus(dwState, dwExitCode, dwWait: cardinal): BOOL;
+var
+  status: string;
+begin
+  status := ServiceStateText(CurrentStateToServiceState(dwState));
+  if Assigned(WindowsServiceLog) then
+    WindowsServiceLog(sllInfo, '% ReportStatus(%,%,%)', 
+      [ServiceName, status, dwExitCode, dwWait], self);
+  if dwState = SERVICE_START_PENDING then
+    fStatusRec.dwControlsAccepted := 0
+  else
+    fStatusRec.dwControlsAccepted := 31;
+  fStatusRec.dwCurrentState := dwState;
+  fStatusRec.dwWin32ExitCode := dwExitCode;
+  fStatusRec.dwWaitHint := dwWait;
+  if (dwState = SERVICE_RUNNING) or
+     (dwState = SERVICE_STOPPED) then
+    fStatusRec.dwCheckPoint := 0
+  else
+    inc(fStatusRec.dwCheckPoint);
+  result := SetServiceStatus(fStatusHandle, fStatusRec);
+  if not result then
+    if Assigned(WindowsServiceLog) then
+      WindowsServiceLog(sllLastError, '% ReportStatus(%,%,%)',
+        [ServiceName, status, dwExitCode, dwWait], self);
+end;
+
+procedure TService.SetControlHandler(const Value: TServiceControlHandler);
+begin
+  fControlHandler := Value;
+end;
+
+procedure TService.SetStatus(const Value: TServiceStatus);
+begin
+  fStatusRec := Value;
+  if fStatusHandle <> 0 then
+    SetServiceStatus(fStatusHandle, fStatusRec);
+end;
+
+procedure TService.start;
+begin
+  with TServiceController.CreateOpenService(
+    '', '', fSName, SERVICE_ALL_ACCESS) do
+  try
+    start([]);
+  finally
+    Free;
+  end;
+end;
+
+procedure TService.Stop;
+begin
+  with TServiceController.CreateOpenService(
+    '', '', fSName, SERVICE_ALL_ACCESS) do
+  try
+    Stop;
+  finally
+    Free;
+  end;
+end;
+
+function CurrentStateToServiceState(CurrentState: cardinal): TServiceState;
+begin
+  case CurrentState of
+    SERVICE_STOPPED:
+      result := ssStopped;
+    SERVICE_START_PENDING:
+      result := ssStarting;
+    SERVICE_STOP_PENDING:
+      result := ssStopping;
+    SERVICE_RUNNING:
+      result := ssRunning;
+    SERVICE_CONTINUE_PENDING:
+      result := ssResuming;
+    SERVICE_PAUSE_PENDING:
+      result := ssPausing;
+    SERVICE_PAUSED:
+      result := ssPaused;
+  else
+    // e.g. SERVICE_CONTROL_SHUTDOWN
+    result := ssNotInstalled;
+  end;
+end;
+
+function ServiceStateText(State: TServiceState): string;
+var
+  P: PShortString;
+begin
+  P := @_SERVICESTATE[State];
+  result := string(copy(P^, 3, length(P^) - 2));
+end;
+
+function GetServicePid(const aServiceName: string): cardinal;
+var
+  ssp: TServiceStatusProcess;
+  scm: THandle;
+  svc: THandle;
+  size: cardinal;
+begin
+  result := 0;
+  scm := OpenSCManager(nil, nil, SC_MANAGER_CONNECT);
+  if scm <> 0 then
+  try
+    svc := OpenService(scm, pointer(aServiceName), SERVICE_QUERY_STATUS);
+    if svc <> 0 then
+    try
+      if QueryServiceStatusEx(svc, SC_STATUS_PROCESS_INFO,
+          @ssp, SizeOf(TServiceStatusProcess), size) then
+        result := ssp.dwProcessId
+      else if Assigned(WindowsServiceLog) then
+        WindowsServiceLog(sllLastError, 'GetServicePid(%)', [aServiceName]);
+    finally
+      CloseServiceHandle(svc);
+    end;
+  finally
+    CloseServiceHandle(scm);
+  end;
+end;
+
+function KillProcess(pid: cardinal; waitseconds: integer): boolean;
+var
+  ph: THandle;
+begin
+  ph := OpenProcess(PROCESS_TERMINATE or SYNCHRONIZE, false, pid);
+  result := ph <> 0;
+  if result then
+  begin
+    try
+      result := TerminateProcess(ph, 0) and
+                (WaitForSingleObject(ph, waitseconds * 1000) <> WAIT_TIMEOUT);
+    finally
+      CloseHandle(ph);
+    end;
+  end;
+end;
+
+{  function that a service process specifies as the entry point function
+   of a particular service. The function can have any application-defined name
+  - Args points to an array of pointers that point to null-terminated
+    argument strings. The first argument in the array is the name of the service,
+    and subsequent arguments are any strings passed to the service by the process
+    that called the StartService function to start the service.  }
+    
+procedure ServiceProc(ArgCount: cardinal; Args: PPChar); stdcall;
+var
+  i: integer;
+begin
+  if not Assigned(ServiceSingle) then
+    exit;
+  for i := 1 to ArgCount - 1 do
+  begin
+    Inc(Args);
+    SetLength(ServiceSingle.fArgsList, length(ServiceSingle.fArgsList) + 1);
+    ServiceSingle.fArgsList[high(ServiceSingle.fArgsList)] := Args^;
+  end;
+  ServiceSingle.fStatusHandle := RegisterServiceCtrlHandler(
+    pointer(ServiceSingle.fSName), @ServiceSingle.ControlHandler);
+  if ServiceSingle.fStatusHandle = 0 then
+  begin
+    ServiceSingle.ReportStatus(SERVICE_STOPPED, GetLastError, 0);
+    exit;
+  end;
+  ServiceSingle.ReportStatus(SERVICE_START_PENDING, 0, 0);
+  ServiceSingle.Execute;
+end;
+
+function ServiceSingleRun: boolean;
+var
+  S: array[0..1] of TServiceTableEntry;
+begin
+  if ServiceSingle = nil then
+  begin
+    result := false;
+    exit;
+  end;
+  S[0].lpServiceName := pointer(ServiceSingle.ServiceName);
+  S[0].lpServiceProc := ServiceProc;
+  S[1].lpServiceName := nil;
+  S[1].lpServiceProc := nil;
+  { TODO : disable EExternal exception logging in ServicesSingleRun? }
+  result := StartServiceCtrlDispatcher(@S);
+end;
+
+
+{ TServiceSingle }
+
+procedure SingleServiceControlHandler(Opcode: LongWord); stdcall;
+begin
+  if ServiceSingle <> nil then
+    ServiceSingle.DoCtrlHandle(Opcode);
+end;
+
+constructor TServiceSingle.Create(const aServiceName, aDisplayName: string);
+begin
+  if ServiceSingle <> nil then
+    raise EOSException.Create('Only one TServiceSingle is allowed at a time');
+  inherited Create(aServiceName, aDisplayName);
+  ServiceSingle := self;
+  ControlHandler := SingleServiceControlHandler;
+end;
+
+destructor TServiceSingle.Destroy;
+begin
+  try
+    inherited;
+  finally
+    ServiceSingle := nil;
+  end;
+end;
+
+// redefined here so that we can share code with FPC and Delphi
+function CreateProcessW(lpApplicationName: PWideChar; lpCommandLine: PWideChar;
+   lpProcessAttributes, lpThreadAttributes: PSecurityAttributes;
+   bInheritHandles: BOOL; dwCreationFlags: cardinal; lpEnvironment: Pointer;
+   lpCurrentDirectory: PWideChar; const lpStartupInfo: TStartupInfo;
+   out lpProcessInformation: TProcessInformation): BOOL;
+  stdcall; external kernel32;
+
+function GetExitCodeProcess(hProcess: THandle; out lpExitCode: cardinal): BOOL;
+  stdcall; external kernel32;
+
+function RunProcess(const path, arg1: TFileName; waitfor: boolean;
+  const arg2, arg3, arg4, arg5, env: TFileName; envaddexisting: boolean): integer;
+begin
+  result := RunCommand(Format('"%s" %s %s %s %s %s',
+    [path, arg1, arg2, arg3, arg4, arg5]), waitfor, env, envaddexisting);
+end;
+
+var
+  EnvironmentCache: SynUnicode;
+
+function RunCommand(const cmd: TFileName; waitfor: boolean; const env: TFileName;
+  envaddexisting: boolean; parsed: PParseCommands): integer;
+var
+  startupinfo: TStartupInfo; // _STARTUPINFOW or _STARTUPINFOA is equal here
+  processinfo: TProcessInformation;
+  path: TFileName;
+  wcmd, wenv, wpath: SynUnicode;
+  e, p: PWideChar;
+  exitcode: cardinal;
+  i: integer;
+begin
+  // https://support.microsoft.com/en-us/help/175986/info-understanding-createprocess-and-command-line-arguments
+  result := -1;
+  if cmd = '' then
+    exit;
+  // CreateProcess can alter the strings -> use local SynUnicode temp variable
+  wcmd := SynUnicode(cmd);
+  UniqueString(wcmd);
+  if cmd[1] = '"' then
+  begin
+    path := copy(cmd, 2, maxInt);
+    i := Pos('"', path);
+    if i = 0 then
+      exit;
+    SetLength(path, i - 1); // unquote "path" string
+  end
+  else
+  begin
+    i := Pos(' ', cmd);
+    if i <= 1 then
+      exit;
+    path := copy(cmd, 1, i - 1);
+  end;
+  path := ExtractFilePath(path);
+  if path = '' then
+    path := Executable.ProgramFilePath;
+  wpath := SynUnicode(path);
+  if env <> '' then
+  begin
+    wenv := SynUnicode(env);
+    if envaddexisting then
+    begin
+      GlobalLock;
+      try
+        if EnvironmentCache = '' then
+        begin
+          e := GetEnvironmentStringsW;
+          p := e;
+          while p^ <> #0 do
+            inc(p, StrLenW(p) + 1); // go to name=value#0 pairs end
+          SetString(EnvironmentCache, e, (PtrUInt(p) - PtrUInt(e)) shr 1);
+          FreeEnvironmentStringsW(e);
+        end;
+        wenv := EnvironmentCache + wenv;
+      finally
+        GlobalUnLock;
+      end;
+    end
+    else
+      UniqueString(wenv);
+  end;
+  FillCharFast(startupinfo, SizeOf(startupinfo), 0);
+  startupinfo.cb := SizeOf(startupinfo);
+  FillCharFast(processinfo, SizeOf(processinfo), 0);
+  // https://docs.microsoft.com/pl-pl/windows/desktop/ProcThread/process-creation-flags
+  if CreateProcessW(nil, pointer(wcmd), nil, nil, false,
+    CREATE_UNICODE_ENVIRONMENT or CREATE_DEFAULT_ERROR_MODE or
+    DETACHED_PROCESS or CREATE_NEW_PROCESS_GROUP,
+    pointer({%H-}wenv), pointer(wpath), startupinfo, processinfo) then
+  begin
+    if waitfor then
+      if WaitForSingleObject(processinfo.hProcess, INFINITE) = WAIT_FAILED then
+        result := -GetLastError
+      else if not GetExitCodeProcess(processinfo.hProcess, exitcode) then
+        result := -GetLastError
+      else
+        result := exitcode
+    else
+      result := 0;
+    CloseHandle(processinfo.hProcess);
+    CloseHandle(processinfo.hThread);
+  end
+  else
+    result := -GetLastError;
+end;
+
+
 { ****************** Gather Operating System Information }
 
 const
@@ -1539,11 +2883,11 @@ const
   PROCESSOR_ARCHITECTURE_AMD64 = 9;
 
 {$ifndef UNICODE}
-function GetVersionEx(var lpVersionInformation: TOSVersionInfoEx): BOOL; stdcall;
-  external kernel32 name 'GetVersionExA';
+function GetVersionEx(var lpVersionInformation: TOSVersionInfoEx): BOOL;
+  stdcall; external kernel32 name 'GetVersionExA';
 {$endif UNICODE}
 
-procedure TrimSpaces(var s: RawUTF8);
+procedure TrimDualSpaces(var s: RawUtf8);
 var
   i: integer;
 begin
@@ -1551,9 +2895,25 @@ begin
     i := PosEx('  ', s);
     if i = 0 then
       break;
-    delete(s, i, 1);
+    delete(s, i, 1); // dual space -> single space
   until false;
-  s := Trim(s);
+  s := TrimU(s);
+end;
+
+function GetLocalTimeOffset: Integer; // not defined in oldest Delphi
+var
+  tzi: TTimeZoneInformation;
+begin
+   case GetTimeZoneInformation(tzi) of
+     TIME_ZONE_ID_UNKNOWN:
+       result := tzi.Bias;
+     TIME_ZONE_ID_STANDARD:
+       result := tzi.Bias + tzi.StandardBias;
+     TIME_ZONE_ID_DAYLIGHT:
+       result := tzi.Bias + tzi.DaylightBias;
+   else
+     result := 0;
+   end;
 end;
 
 procedure InitializeUnit;
@@ -1565,7 +2925,7 @@ var
   Res: BOOL;
   P: pointer;
   Vers: TWindowsVersion;
-  cpu, manuf, prod, prodver: RawUTF8;
+  cpu, manuf, prod, prodver: RawUtf8;
   reg: TWinRegistry;
 begin
   // late-binding of newest Windows APIs
@@ -1595,15 +2955,16 @@ begin
   @GetSystemTimes := GetProcAddress(h, 'GetSystemTimes');
   @GetProcessTimes := GetProcAddress(h, 'GetProcessTimes');
   @QueryFullProcessImageNameW := GetProcAddress(h, 'QueryFullProcessImageNameW');
-  h := LoadLibrary('Psapi.dll');
+  h := Windows.LoadLibrary('Psapi.dll');
   if h >= 32 then
   begin
     @EnumProcesses := GetProcAddress(h, 'EnumProcesses');
     @GetModuleFileNameExW := GetProcAddress(h, 'GetModuleFileNameExW');
-    @EnumProcessModules := GetProcAddress(h, 'EnumProcessModules');
+    //@EnumProcessModules := GetProcAddress(h, 'EnumProcessModules');
     @GetProcessMemoryInfo := GetProcAddress(h, 'GetProcessMemoryInfo');
   end;
   // retrieve system information
+  TimeZoneLocalBias := -GetLocalTimeOffset;
   FillcharFast(SystemInfo, SizeOf(SystemInfo), 0);
   if Assigned(GetNativeSystemInfo) then
     GetNativeSystemInfo(SystemInfo)
@@ -1654,12 +3015,17 @@ begin
   if Vers >= wVista then
   begin
     if OSVersionInfo.wProductType <> VER_NT_WORKSTATION then
-    begin // Server edition
+    begin
+      // Server edition
       inc(Vers, 2); // e.g. wEight -> wServer2012
-      if (Vers = wServer2016) and
-         (OSVersionInfo.dwBuildNumber >= 17763) then
-        // https://stackoverflow.com/q/53393150
-        Vers := wServer2019_64;
+      if Vers = wServer2016 then
+        if OSVersionInfo.dwBuildNumber >= 17763 then
+          if OSVersionInfo.dwBuildNumber >= 20285 then
+            // https://shorturl.at/asCQ2
+            Vers := wServer2022_64
+          else
+            // https://stackoverflow.com/q/53393150
+            Vers := wServer2019_64;
     end;
     if (SystemInfo.wProcessorArchitecture = PROCESSOR_ARCHITECTURE_AMD64) and
        (Vers < wServer2019_64) then
@@ -1672,23 +3038,23 @@ begin
     OpenProcessAccess := PROCESS_QUERY_INFORMATION or PROCESS_VM_READ;
   with OSVersionInfo do
     if wServicePackMajor = 0 then
-      OSVersionText := RawUTF8(Format('Windows %s (%d.%d.%d)',
+      OSVersionText := RawUtf8(Format('Windows %s (%d.%d.%d)',
         [WINDOWS_NAME[Vers], dwMajorVersion, dwMinorVersion, dwBuildNumber]))
     else
-      OSVersionText := RawUTF8(Format(
+      OSVersionText := RawUtf8(Format(
         'Windows %s SP%d (%d.%d.%d)', [WINDOWS_NAME[Vers],
          wServicePackMajor, dwMajorVersion, dwMinorVersion, dwBuildNumber]));
   OSVersionInt32 := (integer(Vers) shl 8) + ord(osWindows);
-  h := LoadLibrary('ntdll.dll');
+  h := Windows.LoadLibrary(ntdll);
   if h > 0 then
   begin
     wine_get_version := GetProcAddress(h, 'wine_get_version');
     if Assigned(wine_get_version) then
     begin
       OSVersionInfoEx := wine_get_version;
-      OSVersionInfoEx := trim('Wine ' + trim(OSVersionInfoEx));
+      OSVersionInfoEx := TrimU('Wine ' + TrimU(OSVersionInfoEx));
     end;
-    FreeLibrary(h);
+    Windows.FreeLibrary(h);
   end;
   if OSVersionInfoEx <> '' then
     OSVersionText := OSVersionText + ' - ' + OSVersionInfoEx;
@@ -1725,21 +3091,21 @@ begin
   if prodver <> '' then
     BiosInfoText := BiosInfoText + ' ' + prodver;
   if {%H-}cpu = '' then
-    cpu := RawUTF8(GetEnvironmentVariable('PROCESSOR_IDENTIFIER'));
-  cpu := Trim(cpu);
-  CpuInfoText := RawUTF8(Format('%d x %s (' + CPU_ARCH_TEXT + ')',
+    cpu := RawUtf8(GetEnvironmentVariable('PROCESSOR_IDENTIFIER'));
+  cpu := TrimU(cpu);
+  CpuInfoText := RawUtf8(Format('%d x %s (' + CPU_ARCH_TEXT + ')',
     [SystemInfo.dwNumberOfProcessors, cpu]));
-  TrimSpaces(OSVersionText);
-  TrimSpaces(OSVersionInfoEx);
-  TrimSpaces(BiosInfoText);
-  TrimSpaces(CpuInfoText);
+  TrimDualSpaces(OSVersionText);
+  TrimDualSpaces(OSVersionInfoEx);
+  TrimDualSpaces(BiosInfoText);
+  TrimDualSpaces(CpuInfoText);
 end;
 
 {$I-}
 procedure FinalizeSpecificUnit;
 begin
-  if CryptoAPI.Handle <> 0 then
-    FreeLibrary(CryptoAPI.Handle);
+  if CryptoApi.Handle <> 0 then
+    Windows.FreeLibrary(CryptoApi.Handle);
   if OleDBCoinitialized <> 0 then
   begin
     writeln('Missing ', OleDBCoInitialized, ' TOleDBConnection.Destroy call');

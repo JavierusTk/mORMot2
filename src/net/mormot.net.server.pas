@@ -29,6 +29,7 @@ uses
   mormot.core.threads,
   mormot.core.unicode,
   mormot.core.text,
+  mormot.core.rtti,
   mormot.net.sock,
   mormot.net.http,
   {$ifdef USEWININET}
@@ -45,152 +46,49 @@ type
 
   {$M+} // to have existing RTTI for published properties
   THttpServerGeneric = class;
-
-  THttpServerRequest = class;
   {$M-}
-
-  /// a genuine identifier for a given client connection on server side
-  // - maps http.sys ID, or is a genuine 31-bit value from increasing sequence
-
-  THttpServerConnectionID = Int64;
-
-  /// a dynamic array of client connection identifiers, e.g. for broadcasting
-  THttpServerConnectionIDDynArray = array of THttpServerConnectionID;
-
-  /// event handler used by THttpServerGeneric.OnRequest property
-  // - Ctxt defines both input and output parameters
-  // - result of the function is the HTTP error code (200 if OK, e.g.)
-  // - OutCustomHeader will handle Content-Type/Location
-  // - if OutContentType is STATICFILE_CONTENT_TYPE (i.e. '!STATICFILE'),
-  // then OutContent is the UTF-8 filename of a file to be sent directly
-  // to the client via http.sys or NGINX's X-Accel-Redirect; the
-  // OutCustomHeader should contain the eventual 'Content-type: ....' value
-  TOnHttpServerRequest = function(Ctxt: THttpServerRequest): cardinal of object;
-
-  /// event handler used by THttpServerGeneric.OnAfterResponse property
-  // - Ctxt defines both input and output parameters
-  // - Code defines the HTTP response code the (200 if OK, e.g.)
-  TOnHttpServerAfterResponse = procedure(Ctxt: THttpServerRequest;
-    const Code: cardinal) of object;
-
-  /// event handler used by THttpServerGeneric.OnBeforeBody property
-  // - if defined, is called just before the body is retrieved from the client
-  // - supplied parameters reflect the current input state
-  // - should return HTTP_SUCCESS=200 to continue the process, or an HTTP
-  // error code (e.g. HTTP_FORBIDDEN or HTTP_PAYLOADTOOLARGE) to reject
-  // the request
-  TOnHttpServerBeforeBody = function(const aURL, aMethod, aInHeaders,
-    aInContentType, aRemoteIP: RawUTF8; aContentLength: integer;
-    aUseSSL: boolean): cardinal of object;
-
-  /// the server-side available authentication schemes
-  // - as used by THttpServerRequest.AuthenticationStatus
-  // - hraNone..hraKerberos will match low-level HTTP_REQUEST_AUTH_TYPE enum as
-  // defined in HTTP 2.0 API and
-  THttpServerRequestAuthentication = (
-    hraNone,
-    hraFailed,
-    hraBasic,
-    hraDigest,
-    hraNtlm,
-    hraNegotiate,
-    hraKerberos);
 
   /// a generic input/output structure used for HTTP server requests
   // - URL/Method/InHeaders/InContent properties are input parameters
   // - OutContent/OutContentType/OutCustomHeader are output parameters
-  THttpServerRequest = class
+  THttpServerRequest = class(THttpServerRequestAbstract)
   protected
-    fRemoteIP, fURL, fMethod, fInHeaders, fInContentType, fAuthenticatedUser,
-      fOutContentType, fOutCustomHeaders: RawUTF8;
-    fInContent, fOutContent: RawByteString;
     fServer: THttpServerGeneric;
-    fRequestID: integer;
-    fConnectionID: THttpServerConnectionID;
     fConnectionThread: TSynThread;
-    fUseSSL: boolean;
-    fAuthenticationStatus: THttpServerRequestAuthentication;
-    {$ifdef MSWINDOWS}
+    {$ifdef OSWINDOWS}
     fHttpApiRequest: Pointer;
     fFullURL: SynUnicode;
-    {$endif MSWINDOWS}
+    {$endif OSWINDOWS}
   public
-    /// low-level property which may be used during requests processing
-    Status: integer;
     /// initialize the context, associated to a HTTP server instance
     constructor Create(aServer: THttpServerGeneric;
-      aConnectionID: THttpServerConnectionID; aConnectionThread: TSynThread); virtual;
+      aConnectionID: THttpServerConnectionID; aConnectionThread: TSynThread;
+      aConnectionFlags: THttpServerRequestFlags); virtual;
     /// prepare an incoming request
     // - will set input parameters URL/Method/InHeaders/InContent/InContentType
     // - will reset output parameters
-    procedure Prepare(const aURL, aMethod, aInHeaders: RawUTF8;
-      const aInContent: RawByteString; const aInContentType, aRemoteIP: RawUTF8;
-      aUseSSL: boolean = false);
-    /// append some lines to the InHeaders input parameter
-    procedure AddInHeader(additionalHeader: RawUTF8);
-    {$ifdef MSWINDOWS}
+    procedure Prepare(const aUrl, aMethod, aInHeaders: RawUtf8;
+      const aInContent: RawByteString; const aInContentType, aRemoteIP: RawUtf8);
+        override;
+    {$ifdef OSWINDOWS}
     /// input parameter containing the caller Full URL
-    property FullURL: SynUnicode read fFullURL;
-    {$endif MSWINDOWS}
-    /// input parameter containing the caller URI
-    property URL: RawUTF8 read fURL;
-    /// input parameter containing the caller method (GET/POST...)
-    property Method: RawUTF8 read fMethod;
-    /// input parameter containing the caller message headers
-    property InHeaders: RawUTF8 read fInHeaders;
-    /// input parameter containing the caller message body
-    // - e.g. some GET/POST/PUT JSON data can be specified here
-    property InContent: RawByteString read fInContent;
-    // input parameter defining the caller message body content type
-    property InContentType: RawUTF8 read fInContentType;
-    /// output parameter to be set to the response message body
-    property OutContent: RawByteString read fOutContent write fOutContent;
-    /// output parameter to define the reponse message body content type
-    // - if OutContentType is STATICFILE_CONTENT_TYPE (i.e. '!STATICFILE'),
-    // then OutContent is the UTF-8 file name of a file to be sent to the
-    // client via http.sys or NGINX's X-Accel-Redirect header (faster than
-    // local buffering/sending)
-    // - if OutContentType is NORESPONSE_CONTENT_TYPE (i.e. '!NORESPONSE'), then
-    // the actual transmission protocol may not wait for any answer - used
-    // e.g. for WebSockets
-    property OutContentType: RawUTF8 read fOutContentType write fOutContentType;
-    /// output parameter to be sent back as the response message header
-    // - e.g. to set Content-Type/Location
-    property OutCustomHeaders: RawUTF8 read fOutCustomHeaders write fOutCustomHeaders;
+    property FullURL: SynUnicode
+      read fFullURL;
+    {$endif OSWINDOWS}
     /// the associated server instance
     // - may be a THttpServer or a THttpApiServer class
-    property Server: THttpServerGeneric read fServer;
-    /// the client remote IP, as specified to Prepare()
-    property RemoteIP: RawUTF8 read fRemoteIP write fRemoteIP;
-    /// a 31-bit sequential number identifying this instance on the server
-    property RequestID: integer read fRequestID;
-    /// the ID of the connection which called this execution context
-    // - e.g. mormot.net.websocket's TWebSocketProcess.NotifyCallback method
-    // would use this property to specify the client connection to be notified
-    // - is set as an Int64 to match http.sys ID type, but will be an
-    // increasing 31-bit integer sequence for (web)socket-based servers
-    property ConnectionID: THttpServerConnectionID read fConnectionID;
+    property Server: THttpServerGeneric
+      read fServer;
     /// the thread which owns the connection of this execution context
     // - depending on the HTTP server used, may not follow ConnectionID
-    property ConnectionThread: TSynThread read fConnectionThread;
-    /// is TRUE if the caller is connected via HTTPS
-    // - only set for THttpApiServer class yet
-    property UseSSL: boolean read fUseSSL;
-    /// contains the THttpServer-side authentication status
-    // - e.g. when using http.sys authentication with HTTP API 2.0
-    property AuthenticationStatus: THttpServerRequestAuthentication
-      read fAuthenticationStatus;
-    /// contains the THttpServer-side authenticated user name, UTF-8 encoded
-    // - e.g. when using http.sys authentication with HTTP API 2.0, the
-    // domain user name is retrieved from the supplied AccessToken
-    // - could also be set by the THttpServerGeneric.Request() method, after
-    // proper authentication, so that it would be logged as expected
-    property AuthenticatedUser: RawUTF8 read fAuthenticatedUser;
-    {$ifdef MSWINDOWS}
+    property ConnectionThread: TSynThread
+      read fConnectionThread;
+    {$ifdef OSWINDOWS}
     /// for THttpApiServer, points to a PHTTP_REQUEST structure
     // - not used by now for other kind of servers
-    property HttpApiRequest: Pointer read fHttpApiRequest;
-    {$endif MSWINDOWS}
+    property HttpApiRequest: Pointer
+      read fHttpApiRequest;
+    {$endif OSWINDOWS}
   end;
 
   /// abstract class to implement a server thread
@@ -198,15 +96,15 @@ type
   // or TWebSocketServer (as defined in mormot.net.websock)
   TServerGeneric = class(TSynThread)
   protected
-    fProcessName: RawUTF8;
-    fOnHttpThreadStart: TNotifyThreadEvent;
-    procedure SetOnTerminate(const Event: TNotifyThreadEvent); virtual;
+    fProcessName: RawUtf8;
+    fOnHttpThreadStart: TOnNotifyThread;
+    procedure SetOnTerminate(const Event: TOnNotifyThread); virtual;
     procedure NotifyThreadStart(Sender: TSynThread);
   public
     /// initialize the server instance, in non suspended state
     constructor Create(CreateSuspended: boolean;
-      const OnStart, OnStop: TNotifyThreadEvent;
-      const ProcessName: RawUTF8); reintroduce; virtual;
+      const OnStart, OnStop: TOnNotifyThread;
+      const ProcessName: RawUtf8); reintroduce; virtual;
   end;
 
   /// abstract class to implement a HTTP server
@@ -224,34 +122,36 @@ type
     /// list of all registered compression algorithms
     fCompress: THttpSocketCompressRecDynArray;
     /// set by RegisterCompress method
-    fCompressAcceptEncoding: RawUTF8;
-    fServerName: RawUTF8;
+    fCompressAcceptEncoding: RawUtf8;
+    fServerName: RawUtf8;
     fCurrentConnectionID: integer; // 31-bit NextConnectionID sequence
     fCurrentRequestID: integer;
     fCanNotifyCallback: boolean;
-    fRemoteIPHeader, fRemoteIPHeaderUpper: RawUTF8;
-    fRemoteConnIDHeader, fRemoteConnIDHeaderUpper: RawUTF8;
-    function GetAPIVersion: RawUTF8; virtual; abstract;
-    procedure SetServerName(const aName: RawUTF8); virtual;
+    fRemoteIPHeader, fRemoteIPHeaderUpper: RawUtf8;
+    fRemoteConnIDHeader, fRemoteConnIDHeaderUpper: RawUtf8;
+    function GetApiVersion: RawUtf8; virtual; abstract;
+    procedure SetServerName(const aName: RawUtf8); virtual;
     procedure SetOnRequest(const aRequest: TOnHttpServerRequest); virtual;
     procedure SetOnBeforeBody(const aEvent: TOnHttpServerBeforeBody); virtual;
     procedure SetOnBeforeRequest(const aEvent: TOnHttpServerRequest); virtual;
     procedure SetOnAfterRequest(const aEvent: TOnHttpServerRequest); virtual;
     procedure SetOnAfterResponse(const aEvent: TOnHttpServerAfterResponse); virtual;
     procedure SetMaximumAllowedContentLength(aMax: cardinal); virtual;
-    procedure SetRemoteIPHeader(const aHeader: RawUTF8); virtual;
-    procedure SetRemoteConnIDHeader(const aHeader: RawUTF8); virtual;
-    function GetHTTPQueueLength: Cardinal; virtual; abstract;
-    procedure SetHTTPQueueLength(aValue: Cardinal); virtual; abstract;
+    procedure SetRemoteIPHeader(const aHeader: RawUtf8); virtual;
+    procedure SetRemoteConnIDHeader(const aHeader: RawUtf8); virtual;
+    function GetHttpQueueLength: cardinal; virtual; abstract;
+    procedure SetHttpQueueLength(aValue: cardinal); virtual; abstract;
     function DoBeforeRequest(Ctxt: THttpServerRequest): cardinal;
+      {$ifdef HASINLINE}inline;{$endif}
     function DoAfterRequest(Ctxt: THttpServerRequest): cardinal;
+      {$ifdef HASINLINE}inline;{$endif}
     procedure DoAfterResponse(Ctxt: THttpServerRequest; const Code: cardinal); virtual;
     function NextConnectionID: integer; // 31-bit internal sequence
   public
     /// initialize the server instance, in non suspended state
     constructor Create(CreateSuspended: boolean; 
-      const OnStart, OnStop: TNotifyThreadEvent;
-      const ProcessName: RawUTF8); reintroduce; virtual;
+      const OnStart, OnStop: TOnNotifyThread;
+      const ProcessName: RawUtf8); reintroduce; virtual;
     /// override this function to customize your http server
     // - InURL/InMethod/InContent properties are input parameters
     // - OutContent/OutContentType/OutCustomHeader are output parameters
@@ -265,17 +165,16 @@ type
     // and will return HTTP_NOTFOUND if OnRequest was not set
     // - warning: this process must be thread-safe (can be called by several
     // threads simultaneously, but with a given Ctxt instance for each)
-    function Request(Ctxt: THttpServerRequest): cardinal; virtual;
+    function Request(Ctxt: THttpServerRequestAbstract): cardinal; virtual;
     /// server can send a request back to the client, when the connection has
     // been upgraded e.g. to WebSockets
-    // - InURL/InMethod/InContent properties are input parameters (InContentType
-    // is ignored)
+    // - InURL/InMethod/InContent properties are input parameters
+    // (InContentType is ignored)
     // - OutContent/OutContentType/OutCustomHeader are output parameters
-    // - CallingThread should be set to the client's Ctxt.CallingThread
-    // value, so that the method could know which connnection is to be used -
-    // it will return HTTP_NOTFOUND (404) if the connection is unknown
+    // - Ctxt.ConnectionID should be set, so that the method could know
+    // which connnection is to be used - returns HTTP_NOTFOUND (404) if unknown
     // - result of the function is the HTTP error code (200 if OK, e.g.)
-    // - warning: this void implementation will raise an ECrtSocket exception -
+    // - warning: this void implementation will raise an EHttpServer exception -
     // inherited classes should override it, e.g. as in TWebSocketServerRest
     function Callback(Ctxt: THttpServerRequest; aNonBlocking: boolean): cardinal; virtual;
     /// will register a compression algorithm
@@ -326,7 +225,7 @@ type
       read fOnAfterResponse write SetOnAfterResponse;
     /// event handler called after each working Thread is just initiated
     // - called in the thread context at first place in THttpServerGeneric.Execute
-    property OnHttpThreadStart: TNotifyThreadEvent
+    property OnHttpThreadStart: TOnNotifyThread
       read fOnHttpThreadStart write fOnHttpThreadStart;
     /// event handler called when a working Thread is terminating
     // - called in the corresponding thread context
@@ -335,11 +234,11 @@ type
     // - to be used e.g. to call CoUnInitialize from thread in which CoInitialize
     // was made, for instance via a method defined as such:
     // ! procedure TMyServer.OnHttpThreadTerminate(Sender: TObject);
-    // ! begin // TSQLDBConnectionPropertiesThreadSafe
+    // ! begin // TSqlDBConnectionPropertiesThreadSafe
     // !   fMyConnectionProps.EndCurrentThread;
     // ! end;
     // - is used e.g. by TRest.EndCurrentThread for proper multi-threading
-    property OnHttpThreadTerminate: TNotifyThreadEvent
+    property OnHttpThreadTerminate: TOnNotifyThread
       read fOnThreadTerminate write SetOnTerminate;
     /// reject any incoming request with a body size bigger than this value
     // - default to 0, meaning any input size is allowed
@@ -372,34 +271,40 @@ type
     // $       proxy_set_header        X-Conn-ID       $connection
     // $ }
     // see https://synopse.info/forum/viewtopic.php?pid=28174#p28174
-    property HTTPQueueLength: cardinal read GetHTTPQueueLength write SetHTTPQueueLength;
+    property HttpQueueLength: cardinal
+      read GetHttpQueueLength write SetHttpQueueLength;
     /// TRUE if the inherited class is able to handle callbacks
     // - only TWebSocketServer has this ability by now
-    property CanNotifyCallback: boolean read fCanNotifyCallback;
+    property CanNotifyCallback: boolean
+      read fCanNotifyCallback;
     /// the value of a custom HTTP header containing the real client IP
     // - by default, the RemoteIP information will be retrieved from the socket
     // layer - but if the server runs behind some proxy service, you should
     // define here the HTTP header name which indicates the true remote client
     // IP value, mostly as 'X-Real-IP' or 'X-Forwarded-For'
-    property RemoteIPHeader: RawUTF8 read fRemoteIPHeader write SetRemoteIPHeader;
+    property RemoteIPHeader: RawUtf8
+      read fRemoteIPHeader write SetRemoteIPHeader;
     /// the value of a custom HTTP header containing the real client connection ID
     // - by default, Ctxt.ConnectionID information will be retrieved from our
     // socket layer - but if the server runs behind some proxy service, you should
     // define here the HTTP header name which indicates the real remote connection,
     // for example as 'X-Conn-ID', setting in nginx config:
     //  $ proxy_set_header      X-Conn-ID       $connection
-    property RemoteConnIDHeader: RawUTF8
+    property RemoteConnIDHeader: RawUtf8
       read fRemoteConnIDHeader write SetRemoteConnIDHeader;
   published
     /// returns the API version used by the inherited implementation
-    property APIVersion: RawUTF8 read GetAPIVersion;
+    property ApiVersion: RawUtf8
+      read GetApiVersion;
     /// the Server name, UTF-8 encoded, e.g. 'mORMot/1.18 (Linux)'
     // - will be served as "Server: ..." HTTP header
     // - for THttpApiServer, when called from the main instance, will propagate
     // the change to all cloned instances, and included in any HTTP API 2.0 log
-    property ServerName: RawUTF8 read fServerName write SetServerName;
+    property ServerName: RawUtf8
+      read fServerName write SetServerName;
     /// the associated process name
-    property ProcessName: RawUTF8 read fProcessName write fProcessName;
+    property ProcessName: RawUtf8
+      read fProcessName write fProcessName;
   end;
 
 
@@ -432,14 +337,17 @@ type
   {$M-}
 
   /// Socket API based HTTP/1.1 server class used by THttpServer Threads
-
   THttpServerSocket = class(THttpSocket)
   protected
-    fMethod: RawUTF8;
-    fURL: RawUTF8;
-    fKeepAliveClient: boolean;
     fRemoteConnectionID: THttpServerConnectionID;
+    fMethod: RawUtf8;
+    fUrl: RawUtf8;
     fServer: THttpServer;
+    fKeepAliveClient: boolean;
+    // from TSynThreadPoolTHttpServer.Task
+    procedure TaskProcess(aCaller: TSynThreadPoolWorkThread); virtual;
+    function TaskProcessBody(aCaller: TSynThreadPoolWorkThread;
+      aHeaderResult: THttpServerSocketGetRequestResult): boolean;
   public
     /// create the socket according to a server
     // - will register the THttpSocketCompress functions from the server
@@ -452,20 +360,27 @@ type
     function GetRequest(withBody: boolean;
       headerMaxTix: Int64): THttpServerSocketGetRequestResult; virtual;
     /// contains the method ('GET','POST'.. e.g.) after GetRequest()
-    property Method: RawUTF8 read fMethod;
+    property Method: RawUtf8
+      read fMethod;
     /// contains the URL ('/' e.g.) after GetRequest()
-    property URL: RawUTF8 read fURL;
+    property URL: RawUtf8
+      read fUrl;
     /// true if the client is HTTP/1.1 and 'Connection: Close' is not set
     // - default HTTP/1.1 behavior is "keep alive", unless 'Connection: Close'
     // is specified, cf. RFC 2068 page 108: "HTTP/1.1 applications that do not
     // support persistent connections MUST include the "close" connection option
     // in every message"
-    property KeepAliveClient: boolean read fKeepAliveClient write fKeepAliveClient;
+    property KeepAliveClient: boolean
+      read fKeepAliveClient write fKeepAliveClient;
     /// the recognized connection ID, after a call to GetRequest()
     // - identifies either the raw connection on the current server, or is
     // a custom header value set by a local proxy, e.g.
     // THttpServerGeneric.RemoteConnIDHeader='X-Conn-ID' for nginx
-    property RemoteConnectionID: THttpServerConnectionID read fRemoteConnectionID;
+    property RemoteConnectionID: THttpServerConnectionID
+      read fRemoteConnectionID;
+    /// the associated HTTP Server instance - may be nil
+    property Server: THttpServer
+      read fServer;
   end;
 
   /// HTTP response Thread as used by THttpServer Socket API based class
@@ -476,11 +391,11 @@ type
   // (change the protocol, e.g.) THttpServer.Process() method itself
   THttpServerResp = class(TSynThread)
   protected
+    fConnectionID: THttpServerConnectionID;
     fServer: THttpServer;
     fServerSock: THttpServerSocket;
     fClientSock: TNetSocket;
     fClientSin: TNetAddr;
-    fConnectionID: THttpServerConnectionID;
     /// main thread loop: read request from socket, send back answer
     procedure Execute; override;
   public
@@ -492,12 +407,18 @@ type
     // - this version will handle KeepAlive, for such an incoming request
     constructor Create(aServerSock: THttpServerSocket; aServer: THttpServer);
       reintroduce; overload; virtual;
+    /// called by THttpServer.Destroy on existing connections
+    // - set Terminate and close the socket
+    procedure Shutdown; virtual;
     /// the associated socket to communicate with the client
-    property ServerSock: THttpServerSocket read fServerSock;
+    property ServerSock: THttpServerSocket
+      read fServerSock;
     /// the associated main HTTP server instance
-    property Server: THttpServer read fServer;
+    property Server: THttpServer
+      read fServer;
     /// the unique identifier of this connection
-    property ConnectionID: THttpServerConnectionID read fConnectionID;
+    property ConnectionID: THttpServerConnectionID
+      read fConnectionID;
   end;
 
   /// metaclass of HTTP response Thread
@@ -511,17 +432,34 @@ type
   TSynThreadPoolTHttpServer = class(TSynThreadPool)
   protected
     fServer: THttpServer;
+    fBigBodySize: integer;
+    fMaxBodyThreadCount: integer;
     {$ifndef USE_WINIOCP}
     function QueueLength: integer; override;
     {$endif USE_WINIOCP}
     // here aContext is a THttpServerSocket instance
-    procedure Task(aCaller: TSynThread; aContext: Pointer); override;
+    procedure Task(aCaller: TSynThreadPoolWorkThread;
+      aContext: Pointer); override;
     procedure TaskAbort(aContext: Pointer); override;
   public
     /// initialize a thread pool with the supplied number of threads
     // - Task() overridden method processs the HTTP request set by Push()
     // - up to 256 threads can be associated to a Thread Pool
-    constructor Create(Server: THttpServer; NumberOfThreads: Integer = 32); reintroduce;
+    constructor Create(Server: THttpServer;
+      NumberOfThreads: integer = 32); reintroduce;
+    /// when Content-Length is bigger than this value, by-pass the threadpool
+    // and creates a dedicated THttpServerResp thread
+    // - default is THREADPOOL_BIGBODYSIZE = 16 MB, but can set a bigger value
+    // e.g. behind a buffering proxy if you trust the client not to make DOD
+    property BigBodySize: integer
+      read fBigBodySize write fBigBodySize;
+    /// how many stand-alone THttpServerResp threads can be initialized when a
+    // HTTP request comes in
+    // - default is THREADPOOL_MAXWORKTHREADS = 512, but since each thread
+    // consume system memory, you should not go so high
+    // - above this value, the thread pool will be used
+    property MaxBodyThreadCount: integer
+      read fMaxBodyThreadCount write fMaxBodyThreadCount;
   end;
 
   /// meta-class of the THttpServerSocket process
@@ -544,7 +482,7 @@ type
   // - if the client is also HTTP/1.1 compatible, KeepAlive connection is handled:
   //  multiple requests will use the existing connection and thread;
   //  this is faster and uses less resources, especialy under Windows
-  // - a Thread Pool is used internaly to speed up HTTP/1.0 connections - a
+  // - a Thread Pool is used internally to speed up HTTP/1.0 connections - a
   // typical use, under Linux, is to run this class behind a NGINX frontend,
   // configured as https reverse proxy, leaving default "proxy_http_version 1.0"
   // and "proxy_request_buffering on" options for best performance, and
@@ -553,7 +491,7 @@ type
   // - don't forget to use Free method when you are finished
   THttpServer = class(THttpServerGeneric)
   protected
-    /// used to protect Process() call
+    /// used to protect Process() call, e.g. fInternalHttpServerRespList
     fProcessCS: TRTLCriticalSection;
     fHeaderRetrieveAbortDelay: integer;
     fThreadPool: TSynThreadPoolTHttpServer;
@@ -561,26 +499,26 @@ type
     fServerConnectionCount: integer;
     fServerConnectionActive: integer;
     fServerKeepAliveTimeOut: cardinal;
-    fSockPort, fTCPPrefix: RawUTF8;
+    fSockPort: RawUtf8;
     fSock: TCrtSocket;
-    fThreadRespClass: THttpServerRespClass;
     fOnSendFile: TOnHttpServerSendFile;
     fNginxSendFileFrom: array of TFileName;
-    fHTTPQueueLength: cardinal;
+    fHttpQueueLength: cardinal;
     fExecuteState: (esNotStarted, esBinding, esRunning, esFinished);
     fStats: array[THttpServerSocketGetRequestResult] of integer;
     fSocketClass: THttpServerSocketClass;
-    fHeadersNotFiltered: boolean;
+    fThreadRespClass: THttpServerRespClass;
+    fHeadersUnFiltered: boolean;
     fExecuteMessage: string;
     function GetStat(one: THttpServerSocketGetRequestResult): integer;
-    function GetHTTPQueueLength: Cardinal; override;
-    procedure SetHTTPQueueLength(aValue: Cardinal); override;
+    function GetHttpQueueLength: cardinal; override;
+    procedure SetHttpQueueLength(aValue: cardinal); override;
     procedure InternalHttpServerRespListAdd(resp: THttpServerResp);
     procedure InternalHttpServerRespListRemove(resp: THttpServerResp);
     function OnNginxAllowSend(Context: THttpServerRequest;
       const LocalFileName: TFileName): boolean;
     // this overridden version will return e.g. 'Winsock 2.514'
-    function GetAPIVersion: RawUTF8; override;
+    function GetApiVersion: RawUtf8; override;
     /// server main loop - don't change directly
     procedure Execute; override;
     /// this method is called on every new client connection, i.e. every time
@@ -597,8 +535,8 @@ type
     // - this constructor will raise a EHttpServer exception if binding failed
     // - expects the port to be specified as string, e.g. '1234'; you can
     // optionally specify a server address to bind to, e.g. '1.2.3.4:1234'
-    // - can listed on UDS in case port is specified with 'unix:' prefix, e.g.
-    // 'unix:/run/myapp.sock'
+    // - can listed to local Unix Domain Sockets file in case port is prefixed
+    // with 'unix:', e.g. 'unix:/run/myapp.sock' - faster and safer than TCP
     // - on Linux in case aPort is empty string will check if external fd
     // is passed by systemd and use it (so called systemd socked activation)
     // - you can specify a number of threads to be initialized to handle
@@ -610,17 +548,17 @@ type
     // - this constructor won't actually do the port binding, which occurs in
     // the background thread: caller should therefore call WaitStarted after
     // THttpServer.Create()
-    constructor Create(const aPort: RawUTF8;
-      const OnStart, OnStop: TNotifyThreadEvent;
-      const ProcessName: RawUTF8; ServerThreadPoolCount: integer = 32;
-      KeepAliveTimeOut: integer = 30000; HeadersUnFiltered: boolean = false;
+    constructor Create(const aPort: RawUtf8;
+      const OnStart, OnStop: TOnNotifyThread;
+      const ProcessName: RawUtf8; ServerThreadPoolCount: integer = 32;
+      KeepAliveTimeOut: integer = 30000; aHeadersUnFiltered: boolean = false;
       CreateSuspended: boolean = false); reintroduce; virtual;
     /// ensure the HTTP server thread is actually bound to the specified port
     // - TCrtSocket.Bind() occurs in the background in the Execute method: you
     // should call and check this method result just after THttpServer.Create
     // - initial THttpServer design was to call Bind() within Create, which
     // works fine on Delphi + Windows, but fails with a EThreadError on FPC/Linux
-    // - raise a ECrtSocket if binding failed within the specified period (if
+    // - raise a EHttpServer if binding failed within the specified period (if
     // port is free, it would be almost immediate)
     // - calling this method is optional, but if the background thread didn't
     // actually bind the port, the server will be stopped and unresponsive with
@@ -644,16 +582,19 @@ type
     // - for instance, Content-Length, Content-Type and Content-Encoding are
     // stored as fields in this THttpSocket, but not included in its Headers[]
     // - set this property to true to include all incoming headers
-    property HeadersNotFiltered: boolean read fHeadersNotFiltered;
+    property HeadersUnFiltered: boolean
+      read fHeadersUnFiltered;
     /// access to the main server low-level Socket
     // - it's a raw TCrtSocket, which only need a socket to be bound, listening
     // and accept incoming request
     // - THttpServerSocket are created on the fly for every request, then
     // a THttpServerResp thread is created for handling this THttpServerSocket
-    property Sock: TCrtSocket read fSock;
+    property Sock: TCrtSocket
+      read fSock;
     /// custom event handler used to send a local file for STATICFILE_CONTENT_TYPE
     // - see also NginxSendFileFrom() method
-    property OnSendFile: TOnHttpServerSendFile read fOnSendFile write fOnSendFile;
+    property OnSendFile: TOnHttpServerSendFile
+      read fOnSendFile write fOnSendFile;
   published
     /// will contain the current number of connections to the server
     property ServerConnectionActive: integer
@@ -672,40 +613,56 @@ type
       read fServerKeepAliveTimeOut write fServerKeepAliveTimeOut;
     /// the bound TCP port, as specified to Create() constructor
     // - TCrtSocket.Bind() occurs in the Execute method
-    property SockPort: RawUTF8 read fSockPort;
-    /// TCP/IP prefix to mask HTTP protocol
-    // - if not set, will create full HTTP/1.0 or HTTP/1.1 compliant content
-    // - in order to make the TCP/IP stream not HTTP compliant, you can specify
-    // a prefix which will be put before the first header line: in this case,
-    // the TCP/IP stream won't be recognized as HTTP, and will be ignored by
-    // most AntiVirus programs, and increase security - but you won't be able
-    // to use an Internet Browser nor AJAX application for remote access any more
-    property TCPPrefix: RawUTF8 read fTCPPrefix write fTCPPrefix;
+    property SockPort: RawUtf8
+      read fSockPort;
     /// the associated thread pool
     // - may be nil if ServerThreadPoolCount was 0 on constructor
-    property ThreadPool: TSynThreadPoolTHttpServer read fThreadPool;
+    property ThreadPool: TSynThreadPoolTHttpServer
+      read fThreadPool;
     /// milliseconds delay to reject a connection due to too long header retrieval
     // - default is 0, i.e. not checked (typically not needed behind a reverse proxy)
     property HeaderRetrieveAbortDelay: integer
       read fHeaderRetrieveAbortDelay write fHeaderRetrieveAbortDelay;
     /// how many invalid HTTP headers have been rejected
-    property StatHeaderErrors: integer index grError read GetStat;
+    property StatHeaderErrors: integer
+      index grError read GetStat;
     /// how many invalid HTTP headers raised an exception
-    property StatHeaderException: integer index grException read GetStat;
+    property StatHeaderException: integer
+      index grException read GetStat;
     /// how many HTTP requests pushed more than MaximumAllowedContentLength bytes
-    property StatOversizedPayloads: integer index grOversizedPayload read GetStat;
+    property StatOversizedPayloads: integer
+      index grOversizedPayload read GetStat;
     /// how many HTTP requests were rejected by the OnBeforeBody event handler
-    property StatRejected: integer index grRejected read GetStat;
+    property StatRejected: integer
+      index grRejected read GetStat;
     /// how many HTTP requests were rejected after HeaderRetrieveAbortDelay timeout
-    property StatHeaderTimeout: integer index grTimeout read GetStat;
+    property StatHeaderTimeout: integer
+      index grTimeout read GetStat;
     /// how many HTTP headers have been processed
-    property StatHeaderProcessed: integer index grHeaderReceived read GetStat;
+    property StatHeaderProcessed: integer
+      index grHeaderReceived read GetStat;
     /// how many HTTP bodies have been processed
-    property StatBodyProcessed: integer index grBodyReceived read GetStat;
+    property StatBodyProcessed: integer
+      index grBodyReceived read GetStat;
     /// how many HTTP connections were passed to an asynchronous handler
     // - e.g. for background WebSockets processing after proper upgrade
-    property StatOwnedConnections: integer index grOwned read GetStat;
+    property StatOwnedConnections: integer
+      index grOwned read GetStat;
   end;
+
+
+const
+  // kept-alive or big HTTP requests will create a dedicated THttpServerResp
+  // - each thread reserves 2 MB of memory so it may break the server
+  // - keep the value to a decent number, to let resources be constrained up to 1GB
+  // - is the default value to TSynThreadPoolTHttpServer.MaxBodyThreadCount
+  THREADPOOL_MAXWORKTHREADS = 512;
+
+  /// if HTTP body length is bigger than 16 MB, creates a dedicated THttpServerResp
+  // - is the default value to TSynThreadPoolTHttpServer.BigBodySize
+  THREADPOOL_BIGBODYSIZE = 16 * 1024 * 1024;
+
+function ToText(res: THttpServerSocketGetRequestResult): PShortString; overload;
 
 
 {$ifdef USEWININET}
@@ -740,34 +697,33 @@ type
     fRegisteredUnicodeUrl: TSynUnicodeDynArray;
     fServerSessionID: HTTP_SERVER_SESSION_ID;
     fUrlGroupID: HTTP_URL_GROUP_ID;
-    fExecuting: boolean;
     fLogData: pointer;
     fLogDataStorage: array of byte;
-    fLoggingServiceName: RawUTF8;
+    fLoggingServiceName: RawUtf8;
     fAuthenticationSchemes: THttpApiRequestAuthentications;
     fReceiveBufferSize: cardinal;
     procedure SetReceiveBufferSize(Value: cardinal);
     function GetRegisteredUrl: SynUnicode;
     function GetCloned: boolean;
-    function GetHTTPQueueLength: Cardinal; override;
-    procedure SetHTTPQueueLength(aValue: Cardinal); override;
-    function GetMaxBandwidth: Cardinal;
-    procedure SetMaxBandwidth(aValue: Cardinal);
-    function GetMaxConnections: Cardinal;
-    procedure SetMaxConnections(aValue: Cardinal);
-    procedure SetOnTerminate(const Event: TNotifyThreadEvent); override;
-    function GetAPIVersion: RawUTF8; override;
+    function GetHttpQueueLength: cardinal; override;
+    procedure SetHttpQueueLength(aValue: cardinal); override;
+    function GetMaxBandwidth: cardinal;
+    procedure SetMaxBandwidth(aValue: cardinal);
+    function GetMaxConnections: cardinal;
+    procedure SetMaxConnections(aValue: cardinal);
+    procedure SetOnTerminate(const Event: TOnNotifyThread); override;
+    function GetApiVersion: RawUtf8; override;
     function GetLogging: boolean;
-    procedure SetServerName(const aName: RawUTF8); override;
+    procedure SetServerName(const aName: RawUtf8); override;
     procedure SetOnRequest(const aRequest: TOnHttpServerRequest); override;
     procedure SetOnBeforeBody(const aEvent: TOnHttpServerBeforeBody); override;
     procedure SetOnBeforeRequest(const aEvent: TOnHttpServerRequest); override;
     procedure SetOnAfterRequest(const aEvent: TOnHttpServerRequest); override;
     procedure SetOnAfterResponse(const aEvent: TOnHttpServerAfterResponse); override;
     procedure SetMaximumAllowedContentLength(aMax: cardinal); override;
-    procedure SetRemoteIPHeader(const aHeader: RawUTF8); override;
-    procedure SetRemoteConnIDHeader(const aHeader: RawUTF8); override;
-    procedure SetLoggingServiceName(const aName: RawUTF8);
+    procedure SetRemoteIPHeader(const aHeader: RawUtf8); override;
+    procedure SetRemoteConnIDHeader(const aHeader: RawUtf8); override;
+    procedure SetLoggingServiceName(const aName: RawUtf8);
     /// server main loop - don't change directly
     // - will call the Request public virtual method with the appropriate
     // parameters to retrive the content
@@ -784,11 +740,11 @@ type
     // - if you override this contructor, put the AddUrl() methods within,
     // and you can set CreateSuspended to FALSE
     // - if you will call AddUrl() methods later, set CreateSuspended to TRUE,
-    // then call explicitely the Resume method, after all AddUrl() calls, in
+    // then call explicitly the Resume method, after all AddUrl() calls, in
     // order to start the server
     constructor Create(CreateSuspended: boolean; QueueName: SynUnicode = '';
-      OnStart: TNotifyThreadEvent = nil; OnStop: TNotifyThreadEvent = nil;
-      const ProcessName: RawUTF8 = ''); reintroduce;
+      const OnStart: TOnNotifyThread = nil; const OnStop: TOnNotifyThread = nil;
+      const ProcessName: RawUtf8 = ''); reintroduce;
     /// create a HTTP/1.1 processing clone from the main thread
     // - do not use directly - is called during thread pool creation
     constructor CreateClone(From: THttpApiServer); virtual;
@@ -797,7 +753,7 @@ type
     /// will clone this thread into multiple other threads
     // - could speed up the process on multi-core CPU
     // - will work only if the OnProcess property was set (this is the case
-    // e.g. in TSQLHttpServer.Create() constructor)
+    // e.g. in TRestHttpServer.Create() constructor)
     // - maximum value is 256 - higher should not be worth it
     procedure Clone(ChildThreadCount: integer);
     /// register the URLs to Listen On
@@ -814,17 +770,17 @@ type
     // - if this method is not used within an overridden constructor, default
     // Create must have be called with CreateSuspended = TRUE and then call the
     // Resume method after all Url have been added
-    // - if aRegisterURI is TRUE, the URI will be registered (need adminitrator
+    // - if aRegisterUri is TRUE, the URI will be registered (need adminitrator
     // rights) - default is FALSE, as defined by Windows security policy
-    function AddUrl(const aRoot, aPort: RawUTF8; Https: boolean = false;
-      const aDomainName: RawUTF8 = '*'; aRegisterURI: boolean = false;
+    function AddUrl(const aRoot, aPort: RawUtf8; Https: boolean = false;
+      const aDomainName: RawUtf8 = '*'; aRegisterUri: boolean = false;
       aContext: Int64 = 0): integer;
     /// un-register the URLs to Listen On
     // - this method expect the same parameters as specified to AddUrl()
     // - return 0 (NO_ERROR) on success, an error code if failed (e.g.
     // -1 if the corresponding parameters do not match any previous AddUrl)
-    function RemoveUrl(const aRoot, aPort: RawUTF8; Https: boolean = false;
-      const aDomainName: RawUTF8 = '*'): integer;
+    function RemoveUrl(const aRoot, aPort: RawUtf8; Https: boolean = false;
+      const aDomainName: RawUtf8 = '*'): integer;
     /// will authorize a specified URL prefix
     // - will allow to call AddUrl() later for any user on the computer
     // - if aRoot is left '', it will authorize any root for this port
@@ -836,23 +792,24 @@ type
     // - will first delete any matching rule for this URL prefix
     // - if OnlyDelete is true, will delete but won't add the new authorization;
     // in this case, any error message at deletion will be returned
-    class function AddUrlAuthorize(const aRoot, aPort: RawUTF8; Https: boolean = false;
-      const aDomainName: RawUTF8 = '*'; OnlyDelete: boolean = false): string;
+    class function AddUrlAuthorize(const aRoot, aPort: RawUtf8; Https: boolean = false;
+      const aDomainName: RawUtf8 = '*'; OnlyDelete: boolean = false): string;
     /// will register a compression algorithm
     // - overridden method which will handle any cloned instances
     procedure RegisterCompress(aFunction: THttpSocketCompress;
       aCompressMinSize: integer = 1024); override;
     /// access to the internal THttpApiServer list cloned by this main instance
     // - as created by Clone() method
-    property Clones: THttpApiServers read fClones;
+    property Clones: THttpApiServers
+      read fClones;
   public { HTTP API 2.0 methods and properties }
     /// can be used to check if the HTTP API 2.0 is available
-    function HasAPI2: boolean;
+    function HasApi2: boolean;
     /// enable HTTP API 2.0 advanced timeout settings
     // - all those settings are set for the current URL group
     // - will raise an EHttpApiServer exception if the old HTTP API 1.x is used
     // so you should better test the availability of the method first:
-    // ! if aServer.HasAPI2 then
+    // ! if aServer.HasApi2 then
     // !   SetTimeOutLimits(....);
     // - aEntityBody is the time, in seconds, allowed for the request entity
     // body to arrive - default value is 2 minutes
@@ -875,7 +832,7 @@ type
     /// enable HTTP API 2.0 logging
     // - will raise an EHttpApiServer exception if the old HTTP API 1.x is used
     // so you should better test the availability of the method first:
-    // ! if aServer.HasAPI2 then
+    // ! if aServer.HasApi2 then
     // !   LogStart(....);
     // - this method won't do anything on the cloned instances, but the main
     // instance logging state will be replicated to all cloned instances
@@ -888,7 +845,7 @@ type
       aRolloverType: THttpApiLoggingRollOver = hlrDaily;
       aRolloverSize: cardinal = 0;
       aLogFields: THttpApiLogFields = [hlfDate..hlfSubStatus];
-      aFlags: THttpApiLoggingFlags = [hlfUseUTF8Conversion]);
+      aFlags: THttpApiLoggingFlags = [hlfUseUtf8Conversion]);
     /// disable HTTP API 2.0 logging
     // - this method won't do anything on the cloned instances, but the main
     // instance logging state will be replicated to all cloned instances
@@ -903,7 +860,7 @@ type
     // see https://msdn.microsoft.com/en-us/library/windows/desktop/aa364452
     // - will raise an EHttpApiServer exception if the old HTTP API 1.x is used
     // so you should better test the availability of the method first:
-    // ! if aServer.HasAPI2 then
+    // ! if aServer.HasApi2 then
     // !   SetAuthenticationSchemes(....);
     // - this method will work on the current group, for all instances
     // - see HTTPAPI_AUTH_ENABLE_ALL constant to set all available schemes
@@ -916,40 +873,48 @@ type
       read fAuthenticationSchemes;
     /// read-only access to check if the HTTP API 2.0 logging is enabled
     // - use LogStart/LogStop methods to change this property value
-    property Logging: boolean read GetLogging;
+    property Logging: boolean
+      read GetLogging;
     /// the current HTTP API 2.0 logging Service name
-    // - should be UTF-8 encoded, if LogStart(aFlags=[hlfUseUTF8Conversion])
+    // - should be UTF-8 encoded, if LogStart(aFlags=[hlfUseUtf8Conversion])
     // - this value is dedicated to one instance, so the main instance won't
     // propagate the change to all cloned instances
-    property LoggingServiceName: RawUTF8
+    property LoggingServiceName: RawUtf8
       read fLoggingServiceName write SetLoggingServiceName;
     /// read-only access to the low-level HTTP API 2.0 Session ID
-    property ServerSessionID: HTTP_SERVER_SESSION_ID read fServerSessionID;
+    property ServerSessionID: HTTP_SERVER_SESSION_ID
+      read fServerSessionID;
     /// read-only access to the low-level HTTP API 2.0 URI Group ID
-    property UrlGroupID: HTTP_URL_GROUP_ID read fUrlGroupID;
+    property UrlGroupID: HTTP_URL_GROUP_ID
+      read fUrlGroupID;
     /// how many bytes are retrieved in a single call to ReceiveRequestEntityBody
     // - set by default to 1048576, i.e. 1 MB - practical limit is around 20 MB
     // - you may customize this value if you encounter HTTP error HTTP_NOTACCEPTABLE
     // (406) from client, corresponding to an ERROR_NO_SYSTEM_RESOURCES (1450)
     // exception on server side, when uploading huge data content
-    property ReceiveBufferSize: cardinal read fReceiveBufferSize write SetReceiveBufferSize;
+    property ReceiveBufferSize: cardinal
+      read fReceiveBufferSize write SetReceiveBufferSize;
   published
     /// TRUE if this instance is in fact a cloned instance for the thread pool
-    property Cloned: boolean read GetCloned;
+    property Cloned: boolean
+      read GetCloned;
     /// return the list of registered URL on this server instance
-    property RegisteredUrl: SynUnicode read GetRegisteredUrl;
+    property RegisteredUrl: SynUnicode
+      read GetRegisteredUrl;
     /// the maximum allowed bandwidth rate in bytes per second (via HTTP API 2.0)
     // - Setting this value to 0 allows an unlimited bandwidth
     // - by default Windows not limit bandwidth (actually limited to 4 Gbit/sec).
     // - will return 0 if the system does not support HTTP API 2.0 (i.e.
     // under Windows XP or Server 2003)
-    property MaxBandwidth: Cardinal read GetMaxBandwidth write SetMaxBandwidth;
+    property MaxBandwidth: cardinal
+      read GetMaxBandwidth write SetMaxBandwidth;
     /// the maximum number of HTTP connections allowed (via HTTP API 2.0)
     // - Setting this value to 0 allows an unlimited number of connections
     // - by default Windows does not limit number of allowed connections
     // - will return 0 if the system does not support HTTP API 2.0 (i.e.
     // under Windows XP or Server 2003)
-    property MaxConnections: Cardinal read GetMaxConnections write SetMaxConnections;
+    property MaxConnections: cardinal
+      read GetMaxConnections write SetMaxConnections;
   end;
 
 
@@ -989,7 +954,7 @@ type
     fBuffer: RawByteString;
     fCloseStatus: WEB_SOCKET_CLOSE_STATUS;
     fIndex: integer;
-    function ProcessActions(ActionQueue: Cardinal): boolean;
+    function ProcessActions(ActionQueue: cardinal): boolean;
     function ReadData(const WebsocketBufferData): integer;
     procedure WriteData(const WebsocketBufferData);
     procedure BeforeRead;
@@ -1003,59 +968,67 @@ type
     procedure CheckIsActive;
     // call onAccept Method of protocol, and if protocol not accept connection or
     // can not be accepted from other reasons return false else return true
-    function TryAcceptConnection(aProtocol: THttpApiWebSocketServerProtocol; Ctxt: THttpServerRequest; aNeedHeader: boolean): boolean;
+    function TryAcceptConnection(aProtocol: THttpApiWebSocketServerProtocol;
+      Ctxt: THttpServerRequestAbstract; aNeedHeader: boolean): boolean;
   public
-    /// Index of connection in protocol's connection list
-    property Index: integer read fIndex;
-    /// Protocol of connection
-    property Protocol: THttpApiWebSocketServerProtocol read fProtocol;
-    /// Custom user data
-    property PrivateData: pointer read fPrivateData write fPrivateData;
-    /// Access to the current state of this connection
-    property State: TWebSocketState read fState;
     /// Send data to client
-    procedure Send(aBufferType: WEB_SOCKET_BUFFER_TYPE; aBuffer: Pointer; aBufferSize: ULONG);
+    procedure Send(aBufferType: WEB_SOCKET_BUFFER_TYPE;
+      aBuffer: Pointer; aBufferSize: ULONG);
     /// Close connection
-    procedure Close(aStatus: WEB_SOCKET_CLOSE_STATUS; aBuffer: Pointer; aBufferSize: ULONG);
+    procedure Close(aStatus: WEB_SOCKET_CLOSE_STATUS;
+      aBuffer: Pointer; aBufferSize: ULONG);
+    /// Index of connection in protocol's connection list
+    property Index: integer
+      read fIndex;
+    /// Protocol of connection
+    property Protocol: THttpApiWebSocketServerProtocol
+       read fProtocol;
+    /// Custom user data
+    property PrivateData: pointer
+      read fPrivateData write fPrivateData;
+    /// Access to the current state of this connection
+    property State: TWebSocketState
+      read fState;
   end;
 
   PHttpApiWebSocketConnection = ^THttpApiWebSocketConnection;
 
   THttpApiWebSocketConnectionVector =
-    array[0..MaxInt div SizeOf(PHttpApiWebSocketConnection) - 1] of PHttpApiWebSocketConnection;
+    array[0..MaxInt div SizeOf(PHttpApiWebSocketConnection) - 1] of
+    PHttpApiWebSocketConnection;
 
   PHttpApiWebSocketConnectionVector = ^THttpApiWebSocketConnectionVector;
 
   /// Event handlers for WebSocket
-  THttpApiWebSocketServerOnAcceptEvent = function(Ctxt: THttpServerRequest;
-    var Conn: THttpApiWebSocketConnection): Boolean of object;
-  THttpApiWebSocketServerOnMessageEvent = procedure(const Conn: THttpApiWebSocketConnection;
+  TOnHttpApiWebSocketServerAcceptEvent = function(Ctxt: THttpServerRequest;
+    var Conn: THttpApiWebSocketConnection): boolean of object;
+  TOnHttpApiWebSocketServerMessageEvent = procedure(const Conn: THttpApiWebSocketConnection;
     aBufferType: WEB_SOCKET_BUFFER_TYPE; aBuffer: Pointer; aBufferSize: ULONG) of object;
-  THttpApiWebSocketServerOnConnectEvent = procedure(const Conn: THttpApiWebSocketConnection) of object;
-  THttpApiWebSocketServerOnDisconnectEvent = procedure(const Conn: THttpApiWebSocketConnection;
+  TOnHttpApiWebSocketServerConnectEvent = procedure(const Conn: THttpApiWebSocketConnection) of object;
+  TOnHttpApiWebSocketServerDisconnectEvent = procedure(const Conn: THttpApiWebSocketConnection;
     aStatus: WEB_SOCKET_CLOSE_STATUS; aBuffer: Pointer; aBufferSize: ULONG) of object;
 
   /// Protocol Handler of websocket endpoints events
   // - maintains a list of all WebSockets clients for a given protocol
   THttpApiWebSocketServerProtocol = class
   private
-    fName: RawUTF8;
-    fManualFragmentManagement: Boolean;
-    fOnAccept: THttpApiWebSocketServerOnAcceptEvent;
-    fOnMessage: THttpApiWebSocketServerOnMessageEvent;
-    fOnFragment: THttpApiWebSocketServerOnMessageEvent;
-    fOnConnect: THttpApiWebSocketServerOnConnectEvent;
-    fOnDisconnect: THttpApiWebSocketServerOnDisconnectEvent;
+    fName: RawUtf8;
+    fManualFragmentManagement: boolean;
+    fOnAccept: TOnHttpApiWebSocketServerAcceptEvent;
+    fOnMessage: TOnHttpApiWebSocketServerMessageEvent;
+    fOnFragment: TOnHttpApiWebSocketServerMessageEvent;
+    fOnConnect: TOnHttpApiWebSocketServerConnectEvent;
+    fOnDisconnect: TOnHttpApiWebSocketServerDisconnectEvent;
     fConnections: PHttpApiWebSocketConnectionVector;
-    fConnectionsCapacity: Integer;
+    fConnectionsCapacity: integer;
     //Count of used connections. Some of them can be nil(if not used more)
-    fConnectionsCount: Integer;
-    fFirstEmptyConnectionIndex: Integer;
+    fConnectionsCount: integer;
+    fFirstEmptyConnectionIndex: integer;
     fServer: THttpApiWebSocketServer;
     fSafe: TRTLCriticalSection;
     fPendingForClose: TSynList;
     fIndex: integer;
-    function AddConnection(aConn: PHttpApiWebSocketConnection): Integer;
+    function AddConnection(aConn: PHttpApiWebSocketConnection): integer;
     procedure RemoveConnection(index: integer);
     procedure doShutdown;
   public
@@ -1063,44 +1036,56 @@ type
     // - if aManualFragmentManagement is true, onMessage will appear only for whole
     // received messages, otherwise OnFragment handler must be passed (for video
     // broadcast, for example)
-    constructor Create(const aName: RawUTF8; aManualFragmentManagement: Boolean;
+    constructor Create(const aName: RawUtf8; aManualFragmentManagement: boolean;
       aServer: THttpApiWebSocketServer;
-      const aOnAccept: THttpApiWebSocketServerOnAcceptEvent;
-      const aOnMessage: THttpApiWebSocketServerOnMessageEvent;
-      const aOnConnect: THttpApiWebSocketServerOnConnectEvent;
-      const aOnDisconnect: THttpApiWebSocketServerOnDisconnectEvent;
-      const aOnFragment: THttpApiWebSocketServerOnMessageEvent = nil);
+      const aOnAccept: TOnHttpApiWebSocketServerAcceptEvent;
+      const aOnMessage: TOnHttpApiWebSocketServerMessageEvent;
+      const aOnConnect: TOnHttpApiWebSocketServerConnectEvent;
+      const aOnDisconnect: TOnHttpApiWebSocketServerDisconnectEvent;
+      const aOnFragment: TOnHttpApiWebSocketServerMessageEvent = nil);
     /// finalize the process
     destructor Destroy; override;
     /// text identifier
-    property Name: RawUTF8 read fName;
+    property Name: RawUtf8
+      read fName;
     /// identify the endpoint instance
-    property Index: integer read fIndex;
+    property Index: integer
+      read fIndex;
     /// OnFragment event will be called for each fragment
-    property ManualFragmentManagement: Boolean read fManualFragmentManagement;
+    property ManualFragmentManagement: boolean
+      read fManualFragmentManagement;
     /// event triggerred when a WebSockets client is initiated
-    property OnAccept: THttpApiWebSocketServerOnAcceptEvent read fOnAccept;
+    property OnAccept: TOnHttpApiWebSocketServerAcceptEvent
+      read fOnAccept;
     /// event triggerred when a WebSockets message is received
-    property OnMessage: THttpApiWebSocketServerOnMessageEvent read fOnMessage;
+    property OnMessage: TOnHttpApiWebSocketServerMessageEvent
+      read fOnMessage;
     /// event triggerred when a WebSockets client is connected
-    property OnConnect: THttpApiWebSocketServerOnConnectEvent read fOnConnect;
+    property OnConnect: TOnHttpApiWebSocketServerConnectEvent
+      read fOnConnect;
     /// event triggerred when a WebSockets client is gracefully disconnected
-    property OnDisconnect: THttpApiWebSocketServerOnDisconnectEvent read fOnDisconnect;
+    property OnDisconnect: TOnHttpApiWebSocketServerDisconnectEvent
+      read fOnDisconnect;
     /// event triggerred when a non complete frame is received
     // - required if ManualFragmentManagement is true
-    property OnFragment: THttpApiWebSocketServerOnMessageEvent read fOnFragment;
+    property OnFragment: TOnHttpApiWebSocketServerMessageEvent
+      read fOnFragment;
 
     /// Send message to the WebSocket connection identified by its index
-    function Send(index: Integer; aBufferType: ULONG; aBuffer: Pointer; aBufferSize: ULONG): boolean;
+    function Send(index: integer; aBufferType: ULONG;
+      aBuffer: Pointer; aBufferSize: ULONG): boolean;
     /// Send message to all connections of this protocol
-    function Broadcast(aBufferType: ULONG; aBuffer: Pointer; aBufferSize: ULONG): boolean;
+    function Broadcast(aBufferType: ULONG;
+      aBuffer: Pointer; aBufferSize: ULONG): boolean;
     /// Close WebSocket connection identified by its index
-    function Close(index: Integer; aStatus: WEB_SOCKET_CLOSE_STATUS; aBuffer: Pointer;
-      aBufferSize: ULONG): boolean;
+    function Close(index: integer; aStatus: WEB_SOCKET_CLOSE_STATUS;
+      aBuffer: Pointer; aBufferSize: ULONG): boolean;
   end;
 
-  THttpApiWebSocketServerProtocolDynArray = array of THttpApiWebSocketServerProtocol;
-  PHttpApiWebSocketServerProtocolDynArray = ^THttpApiWebSocketServerProtocolDynArray;
+  THttpApiWebSocketServerProtocolDynArray =
+    array of THttpApiWebSocketServerProtocol;
+  PHttpApiWebSocketServerProtocolDynArray =
+    ^THttpApiWebSocketServerProtocolDynArray;
 
   /// HTTP & WebSocket server using fast http.sys kernel-mode server
   // - can be used like simple THttpApiServer
@@ -1113,70 +1098,74 @@ type
     fLastConnection: PHttpApiWebSocketConnection;
     fPingTimeout: integer;
     fRegisteredProtocols: PHttpApiWebSocketServerProtocolDynArray;
-    fOnWSThreadStart: TNotifyThreadEvent;
-    fOnWSThreadTerminate: TNotifyThreadEvent;
+    fOnWSThreadStart: TOnNotifyThread;
+    fOnWSThreadTerminate: TOnNotifyThread;
     fSendOverlaped: TOverlapped;
     fServiceOverlaped: TOverlapped;
     fOnServiceMessage: TThreadMethod;
-    procedure SetOnWSThreadTerminate(const Value: TNotifyThreadEvent);
+    procedure SetOnWSThreadTerminate(const Value: TOnNotifyThread);
     function GetProtocol(index: integer): THttpApiWebSocketServerProtocol;
-    function getProtocolsCount: Integer;
-    procedure SetOnWSThreadStart(const Value: TNotifyThreadEvent);
+    function getProtocolsCount: integer;
+    procedure SetOnWSThreadStart(const Value: TOnNotifyThread);
   protected
-    function UpgradeToWebSocket(Ctxt: THttpServerRequest): cardinal;
+    function UpgradeToWebSocket(Ctxt: THttpServerRequestAbstract): cardinal;
     procedure DoAfterResponse(Ctxt: THttpServerRequest;
       const Code: cardinal); override;
-    function GetSendResponseFlags(Ctxt: THttpServerRequest): Integer; override;
+    function GetSendResponseFlags(Ctxt: THttpServerRequest): integer; override;
     procedure DestroyMainThread; override;
   public
     /// initialize the HTTPAPI based Server with WebSocket support
     // - will raise an exception if http.sys or websocket.dll is not available
     // (e.g. before Windows 8) or if the request queue creation failed
     // - for aPingTimeout explanation see PingTimeout property documentation
-    constructor Create(CreateSuspended: Boolean; aSocketThreadsCount: integer = 1;
+    constructor Create(CreateSuspended: boolean; aSocketThreadsCount: integer = 1;
       aPingTimeout: integer = 0; const QueueName: SynUnicode = '';
-      const aOnWSThreadStart: TNotifyThreadEvent=nil;
-      const aOnWSThreadTerminate: TNotifyThreadEvent=nil); reintroduce;
+      const aOnWSThreadStart: TOnNotifyThread=nil;
+      const aOnWSThreadTerminate: TOnNotifyThread=nil); reintroduce;
     /// create a WebSockets processing clone from the main thread
     // - do not use directly - is called during thread pool creation
     constructor CreateClone(From: THttpApiServer); override;
     /// prepare the process for a given THttpApiWebSocketServerProtocol
-    procedure RegisterProtocol(const aName: RawUTF8; aManualFragmentManagement: Boolean;
-      const aOnAccept: THttpApiWebSocketServerOnAcceptEvent;
-      const aOnMessage: THttpApiWebSocketServerOnMessageEvent;
-      const aOnConnect: THttpApiWebSocketServerOnConnectEvent;
-      const aOnDisconnect: THttpApiWebSocketServerOnDisconnectEvent;
-      const aOnFragment: THttpApiWebSocketServerOnMessageEvent = nil);
+    procedure RegisterProtocol(const aName: RawUtf8; aManualFragmentManagement: boolean;
+      const aOnAccept: TOnHttpApiWebSocketServerAcceptEvent;
+      const aOnMessage: TOnHttpApiWebSocketServerMessageEvent;
+      const aOnConnect: TOnHttpApiWebSocketServerConnectEvent;
+      const aOnDisconnect: TOnHttpApiWebSocketServerDisconnectEvent;
+      const aOnFragment: TOnHttpApiWebSocketServerMessageEvent = nil);
     /// register the URLs to Listen on using WebSocket
     // - aProtocols is an array of a recond with callbacks, server call during
     // WebSocket activity
-    function AddUrlWebSocket(const aRoot, aPort: RawUTF8; Https: boolean = false;
-      const aDomainName: RawUTF8 = '*'; aRegisterURI: boolean = false): integer;
+    function AddUrlWebSocket(const aRoot, aPort: RawUtf8; Https: boolean = false;
+      const aDomainName: RawUtf8 = '*'; aRegisterUri: boolean = false): integer;
     /// handle the HTTP request
-    function Request(Ctxt: THttpServerRequest): cardinal; override;
+    function Request(Ctxt: THttpServerRequestAbstract): cardinal; override;
     /// Ping timeout in seconds. 0 mean no ping.
     // - if connection not receive messages longer than this timeout
     // TSynWebSocketGuard will send ping frame
     // - if connection not receive any messages longer than double of
     // this timeout it will be closed
-    property PingTimeout: integer read fPingTimeout;
+    property PingTimeout: integer
+      read fPingTimeout;
     /// access to the associated endpoints
-    property Protocols[index: integer]: THttpApiWebSocketServerProtocol read GetProtocol;
+    property Protocols[index: integer]: THttpApiWebSocketServerProtocol
+      read GetProtocol;
     /// access to the associated endpoints count
-    property ProtocolsCount: Integer read getProtocolsCount;
+    property ProtocolsCount: integer
+      read getProtocolsCount;
     /// event called when the processing thread starts
-    property OnWSThreadStart: TNotifyThreadEvent read FOnWSThreadStart
-      write SetOnWSThreadStart;
+    property OnWSThreadStart: TOnNotifyThread
+      read FOnWSThreadStart write SetOnWSThreadStart;
     /// event called when the processing thread termintes
-    property OnWSThreadTerminate: TNotifyThreadEvent read FOnWSThreadTerminate
-      write SetOnWSThreadTerminate;
+    property OnWSThreadTerminate: TOnNotifyThread
+      read FOnWSThreadTerminate write SetOnWSThreadTerminate;
     /// send a "service" message to a WebSocketServer to wake up a WebSocket thread
     // - can be called from any thread
     // - when a webSocket thread receives such a message it will call onServiceMessage
     // in the thread context
     procedure SendServiceMessage;
     /// event called when a service message is raised
-    property OnServiceMessage: TThreadMethod read fOnServiceMessage write fOnServiceMessage;
+    property OnServiceMessage: TThreadMethod
+      read fOnServiceMessage write fOnServiceMessage;
   end;
 
   /// a Thread Pool, used for fast handling of WebSocket requests
@@ -1185,13 +1174,15 @@ type
     fServer: THttpApiWebSocketServer;
     procedure OnThreadStart(Sender: TThread);
     procedure OnThreadTerminate(Sender: TThread);
-    function NeedStopOnIOError: Boolean; override;
+    function NeedStopOnIOError: boolean; override;
     // aContext is a PHttpApiWebSocketConnection, or fServer.fServiceOverlaped
     // (SendServiceMessage) or fServer.fSendOverlaped (WriteData)
-    procedure Task(aCaller: TSynThread; aContext: Pointer); override;
+    procedure Task(aCaller: TSynThreadPoolWorkThread;
+      aContext: Pointer); override;
   public
     /// initialize the thread pool
-    constructor Create(Server: THttpApiWebSocketServer; NumberOfThreads: Integer = 1); reintroduce;
+    constructor Create(Server: THttpApiWebSocketServer;
+      NumberOfThreads: integer = 1); reintroduce;
   end;
 
   /// Thread for closing deprecated WebSocket connections
@@ -1217,20 +1208,22 @@ implementation
 { THttpServerRequest }
 
 constructor THttpServerRequest.Create(aServer: THttpServerGeneric;
-  aConnectionID: THttpServerConnectionID; aConnectionThread: TSynThread);
+  aConnectionID: THttpServerConnectionID; aConnectionThread: TSynThread;
+  aConnectionFlags: THttpServerRequestFlags);
 begin
   inherited Create;
   fServer := aServer;
   fConnectionID := aConnectionID;
   fConnectionThread := aConnectionThread;
+  fConnectionFlags := aConnectionFlags;
 end;
 
 var
+  // global request counter if no THttpServer is defined
   GlobalRequestID: integer;
 
-procedure THttpServerRequest.Prepare(const aURL, aMethod, aInHeaders: RawUTF8;
-  const aInContent: RawByteString; const aInContentType, aRemoteIP: RawUTF8;
-  aUseSSL: boolean);
+procedure THttpServerRequest.Prepare(const aUrl, aMethod, aInHeaders: RawUtf8;
+  const aInContent: RawByteString; const aInContentType, aRemoteIP: RawUtf8);
 var
   id: PInteger;
 begin
@@ -1241,8 +1234,7 @@ begin
   fRequestID := InterLockedIncrement(id^);
   if fRequestID = maxInt - 2048 then // ensure no overflow (31-bit range)
     id^ := 0;
-  fUseSSL := aUseSSL;
-  fURL := aURL;
+  fUrl := aUrl;
   fMethod := aMethod;
   fRemoteIP := aRemoteIP;
   if aRemoteIP <> '' then
@@ -1259,21 +1251,12 @@ begin
   fOutCustomHeaders := '';
 end;
 
-procedure THttpServerRequest.AddInHeader(additionalHeader: RawUTF8);
-begin
-  additionalHeader := Trim(additionalHeader);
-  if additionalHeader <> '' then
-    if fInHeaders = '' then
-      fInHeaders := additionalHeader
-    else
-      fInHeaders := fInHeaders + #13#10 + additionalHeader;
-end;
 
 
 { TServerGeneric }
 
 constructor TServerGeneric.Create(CreateSuspended: boolean;
-  const OnStart, OnStop: TNotifyThreadEvent; const ProcessName: RawUTF8);
+  const OnStart, OnStop: TOnNotifyThread; const ProcessName: RawUtf8);
 begin
   fProcessName := ProcessName;
   fOnHttpThreadStart := OnStart;
@@ -1284,7 +1267,7 @@ end;
 procedure TServerGeneric.NotifyThreadStart(Sender: TSynThread);
 begin
   if Sender = nil then
-    raise EHttpServer.CreateUTF8('%.NotifyThreadStart(nil)', [self]);
+    raise EHttpServer.CreateUtf8('%.NotifyThreadStart(nil)', [self]);
   if Assigned(fOnHttpThreadStart) and
      not Assigned(Sender.StartNotified) then
   begin
@@ -1293,7 +1276,7 @@ begin
   end;
 end;
 
-procedure TServerGeneric.SetOnTerminate(const Event: TNotifyThreadEvent);
+procedure TServerGeneric.SetOnTerminate(const Event: TOnNotifyThread);
 begin
   fOnThreadTerminate := Event;
 end;
@@ -1302,9 +1285,9 @@ end;
 { THttpServerGeneric }
 
 constructor THttpServerGeneric.Create(CreateSuspended: boolean;
-  const OnStart, OnStop: TNotifyThreadEvent; const ProcessName: RawUTF8);
+  const OnStart, OnStop: TOnNotifyThread; const ProcessName: RawUtf8);
 begin
-  SetServerName('mORMot (' + OS_TEXT + ')');
+  SetServerName('mORMot2 (' + OS_TEXT + ')');
   inherited Create(CreateSuspended, OnStart, OnStop, ProcessName);
 end;
 
@@ -1320,14 +1303,19 @@ begin
     fShutdownInProgress := true;
 end;
 
-function THttpServerGeneric.Request(Ctxt: THttpServerRequest): cardinal;
+function THttpServerGeneric.Request(Ctxt: THttpServerRequestAbstract): cardinal;
+var
+  thrd: TSynThread;
 begin
   if (self = nil) or
      fShutdownInProgress then
     result := HTTP_NOTFOUND
   else
   begin
-    NotifyThreadStart(Ctxt.ConnectionThread);
+    thrd := THttpServerRequest(Ctxt).ConnectionThread;
+    if Assigned(thrd) and
+       not Assigned(thrd.StartNotified) then
+      NotifyThreadStart(thrd);
     if Assigned(OnRequest) then
       result := OnRequest(Ctxt)
     else
@@ -1338,36 +1326,41 @@ end;
 function THttpServerGeneric.{%H-}Callback(Ctxt: THttpServerRequest;
   aNonBlocking: boolean): cardinal;
 begin
-  raise EHttpServer.CreateUTF8('%.Callback is not implemented: try to use ' +
+  raise EHttpServer.CreateUtf8('%.Callback is not implemented: try to use ' +
     'another communication protocol, e.g. WebSockets', [self]);
 end;
 
-procedure THttpServerGeneric.SetServerName(const aName: RawUTF8);
+procedure THttpServerGeneric.SetServerName(const aName: RawUtf8);
 begin
   fServerName := aName;
 end;
 
-procedure THttpServerGeneric.SetOnRequest(const aRequest: TOnHttpServerRequest);
+procedure THttpServerGeneric.SetOnRequest(
+  const aRequest: TOnHttpServerRequest);
 begin
   fOnRequest := aRequest;
 end;
 
-procedure THttpServerGeneric.SetOnBeforeBody(const aEvent: TOnHttpServerBeforeBody);
+procedure THttpServerGeneric.SetOnBeforeBody(
+  const aEvent: TOnHttpServerBeforeBody);
 begin
   fOnBeforeBody := aEvent;
 end;
 
-procedure THttpServerGeneric.SetOnBeforeRequest(const aEvent: TOnHttpServerRequest);
+procedure THttpServerGeneric.SetOnBeforeRequest(
+  const aEvent: TOnHttpServerRequest);
 begin
   fOnBeforeRequest := aEvent;
 end;
 
-procedure THttpServerGeneric.SetOnAfterRequest(const aEvent: TOnHttpServerRequest);
+procedure THttpServerGeneric.SetOnAfterRequest(
+  const aEvent: TOnHttpServerRequest);
 begin
   fOnAfterRequest := aEvent;
 end;
 
-procedure THttpServerGeneric.SetOnAfterResponse(const aEvent: TOnHttpServerAfterResponse);
+procedure THttpServerGeneric.SetOnAfterResponse(
+  const aEvent: TOnHttpServerAfterResponse);
 begin
   fOnAfterResponse := aEvent;
 end;
@@ -1400,13 +1393,13 @@ begin
   fMaximumAllowedContentLength := aMax;
 end;
 
-procedure THttpServerGeneric.SetRemoteIPHeader(const aHeader: RawUTF8);
+procedure THttpServerGeneric.SetRemoteIPHeader(const aHeader: RawUtf8);
 begin
   fRemoteIPHeader := aHeader;
   fRemoteIPHeaderUpper := UpperCase(aHeader);
 end;
 
-procedure THttpServerGeneric.SetRemoteConnIDHeader(const aHeader: RawUTF8);
+procedure THttpServerGeneric.SetRemoteConnIDHeader(const aHeader: RawUtf8);
 begin
   fRemoteConnIDHeader := aHeader;
   fRemoteConnIDHeaderUpper := UpperCase(aHeader);
@@ -1424,10 +1417,10 @@ end;
 
 { THttpServer }
 
-constructor THttpServer.Create(const aPort: RawUTF8;
-  const OnStart, OnStop: TNotifyThreadEvent; const ProcessName: RawUTF8;
+constructor THttpServer.Create(const aPort: RawUtf8;
+  const OnStart, OnStop: TOnNotifyThread; const ProcessName: RawUtf8;
   ServerThreadPoolCount, KeepAliveTimeOut: integer;
-  HeadersUnFiltered, CreateSuspended: boolean);
+  aHeadersUnFiltered, CreateSuspended: boolean);
 begin
   fSockPort := aPort;
   fInternalHttpServerRespList := TSynList.Create;
@@ -1442,26 +1435,26 @@ begin
     fThreadRespClass := THttpServerResp;
   if fSocketClass = nil then
     fSocketClass := THttpServerSocket;
+  fProcessName := ProcessName; // TSynThreadPoolTHttpServer needs it now
   if ServerThreadPoolCount > 0 then
   begin
     fThreadPool := TSynThreadPoolTHttpServer.Create(self, ServerThreadPoolCount);
-    fHTTPQueueLength := 1000;
+    fHttpQueueLength := 1000;
   end;
-  fHeadersNotFiltered := HeadersUnFiltered;
+  fHeadersUnFiltered := aHeadersUnFiltered;
   inherited Create(CreateSuspended, OnStart, OnStop, ProcessName);
 end;
 
-function THttpServer.GetAPIVersion: RawUTF8;
+function THttpServer.GetApiVersion: RawUtf8;
 begin
-  result := SocketAPIVersion;
+  result := SocketApiVersion;
 end;
 
 destructor THttpServer.Destroy;
 var
   endtix: Int64;
-  i: integer;
-  resp: THttpServerResp;
-  callback: TNetSocket;
+  i: PtrInt;
+  dummy: TNetSocket; // touch-and-go to the server to release main Accept()
 begin
   Terminate; // set Terminated := true for THttpServerResp.Execute
   if fThreadPool <> nil then
@@ -1469,9 +1462,14 @@ begin
   if (fExecuteState = esRunning) and
      (Sock <> nil) then
   begin
-    Sock.Close; // shutdown the socket to unlock Accept() in Execute
-    if NewSocket('127.0.0.1', Sock.Port, nlTCP, false, 1, 1, 1, 0, callback) = nrOK then
-      callback.ShutdownAndClose({rdwr=}false);
+    if Sock.SocketLayer <> nlUnix then
+      Sock.Close; // shutdown TCP/UDP socket to unlock Accept() in Execute
+    if NewSocket(Sock.Server, Sock.Port, Sock.SocketLayer,
+       {dobind=}false, 10, 10, 10, 0, dummy) = nrOK then
+      // Windows TCP/UDP socket may not release Accept() until connected
+      dummy.ShutdownAndClose({rdwr=}false);
+    if Sock.SockIsDefined then
+      Sock.Close; // nlUnix expects shutdown after accept() returned
   end;
   endtix := mormot.core.os.GetTickCount64 + 20000;
   EnterCriticalSection(fProcessCS);
@@ -1479,17 +1477,14 @@ begin
     if fInternalHttpServerRespList <> nil then
     begin
       for i := 0 to fInternalHttpServerRespList.Count - 1 do
-      begin
-        resp := fInternalHttpServerRespList.List[i];
-        resp.Terminate;
-        resp.fServerSock.Sock.ShutdownAndClose({rdwr=}true);
-      end;
-      repeat // wait for all THttpServerResp.Execute to be finished
+        THttpServerResp(fInternalHttpServerRespList.List[i]).Shutdown;
+      repeat
+        // wait for all THttpServerResp.Execute to be finished
         if (fInternalHttpServerRespList.Count = 0) and
            (fExecuteState <> esRunning) then
           break;
         LeaveCriticalSection(fProcessCS);
-        SleepHiRes(100);
+        SleepHiRes(10);
         EnterCriticalSection(fProcessCS);
       until mormot.core.os.GetTickCount64 > endtix;
       FreeAndNil(fInternalHttpServerRespList);
@@ -1508,14 +1503,14 @@ begin
   result := fStats[one];
 end;
 
-function THttpServer.GetHTTPQueueLength: Cardinal;
+function THttpServer.GetHttpQueueLength: cardinal;
 begin
-  result := fHTTPQueueLength;
+  result := fHttpQueueLength;
 end;
 
-procedure THttpServer.SetHTTPQueueLength(aValue: Cardinal);
+procedure THttpServer.SetHttpQueueLength(aValue: cardinal);
 begin
-  fHTTPQueueLength := aValue;
+  fHttpQueueLength := aValue;
 end;
 
 procedure THttpServer.InternalHttpServerRespListAdd(resp: THttpServerResp);
@@ -1575,7 +1570,7 @@ begin
   if not result then
     exit; // no match -> manual send
   delete(Context.fOutContent, 1, match); // remove e.g. '/var/www'
-  Context.OutCustomHeaders := Trim(Context.OutCustomHeaders + #13#10 +
+  Context.OutCustomHeaders := TrimU(Context.OutCustomHeaders + #13#10 +
     'X-Accel-Redirect: ' + Context.OutContent);
   Context.OutContent := '';
 end;
@@ -1603,9 +1598,9 @@ begin
     LeaveCriticalSection(fProcessCS);
     if ok then
       exit;
-    Sleep(1);
+    Sleep(1); // warning: waits typically 1-15 ms on Windows
     if mormot.core.os.GetTickCount64 > tix then
-      raise EHttpServer.CreateUTF8('%.WaitStarted failed after % seconds [%]',
+      raise EHttpServer.CreateUtf8('%.WaitStarted timeout after % seconds [%]',
         [self, Seconds, fExecuteMessage]);
   until false;
 end;
@@ -1615,13 +1610,13 @@ end;
 
 procedure THttpServer.Execute;
 var
-  ClientSock: TNetSocket;
-  ClientSin: TNetAddr;
-  ClientCrtSock: THttpServerSocket;
+  cltsock: TNetSocket;
+  cltaddr: TNetAddr;
+  cltservsock: THttpServerSocket;
   res: TNetResult;
   {$ifdef MONOTHREAD}
   endtix: Int64;
-  {$endif}
+  {$endif MONOTHREAD}
 begin
   // THttpServerGeneric thread preparation: launch any OnHttpThreadStart event
   fExecuteState := esBinding;
@@ -1629,19 +1624,19 @@ begin
   // main server process loop
   try
     fSock := TCrtSocket.Bind(fSockPort); // BIND + LISTEN
-    {$ifdef LINUXNOTBSD}
-    // in case we started by systemd, listening socket is created by another process
-    // and do not interrupt while process got a signal. So we need to set a timeout to
-    // unblock accept() periodically and check we need terminations
+    {$ifdef OSLINUX}
+    // in case was started by systemd, listening socket is created by another
+    // process and do not interrupt while process got a signal. So we need to
+    // set a timeout to unlock accept() periodically and check for termination
     if fSockPort = '' then // external socket
       fSock.ReceiveTimeout := 1000; // unblock accept every second
-    {$endif LINUXNOTBSD}
+    {$endif OSLINUX}
     fExecuteState := esRunning;
     if not fSock.SockIsDefined then // paranoid (Bind would have raise an exception)
-      raise EHttpServer.CreateUTF8('%.Execute: %.Bind failed', [self, fSock]);
+      raise EHttpServer.CreateUtf8('%.Execute: %.Bind failed', [self, fSock]);
     while not Terminated do
     begin
-      res := Sock.Sock.Accept(ClientSock, ClientSin);
+      res := Sock.Sock.Accept(cltsock, cltaddr);
       if not (res in [nrOK, nrRetry]) then
         if Terminated then
           break
@@ -1653,45 +1648,47 @@ begin
       if Terminated or
          (Sock = nil) then
       begin
-        ClientSock.ShutdownAndClose({rdwr=}true);
+        cltsock.ShutdownAndClose({rdwr=}true);
         break; // don't accept input if server is down
       end;
       OnConnect;
       {$ifdef MONOTHREAD}
-      ClientCrtSock := fSocketClass.Create(self);
+      cltservsock := fSocketClass.Create(self);
       try
-        ClientCrtSock.InitRequest(ClientSock);
+        cltservsock.InitRequest(cltsock);
         endtix := fHeaderRetrieveAbortDelay;
         if endtix > 0 then
           inc(endtix, mormot.core.os.GetTickCount64);
-        if ClientCrtSock.GetRequest({withbody=}true, endtix)
+        if cltservsock.GetRequest({withbody=}true, endtix)
             in [grBodyReceived, grHeaderReceived] then
-          Process(ClientCrtSock, 0, self);
+          Process(cltservsock, 0, self);
         OnDisconnect;
-        DirectShutdown(ClientSock);
+        DirectShutdown(cltsock);
       finally
-        ClientCrtSock.Free;
+        cltservsock.Free;
       end;
       {$else}
       if Assigned(fThreadPool) then
       begin
         // use thread pool to process the request header, and probably its body
-        ClientCrtSock := fSocketClass.Create(self);
-        ClientCrtSock.AcceptRequest(ClientSock, @ClientSin);
-        if not fThreadPool.Push(pointer(PtrUInt(ClientCrtSock)),
-          {waitoncontention=}true) then
+        cltservsock := fSocketClass.Create(self);
+        // we tried to reuse the fSocketClass instance -> no performance change
+        cltservsock.AcceptRequest(cltsock, @cltaddr);
+        if not fThreadPool.Push(pointer(PtrUInt(cltservsock)),
+            {waitoncontention=}true) then
         begin
           // returned false if there is no idle thread in the pool, and queue is full
-          ClientCrtSock.Free; // will call DirectShutdown(ClientSock)
+          cltservsock.Free; // will call DirectShutdown(cltsock)
         end;
       end
       else
         // default implementation creates one thread for each incoming socket
-        fThreadRespClass.Create(ClientSock, ClientSin, self);
+        fThreadRespClass.Create(cltsock, cltaddr, self);
       {$endif MONOTHREAD}
     end;
   except
-    on E: Exception do // any exception would break and release the thread
+    on E: Exception do
+      // any exception would break and release the thread
       fExecuteMessage := E.ClassName + ' [' + E.Message + ']';
   end;
   EnterCriticalSection(fProcessCS);
@@ -1701,13 +1698,13 @@ end;
 
 procedure THttpServer.OnConnect;
 begin
-  InterLockedIncrement(fServerConnectionCount);
-  InterLockedIncrement(fServerConnectionActive);
+  LockedInc32(@fServerConnectionCount);
+  LockedInc32(@fServerConnectionActive);
 end;
 
 procedure THttpServer.OnDisconnect;
 begin
-  InterLockedDecrement(fServerConnectionActive);
+  LockedDec32(@fServerConnectionActive);
 end;
 
 function IdemPCharNotVoid(p: PByteArray; up: PByte; toup: PByteArray): boolean;
@@ -1729,7 +1726,8 @@ begin
   result := true;
 end;
 
-procedure ExtractNameValue(var headers: RawUTF8; const upname: RawUTF8; out res: RawUTF8);
+procedure ExtractNameValue(var headers: RawUtf8; const upname: RawUtf8;
+  out res: RawUtf8);
 var
   i, j, k: PtrInt;
 begin
@@ -1768,88 +1766,100 @@ begin
   until false;
 end;
 
+const
+  // accessed only in the HTTP context over Sockets, not WebSockets
+  // - currently, THttpServerSocket.TLS.Enabled is never set
+  // - Windows http.sys will directly set the flags
+  HTTPREMOTEFLAGS: array[{tls=}boolean] of THttpServerRequestFlags = (
+    [], [hsrHttps, hsrSecured]);
+
 procedure THttpServer.Process(ClientSock: THttpServerSocket;
   ConnectionID: THttpServerConnectionID; ConnectionThread: TSynThread);
 var
   ctxt: THttpServerRequest;
-  P: PUTF8Char;
   respsent: boolean;
-  Code, afterCode: cardinal;
-  s, reason: RawUTF8;
-  ErrorMsg: string;
+  cod, aftercode: cardinal;
+  reason: RawUtf8;
+  errmsg: string;
+
+  function SendFileAsResponse: boolean;
+  var
+    fn: TFileName;
+  begin
+    result := true;
+    ExtractNameValue(ctxt.fOutCustomHeaders, 'CONTENT-TYPE:', ctxt.fOutContentType);
+    Utf8ToFileName(ctxt.OutContent, fn);
+    if not Assigned(fOnSendFile) or
+       not fOnSendFile(ctxt, fn) then
+    begin
+       ctxt.OutContent := StringFromFile(fn);
+       if ctxt.OutContent = '' then
+       begin
+         FormatString('Impossible to send void file: %', [fn], errmsg);
+         cod := HTTP_NOTFOUND;
+         result := false; // fatal error
+       end;
+    end;
+  end;
 
   function SendResponse: boolean;
   var
-    fs: TFileStream;
-    fn: TFileName;
+    P, PEnd: PUtf8Char;
+    len: PtrInt;
   begin
     result := not Terminated; // true=success
     if not result then
       exit;
     {$ifdef SYNCRTDEBUGLOW}
-    TSynLog.Add.Log(sllCustom2, 'SendResponse respsent=% code=%', [respsent,
-      Code], self);
-    {$endif}
+    TSynLog.Add.Log(sllCustom2, 'SendResponse respsent=% cod=%',
+      [respsent, cod], self);
+    {$endif SYNCRTDEBUGLOW}
     respsent := true;
     // handle case of direct sending of static file (as with http.sys)
     if (ctxt.OutContent <> '') and
        (ctxt.OutContentType = STATICFILE_CONTENT_TYPE) then
-    try
-      ExtractNameValue(ctxt.fOutCustomHeaders, 'CONTENT-TYPE:', ctxt.fOutContentType);
-      fn := UTF8ToString(ctxt.OutContent);
-      if not Assigned(fOnSendFile) or not fOnSendFile(ctxt, fn) then
-      begin
-        fs := TFileStream.Create(fn, fmOpenRead or fmShareDenyNone);
-        try
-          SetString(ctxt.fOutContent, nil, fs.Size);
-          fs.Read(Pointer(ctxt.fOutContent)^, length(ctxt.fOutContent));
-        finally
-          fs.Free;
-        end;
-      end;
-    except
-      on E: Exception do
-      begin // error reading or sending file
-        ErrorMsg := E.ClassName + ': ' + E.Message;
-        Code := HTTP_NOTFOUND;
-        result := false; // fatal error
-      end;
-    end;
-    if ctxt.OutContentType = NORESPONSE_CONTENT_TYPE then
+      result := SendFileAsResponse
+    else if ctxt.OutContentType = NORESPONSE_CONTENT_TYPE then
       ctxt.OutContentType := ''; // true HTTP always expects a response
     // send response (multi-thread OK) at once
-    if (Code < HTTP_SUCCESS) or
+    if (cod < HTTP_SUCCESS) or
        (ClientSock.Headers = '') then
-      Code := HTTP_NOTFOUND;
-    reason := StatusCodeToReason(Code);
-    if ErrorMsg <> '' then
+      cod := HTTP_NOTFOUND;
+    StatusCodeToReason(cod, reason);
+    if errmsg <> '' then
     begin
       ctxt.OutCustomHeaders := '';
       ctxt.OutContentType := 'text/html; charset=utf-8'; // create message to display
-      ctxt.OutContent := FormatUTF8('<body style="font-family:verdana">'#10 +
+      ctxt.OutContent := FormatUtf8('<body style="font-family:verdana">'#10 +
         '<h1>% Server Error %</h1><hr><p>HTTP % %<p>%<p><small>%',
-        [self, Code, Code, reason, HtmlEscapeString(ErrorMsg), fServerName]);
+        [self, cod, cod, reason, HtmlEscapeString(errmsg), fServerName]);
     end;
     // 1. send HTTP status command
-    if ClientSock.TCPPrefix <> '' then
-      ClientSock.SockSend(ClientSock.TCPPrefix);
     if ClientSock.KeepAliveClient then
-      ClientSock.SockSend(['HTTP/1.1 ', Code, ' ', reason])
+      ClientSock.SockSend(['HTTP/1.1 ', cod, ' ', reason])
     else
-      ClientSock.SockSend(['HTTP/1.0 ', Code, ' ', reason]);
+      ClientSock.SockSend(['HTTP/1.0 ', cod, ' ', reason]);
     // 2. send headers
     // 2.1. custom headers from Request() method
     P := pointer(ctxt.fOutCustomHeaders);
-    while P <> nil do
+    if P <> nil then
     begin
-      s := GetNextLine(P, {next=}P);
-      if s <> '' then
-      begin // no void line (means headers ending)
-        ClientSock.SockSend(s);
-        if IdemPChar(pointer(s), 'CONTENT-ENCODING:') then
-          // custom encoding: don't compress
-          integer(ClientSock.fCompressAcceptHeader) := 0;
-      end;
+      PEnd := P + length(ctxt.fOutCustomHeaders);
+      repeat
+        len := BufferLineLength(P, PEnd);
+        if len > 0 then
+        begin
+          // no void line (means headers ending)
+          if IdemPChar(P, 'CONTENT-ENCODING:') then
+            // custom encoding: don't compress
+            integer(ClientSock.fCompressAcceptHeader) := 0;
+          ClientSock.SockSend(P, len);
+          ClientSock.SockSendCRLF;
+          inc(P, len);
+        end;
+        while P^ in [#10, #13] do
+          inc(P);
+      until P^ = #0;
     end;
     // 2.2. generic headers
     ClientSock.SockSend([
@@ -1857,7 +1867,8 @@ var
       XPOWEREDNAME + ': ' + XPOWEREDVALUE + #13#10 +
       {$endif NOXPOWEREDNAME}
       'Server: ', fServerName]);
-    ClientSock.CompressDataAndWriteHeaders(ctxt.OutContentType, ctxt.fOutContent);
+    ClientSock.CompressDataAndWriteHeaders(
+      ctxt.OutContentType, ctxt.fOutContent, nil);
     if ClientSock.KeepAliveClient then
     begin
       if ClientSock.fCompressAcceptEncoding <> '' then
@@ -1865,7 +1876,7 @@ var
       ClientSock.SockSend('Connection: Keep-Alive'#13#10); // #13#10 -> end headers
     end
     else
-      ClientSock.SockSend; // headers must end with a void line
+      ClientSock.SockSendCRLF; // headers must end with a void line
     // 3. sent HTTP body content (if any)
     ClientSock.SockSendFlush(ctxt.OutContent); // flush all data to network
   end;
@@ -1877,47 +1888,51 @@ begin
     exit; // -> send will probably fail -> nothing to send back
   if Terminated then
     exit;
-  ctxt := THttpServerRequest.Create(self, ConnectionID, ConnectionThread);
+  ctxt := THttpServerRequest.Create(
+    self, ConnectionID, ConnectionThread, HTTPREMOTEFLAGS[ClientSock.TLS.Enabled]);
   try
     respsent := false;
     with ClientSock do
-      ctxt.Prepare(URL, Method, HeaderGetText(fRemoteIP), Content, ContentType,
-        '', ClientSock.fTLS);
+      ctxt.Prepare(URL, Method, HeaderGetText(fRemoteIP), Content, ContentType, '');
     try
-      Code := DoBeforeRequest(ctxt);
-      {$ifdef SYNCRTDEBUGLOW}
-      TSynLog.Add.Log(sllCustom2, 'DoBeforeRequest=%', [Code], self);
-      {$endif SYNCRTDEBUGLOW}
-      if Code > 0 then
+      cod := DoBeforeRequest(ctxt);
+      if cod > 0 then
+      begin
+        {$ifdef SYNCRTDEBUGLOW}
+        TSynLog.Add.Log(sllCustom2, 'DoBeforeRequest=%', [cod], self);
+        {$endif SYNCRTDEBUGLOW}
         if not SendResponse or
-           (Code <> HTTP_ACCEPTED) then
+           (cod <> HTTP_ACCEPTED) then
           exit;
-      Code := Request(ctxt);
-      afterCode := DoAfterRequest(ctxt);
+      end;
+      cod := Request(ctxt); // this is the main processing callback
+      aftercode := DoAfterRequest(ctxt);
       {$ifdef SYNCRTDEBUGLOW}
-      TSynLog.Add.Log(sllCustom2, 'Request=% DoAfterRequest=%', [Code, afterCode], self);
+      TSynLog.Add.Log(sllCustom2, 'Request=% DoAfterRequest=%', [cod, aftercode], self);
       {$endif SYNCRTDEBUGLOW}
-      if afterCode > 0 then
-        Code := afterCode;
-      if respsent or SendResponse then
-        DoAfterResponse(ctxt, Code);
+      if aftercode > 0 then
+        cod := aftercode;
+      if respsent or
+         SendResponse then
+        DoAfterResponse(ctxt, cod);
       {$ifdef SYNCRTDEBUGLOW}
-      TSynLog.Add.Log(sllCustom2, 'DoAfterResponse respsent=% ErrorMsg=%',
-        [respsent, ErrorMsg], self);
+      TSynLog.Add.Log(sllCustom2, 'DoAfterResponse respsent=% errmsg=%',
+        [respsent, errmsg], self);
       {$endif SYNCRTDEBUGLOW}
     except
       on E: Exception do
         if not respsent then
         begin
-          ErrorMsg := E.ClassName + ': ' + E.Message;
-          Code := HTTP_SERVERERROR;
+          // notify the exception as server response
+          FormatString('%: %', [E, E.Message], errmsg);
+          cod := HTTP_SERVERERROR;
           SendResponse;
         end;
     end;
   finally
+    // add transfert stats to main socket
     if Sock <> nil then
     begin
-      // add transfert stats to main socket
       EnterCriticalSection(fProcessCS);
       Sock.BytesIn := Sock.BytesIn + ClientSock.BytesIn;
       Sock.BytesOut := Sock.BytesOut + ClientSock.BytesOut;
@@ -1930,28 +1945,98 @@ begin
 end;
 
 
+
 { THttpServerSocket }
+
+procedure THttpServerSocket.TaskProcess(aCaller: TSynThreadPoolWorkThread);
+var
+  freeme: boolean;
+  headertix: Int64;
+begin
+  // process this THttpServerSocket in the thread pool
+  freeme := true;
+  try
+    headertix := fServer.HeaderRetrieveAbortDelay;
+    if headertix > 0 then
+      headertix := headertix + GetTickCount64;
+    freeme := TaskProcessBody(aCaller, GetRequest({withbody=}false, headertix));
+  finally
+    if freeme then
+      Free;
+  end;
+end;
+
+function THttpServerSocket.TaskProcessBody(aCaller: TSynThreadPoolWorkThread;
+  aHeaderResult: THttpServerSocketGetRequestResult): boolean;
+var
+  pool: TSynThreadPoolTHttpServer;
+begin
+  result := true;
+  if (fServer = nil) or
+     fServer.Terminated  then
+    exit;
+  // properly get the incoming body and process the request
+  LockedInc32(@fServer.fStats[aHeaderResult]);
+  case aHeaderResult of
+    grHeaderReceived:
+      begin
+        pool := TSynThreadPoolTHttpServer(aCaller.Owner);
+        // connection and header seem valid -> process request further
+        if (fServer.ServerKeepAliveTimeOut > 0) and
+           (fServer.fInternalHttpServerRespList.Count < pool.MaxBodyThreadCount) and
+           (KeepAliveClient or
+            (ContentLength > pool.BigBodySize)) then
+        begin
+          // HTTP/1.1 Keep Alive (including WebSockets) or posted data > 16 MB
+          // -> process in dedicated background thread
+          fServer.fThreadRespClass.Create(self, fServer);
+          result := false; // THttpServerResp will own and free srvsock
+        end
+        else
+        begin
+          // no Keep Alive = multi-connection -> process in the Thread Pool
+          if not (hfConnectionUpgrade in HeaderFlags) and
+             (IdemPCharArray(pointer(Method), ['HEAD', 'OPTIONS']) < 0) then
+          begin
+            GetBody; // we need to get it now
+            LockedInc32(@fServer.fStats[grBodyReceived]);
+          end;
+          // multi-connection -> process now
+          fServer.Process(self, RemoteConnectionID, aCaller);
+          fServer.OnDisconnect;
+          // no Shutdown here: will be done client-side
+        end;
+      end;
+    grOwned:
+      // e.g. for asynchrounous WebSockets
+      result := false; // to ignore FreeAndNil(srvsock) below
+  else if Assigned(fServer.Sock.OnLog) then
+    fServer.Sock.OnLog(sllTrace, 'Task: close after GetRequest=% from %',
+        [ToText(aHeaderResult)^, RemoteIP], self);
+  end;
+end;
 
 constructor THttpServerSocket.Create(aServer: THttpServer);
 begin
   inherited Create(5000);
-  if aServer <> nil then // nil e.g. from TRTSPOverHTTPServer
+  if aServer <> nil then // nil e.g. from TRtspOverHttpServer
   begin
     fServer := aServer;
     fCompress := aServer.fCompress;
     fCompressAcceptEncoding := aServer.fCompressAcceptEncoding;
     fSocketLayer := aServer.Sock.SocketLayer;
-    TCPPrefix := aServer.TCPPrefix;
+    TLS.Enabled := aServer.Sock.TLS.Enabled; // not implemented yet
+    OnLog := aServer.Sock.OnLog;
   end;
 end;
 
-function THttpServerSocket.GetRequest(withBody: boolean; headerMaxTix: Int64):
-  THttpServerSocketGetRequestResult;
+function THttpServerSocket.GetRequest(withBody: boolean;
+  headerMaxTix: Int64): THttpServerSocketGetRequestResult;
 var
-  P: PUTF8Char;
+  P: PUtf8Char;
   status: cardinal;
   pending: integer;
-  reason, allheaders: RawUTF8;
+  reason, allheaders: RawUtf8;
   noheaderfilter: boolean;
 begin
   result := grError;
@@ -1966,40 +2051,38 @@ begin
          (fServer = nil) or
          fServer.Terminated then
         exit;
-      noheaderfilter := fServer.HeadersNotFiltered;
+      noheaderfilter := fServer.HeadersUnFiltered;
     end
     else
       noheaderfilter := false;
     // 1st line is command: 'GET /path HTTP/1.1' e.g.
     SockRecvLn(Command);
-    if TCPPrefix <> '' then
-      if TCPPrefix <> Command then
-        exit
-      else
-        SockRecvLn(Command);
     P := pointer(Command);
     if P = nil then
       exit; // broken
     GetNextItem(P, ' ', fMethod); // 'GET'
-    GetNextItem(P, ' ', fURL);    // '/path'
-    fKeepAliveClient := (fServer = nil) or
-                        (fServer.ServerKeepAliveTimeOut > 0)
-      and IdemPChar(P, 'HTTP/1.1');
+    GetNextItem(P, ' ', fUrl);    // '/path'
+    fKeepAliveClient := ((fServer = nil) or
+                         (fServer.ServerKeepAliveTimeOut > 0)) and
+                        IdemPChar(P, 'HTTP/1.1');
     Content := '';
     // get headers and content
     GetHeader(noheaderfilter);
-    if fServer <> nil then
-    begin // nil from TRTSPOverHTTPServer
+    if fServer <> nil then // = nil e.g. from TRtspOverHttpServer
+    begin
       if fServer.fRemoteIPHeaderUpper <> '' then
         // real Internet IP (replace 127.0.0.1 from a proxy)
-        FindNameValue(headers, pointer(fServer.fRemoteIPHeaderUpper), fRemoteIP,
-          {keepnotfound=}true);
+        FindNameValue(headers, pointer(fServer.fRemoteIPHeaderUpper),
+          fRemoteIP, {keepnotfound=}true);
       if fServer.fRemoteConnIDHeaderUpper <> '' then
       begin
         P := FindNameValue(pointer(headers), pointer(fServer.fRemoteConnIDHeaderUpper));
         if P <> nil then
           SetQWord(P, PQWord(@fRemoteConnectionID)^);
       end;
+      if fRemoteConnectionID = 0 then
+        // fallback to 31-bit sequence
+        fRemoteConnectionID := fServer.NextConnectionID;
     end;
     if hfConnectionClose in HeaderFlags then
       fKeepAliveClient := false;
@@ -2027,8 +2110,8 @@ begin
       if Assigned(fServer.OnBeforeBody) then
       begin
         allheaders := HeaderGetText(fRemoteIP);
-        status := fServer.OnBeforeBody(fURL, fMethod, allheaders, ContentType,
-          RemoteIP, ContentLength, false);
+        status := fServer.OnBeforeBody(fUrl, fMethod, allheaders, ContentType,
+          fRemoteIP, BearerToken, ContentLength, HTTPREMOTEFLAGS[TLS.Enabled]);
         {$ifdef SYNCRTDEBUGLOW}
         TSynLog.Add.Log(sllCustom2,
           'GetRequest sock=% OnBeforeBody=% Command=% Headers=%', [fSock, status,
@@ -2036,8 +2119,12 @@ begin
         {$endif SYNCRTDEBUGLOW}
         if status <> HTTP_SUCCESS then
         begin
-          reason := StatusCodeToReason(status);
-          SockSend(['HTTP/1.0 ', status, ' ', reason, #13#10#13#10, reason, ' ', status]);
+          StatusCodeToReason(status, reason);
+          if Assigned(OnLog) then
+            OnLog(sllTrace, 'GetRequest: rejected by OnBeforeBody=% %',
+              [status, reason], self);
+          SockSend(['HTTP/1.0 ', status, ' ', reason, #13#10#13#10,
+            reason, ' ', status]);
           SockSendFlush('');
           result := grRejected;
           exit;
@@ -2076,17 +2163,23 @@ begin
   Create(c.Create(aServer), aServer); // on Linux, Execute raises during Create
 end;
 
-constructor THttpServerResp.Create(aServerSock: THttpServerSocket; aServer: THttpServer);
+constructor THttpServerResp.Create(aServerSock: THttpServerSocket;
+  aServer: THttpServer);
 begin
   fServer := aServer;
   fServerSock := aServerSock;
   fOnThreadTerminate := fServer.fOnThreadTerminate;
   fServer.InternalHttpServerRespListAdd(self);
-  fConnectionID := aServerSock.RemoteConnectionID;
-  if fConnectionID = 0 then
-    fConnectionID := fServer.NextConnectionID; // fallback to 31-bit sequence
+  fConnectionID := aServerSock.fRemoteConnectionID;
   FreeOnTerminate := true;
   inherited Create(false);
+end;
+
+procedure THttpServerResp.Shutdown;
+begin
+  Terminate;
+  if fServerSock <> nil then
+    fServerSock.Close;
 end;
 
 procedure THttpServerResp.Execute;
@@ -2097,7 +2190,9 @@ procedure THttpServerResp.Execute;
     pending: TCrtSocketPending;
     res: THttpServerSocketGetRequestResult;
   begin
-    {$ifdef SYNCRTDEBUGLOW} try {$endif}
+    {$ifdef SYNCRTDEBUGLOW}
+    try
+    {$endif SYNCRTDEBUGLOW}
     try
       repeat
         beforetix := mormot.core.os.GetTickCount64;
@@ -2115,25 +2210,35 @@ procedure THttpServerResp.Execute;
             // server is down -> disconnect the client
             exit;
           {$ifdef SYNCRTDEBUGLOW}
-          TSynLog.Add.Log(sllCustom2,
-            'HandleRequestsProcess: sock=% pending=%', [fServerSock.fSock,
-            _CSP[pending]], self);
-          {$endif}
+          TSynLog.Add.Log(sllCustom2, 'HandleRequestsProcess: sock=% pending=%',
+            [fServerSock.fSock, _CSP[pending]], self);
+          {$endif SYNCRTDEBUGLOW}
           case pending of
             cspSocketError:
-              exit; // socket error -> disconnect the client
+              begin
+                if Assigned(fServer.Sock.OnLog) then
+                  fServer.Sock.OnLog(sllTrace, 'Execute: Socket error from %',
+                    [fServerSock.RemoteIP], self);
+                exit; // disconnect the client
+              end;
             cspNoData:
               begin
                 tix := mormot.core.os.GetTickCount64;
                 if tix >= keepaliveendtix then
+                begin
+                  if Assigned(fServer.Sock.OnLog) then
+                    fServer.Sock.OnLog(sllTrace, 'Execute: % KeepAlive=% timeout',
+                      [fServerSock.RemoteIP, keepaliveendtix - tix], self);
                   exit; // reached keep alive time out -> close connection
+                end;
                 if tix - beforetix < 40 then
                 begin
                   {$ifdef SYNCRTDEBUGLOW}
                   // getsockopt(fServerSock.fSock,SOL_SOCKET,SO_ERROR,@error,errorlen) returns 0 :(
-                  TSynLog.Add.Log(sllCustom2, 'HandleRequestsProcess: sock=% LOWDELAY=%',
+                  TSynLog.Add.Log(sllCustom2,
+                    'HandleRequestsProcess: sock=% LOWDELAY=%',
                     [fServerSock.fSock, tix - beforetix], self);
-                  {$endif}
+                  {$endif SYNCRTDEBUGLOW}
                   SleepHiRes(1); // seen only on Windows in practice
                   if (fServer = nil) or
                      fServer.Terminated then
@@ -2153,12 +2258,12 @@ procedure THttpServerResp.Execute;
                    fServer.Terminated then
                   // server is down -> disconnect the client
                   exit;
-                InterLockedIncrement(fServer.fStats[res]);
+                LockedInc32(@fServer.fStats[res]);
                 case res of
                   grBodyReceived, grHeaderReceived:
                     begin
                       if res = grBodyReceived then
-                        InterlockedIncrement(fServer.fStats[grHeaderReceived]);
+                        LockedInc32(@fServer.fStats[grHeaderReceived]);
                       // calc answer and send response
                       fServer.Process(fServerSock, ConnectionID, self);
                       // keep connection only if necessary
@@ -2173,8 +2278,13 @@ procedure THttpServerResp.Execute;
                       exit;
                     end;
                 else
-                  // fServerSock connection was down or headers are not correct
-                  exit;
+                  begin
+                    if Assigned(fServer.Sock.OnLog) then
+                      fServer.Sock.OnLog(sllTrace,
+                        'Execute: close after GetRequest=% from %',
+                        [ToText(res)^, fServerSock.RemoteIP], self);
+                    exit;
+                  end;
                 end;
               end;
           end;
@@ -2186,14 +2296,14 @@ procedure THttpServerResp.Execute;
     end;
     {$ifdef SYNCRTDEBUGLOW}
     finally
-      TSynLog.Add.Log(sllCustom2, 'HandleRequestsProcess: close sock=%', [fServerSock.fSock],
-        self);
+      TSynLog.Add.Log(sllCustom2, 'HandleRequestsProcess: close sock=%',
+        [fServerSock.fSock], self);
     end;
-    {$endif}
+    {$endif SYNCRTDEBUGLOW}
   end;
 
 var
-  aSock: TNetSocket;
+  netsock: TNetSocket;
 begin
   fServer.NotifyThreadStart(self);
   try
@@ -2201,9 +2311,9 @@ begin
       if fClientSock.Socket <> 0 then
       begin
         // direct call from incoming socket
-        aSock := fClientSock;
+        netsock := fClientSock;
         fClientSock := nil; // fServerSock owns fClientSock
-        fServerSock.AcceptRequest(aSock, @fClientSin);
+        fServerSock.AcceptRequest(netsock, @fClientSin);
         if fServer <> nil then
           HandleRequestsProcess;
       end
@@ -2221,12 +2331,15 @@ begin
     finally
       try
         if fServer <> nil then
-        try
-          fServer.OnDisconnect;
-        finally
-          fServer.InternalHttpServerRespListRemove(self);
-          fServer := nil;
-        end;
+          try
+            fServer.OnDisconnect;
+            if Assigned(fOnThreadTerminate) then
+              fOnThreadTerminate(self);
+          finally
+            fServer.InternalHttpServerRespListRemove(self);
+            fServer := nil;
+            fOnThreadTerminate := nil;
+          end;
       finally
         FreeAndNil(fServerSock);
         // if Destroy happens before fServerSock.GetRequest() in Execute below
@@ -2243,11 +2356,15 @@ end;
 { TSynThreadPoolTHttpServer }
 
 constructor TSynThreadPoolTHttpServer.Create(Server: THttpServer;
-  NumberOfThreads: Integer);
+  NumberOfThreads: integer);
 begin
   fServer := Server;
   fOnThreadTerminate := fServer.fOnThreadTerminate;
-  inherited Create(NumberOfThreads {$ifndef USE_WINIOCP}, {queuepending=}true{$endif});
+  fBigBodySize := THREADPOOL_BIGBODYSIZE;
+  fMaxBodyThreadCount := THREADPOOL_MAXWORKTHREADS;
+  inherited Create(NumberOfThreads,
+    {$ifdef USE_WINIOCP} INVALID_HANDLE_VALUE {$else} {queuepending=}true{$endif},
+    Server.ProcessName);
 end;
 
 {$ifndef USE_WINIOCP}
@@ -2256,70 +2373,30 @@ begin
   if fServer = nil then
     result := 10000
   else
-    result := fServer.fHTTPQueueLength;
+    result := fServer.fHttpQueueLength;
 end;
 {$endif USE_WINIOCP}
 
-procedure TSynThreadPoolTHttpServer.Task(aCaller: TSynThread; aContext: Pointer);
-var
-  ServerSock: THttpServerSocket;
-  headertix: Int64;
-  res: THttpServerSocketGetRequestResult;
+procedure TSynThreadPoolTHttpServer.Task(
+  aCaller: TSynThreadPoolWorkThread; aContext: Pointer);
 begin
-  ServerSock := aContext;
-  try
-    if fServer.Terminated then
-      exit;
-    // get Header of incoming request in the thread pool
-    headertix := fServer.HeaderRetrieveAbortDelay;
-    if headertix > 0 then
-      headertix := headertix + GetTickCount64;
-    res := ServerSock.GetRequest({withbody=}false, headertix);
-    if (fServer = nil) or
-       fServer.Terminated then
-      exit;
-    InterlockedIncrement(fServer.fStats[res]);
-    case res of
-      grHeaderReceived:
-        begin
-          // connection and header seem valid -> process request further
-          if (fServer.ServerKeepAliveTimeOut > 0) and
-             (fServer.fInternalHttpServerRespList.Count < THREADPOOL_MAXWORKTHREADS) and
-             (ServerSock.KeepAliveClient or
-              (ServerSock.ContentLength > THREADPOOL_BIGBODYSIZE)) then
-          begin
-            // HTTP/1.1 Keep Alive (including WebSockets) or posted data > 16 MB
-            // -> process in dedicated background thread
-            fServer.fThreadRespClass.Create(ServerSock, fServer);
-            ServerSock := nil; // THttpServerResp will own and free ServerSock
-          end
-          else
-          begin
-            // no Keep Alive = multi-connection -> process in the Thread Pool
-            if not (hfConnectionUpgrade in ServerSock.HeaderFlags) and
-               (IdemPCharArray(pointer(ServerSock.fMethod), ['HEAD', 'OPTIONS']) < 0) then
-            begin
-              ServerSock.GetBody; // we need to get it now
-              InterlockedIncrement(fServer.fStats[grBodyReceived]);
-            end;
-            // multi-connection -> process now
-            fServer.Process(ServerSock, ServerSock.RemoteConnectionID, aCaller);
-            fServer.OnDisconnect;
-            // no Shutdown here: will be done client-side
-          end;
-        end;
-      grOwned:
-        // e.g. for asynchrounous WebSockets
-        ServerSock := nil; // to ignore FreeAndNil(ServerSock) below
-    end; // errors will close the connection
-  finally
-    FreeAndNil(ServerSock);
-  end;
+  // process this THttpServerSocket in the thread pool
+  if (fServer = nil) or
+     fServer.Terminated then
+    THttpServerSocket(aContext).Free
+  else
+    THttpServerSocket(aContext).TaskProcess(aCaller);
 end;
 
 procedure TSynThreadPoolTHttpServer.TaskAbort(aContext: Pointer);
 begin
   THttpServerSocket(aContext).Free;
+end;
+
+
+function ToText(res: THttpServerSocketGetRequestResult): PShortString;
+begin
+  result := GetEnumName(TypeInfo(THttpServerSocketGetRequestResult), ord(res));
 end;
 
 
@@ -2329,8 +2406,8 @@ end;
 
 { THttpApiServer }
 
-function THttpApiServer.AddUrl(const aRoot, aPort: RawUTF8; Https: boolean;
-  const aDomainName: RawUTF8; aRegisterURI: boolean; aContext: Int64): integer;
+function THttpApiServer.AddUrl(const aRoot, aPort: RawUtf8; Https: boolean;
+  const aDomainName: RawUtf8; aRegisterUri: boolean; aContext: Int64): integer;
 var
   uri: SynUnicode;
   n: integer;
@@ -2343,7 +2420,7 @@ begin
   uri := RegURL(aRoot, aPort, Https, aDomainName);
   if uri = '' then
     exit; // invalid parameters
-  if aRegisterURI then
+  if aRegisterUri then
     AddUrlAuthorize(aRoot, aPort, Https, aDomainName);
   if Http.Version.MajorVersion > 1 then
     result := Http.AddUrlToUrlGroup(fUrlGroupID, pointer(uri), aContext)
@@ -2357,11 +2434,11 @@ begin
   end;
 end;
 
-function THttpApiServer.RemoveUrl(const aRoot, aPort: RawUTF8; Https: boolean;
-  const aDomainName: RawUTF8): integer;
+function THttpApiServer.RemoveUrl(const aRoot, aPort: RawUtf8; Https: boolean;
+  const aDomainName: RawUtf8): integer;
 var
   uri: SynUnicode;
-  i, j, n: integer;
+  i, j, n: PtrInt;
 begin
   result := -1;
   if (Self = nil) or
@@ -2388,8 +2465,8 @@ begin
     end;
 end;
 
-class function THttpApiServer.AddUrlAuthorize(const aRoot, aPort: RawUTF8; Https:
-  boolean; const aDomainName: RawUTF8; OnlyDelete: boolean): string;
+class function THttpApiServer.AddUrlAuthorize(const aRoot, aPort: RawUtf8;
+  Https: boolean; const aDomainName: RawUtf8; OnlyDelete: boolean): string;
 const
   /// will allow AddUrl() registration to everyone
   // - 'GA' (GENERIC_ALL) to grant all access
@@ -2397,8 +2474,8 @@ const
   HTTPADDURLSECDESC: PWideChar = 'D:(A;;GA;;;S-1-1-0)';
 var
   prefix: SynUnicode;
-  Error: HRESULT;
-  Config: HTTP_SERVICE_CONFIG_URLACL_SET;
+  err: HRESULT;
+  cfg: HTTP_SERVICE_CONFIG_URLACL_SET;
 begin
   try
     HttpApiInitialize;
@@ -2410,22 +2487,22 @@ begin
       EHttpApiServer.RaiseOnError(hInitialize,
         Http.Initialize(Http.Version, HTTP_INITIALIZE_CONFIG));
       try
-        FillcharFast(Config, sizeof(Config), 0);
-        Config.KeyDesc.pUrlPrefix := pointer(prefix);
+        FillcharFast(cfg, sizeof(cfg), 0);
+        cfg.KeyDesc.pUrlPrefix := pointer(prefix);
         // first delete any existing information
-        Error := Http.DeleteServiceConfiguration(
-          0, hscUrlAclInfo, @Config, Sizeof(Config));
+        err := Http.DeleteServiceConfiguration(
+          0, hscUrlAclInfo, @cfg, Sizeof(cfg));
         // then add authorization rule
         if not OnlyDelete then
         begin
-          Config.KeyDesc.pUrlPrefix := pointer(prefix);
-          Config.ParamDesc.pStringSecurityDescriptor := HTTPADDURLSECDESC;
-          Error := Http.SetServiceConfiguration(
-            0, hscUrlAclInfo, @Config, Sizeof(Config));
+          cfg.KeyDesc.pUrlPrefix := pointer(prefix);
+          cfg.ParamDesc.pStringSecurityDescriptor := HTTPADDURLSECDESC;
+          err := Http.SetServiceConfiguration(
+            0, hscUrlAclInfo, @cfg, Sizeof(cfg));
         end;
-        if (Error <> NO_ERROR) and
-           (Error <> ERROR_ALREADY_EXISTS) then
-          raise EHttpApiServer.Create(hSetServiceConfiguration, Error);
+        if (err <> NO_ERROR) and
+           (err <> ERROR_ALREADY_EXISTS) then
+          raise EHttpApiServer.Create(hSetServiceConfiguration, err);
         result := ''; // success
       finally
         Http.Terminate(HTTP_INITIALIZE_CONFIG);
@@ -2442,7 +2519,7 @@ type
 
 procedure THttpApiServer.Clone(ChildThreadCount: integer);
 var
-  i: integer;
+  i: PtrInt;
 begin
   if (fReqQueue = 0) or
      not Assigned(OnRequest) or
@@ -2456,16 +2533,17 @@ begin
     fClones[i] := THttpApiServerClass(Self.ClassType).CreateClone(self);
 end;
 
-function THttpApiServer.GetAPIVersion: RawUTF8;
+function THttpApiServer.GetApiVersion: RawUtf8;
 begin
-  FormatUTF8('HTTP API %.%',
+  FormatUtf8('HTTP API %.%',
     [Http.Version.MajorVersion, Http.Version.MinorVersion], result);
 end;
 
-constructor THttpApiServer.Create(CreateSuspended: boolean; QueueName:
-  SynUnicode; OnStart, OnStop: TNotifyThreadEvent; const ProcessName: RawUTF8);
+constructor THttpApiServer.Create(CreateSuspended: boolean;
+  QueueName: SynUnicode; const OnStart, OnStop: TOnNotifyThread;
+  const ProcessName: RawUtf8);
 var
-  bindInfo: HTTP_BINDING_INFO;
+  binding: HTTP_BINDING_INFO;
 begin
   SetLength(fLogDataStorage, sizeof(HTTP_LOG_FIELDS_DATA)); // should be done 1st
   inherited Create({suspended=}true, OnStart, OnStop, ProcessName);
@@ -2479,14 +2557,14 @@ begin
     EHttpApiServer.RaiseOnError(hCreateUrlGroup,
       Http.CreateUrlGroup(fServerSessionID, fUrlGroupID));
     if QueueName = '' then
-      QueueName := UTF8ToSynUnicode(Int64ToUtf8(fServerSessionID));
+      Utf8ToSynUnicode(Int64ToUtf8(fServerSessionID), QueueName);
     EHttpApiServer.RaiseOnError(hCreateRequestQueue,
       Http.CreateRequestQueue(Http.Version, pointer(QueueName), nil, 0, fReqQueue));
-    bindInfo.Flags := 1;
-    bindInfo.RequestQueueHandle := FReqQueue;
+    binding.Flags := 1;
+    binding.RequestQueueHandle := fReqQueue;
     EHttpApiServer.RaiseOnError(hSetUrlGroupProperty,
       Http.SetUrlGroupProperty(fUrlGroupID, HttpServerBindingProperty,
-        @bindInfo, SizeOf(bindInfo)));
+        @binding, SizeOf(binding)));
   end
   else
     EHttpApiServer.RaiseOnError(hCreateHttpHandle,
@@ -2534,7 +2612,7 @@ begin
         Http.CloseUrlGroup(fUrlGroupID);
         fUrlGroupID := 0;
       end;
-      CloseHandle(FReqQueue);
+      CloseHandle(fReqQueue);
       if fServerSessionID <> 0 then
       begin
         Http.CloseServerSession(fServerSessionID);
@@ -2548,6 +2626,10 @@ begin
       CloseHandle(fReqQueue); // will break all THttpApiServer.Execute
     end;
     fReqQueue := 0;
+    {$ifdef FPC}
+    for i := 0 to length(fClones) - 1 do
+      WaitForSingleObject(fClones[i].Handle, 30000); // sometimes needed on FPC
+    {$endif FPC}
     for i := 0 to length(fClones) - 1 do
       fClones[i].Free;
     fClones := nil;
@@ -2556,33 +2638,27 @@ begin
 end;
 
 destructor THttpApiServer.Destroy;
-var
-  endtix: Int64;
 begin
   Terminate; // for Execute to be notified about end of process
   try
     if (fOwner = nil) and
        (Http.Module <> 0) then // fOwner<>nil for cloned threads
       DestroyMainThread;
-    if fExecuting then
-    begin
-      endtix := mormot.core.os.GetTickCount64 + 5000; // never wait forever
-      repeat
-        sleep(1);
-      until not fExecuting or
-        (mormot.core.os.GetTickCount64 > endtix); // ensure Execute has ended
-    end;
+    {$ifdef FPC}
+    WaitForSingleObject(Handle, 30000); // sometimes needed on FPC
+    {$endif FPC}
   finally
     inherited Destroy;
   end;
 end;
 
-function THttpApiServer.GetSendResponseFlags(Ctxt: THttpServerRequest): Integer;
+function THttpApiServer.GetSendResponseFlags(Ctxt: THttpServerRequest): integer;
 begin
   result := 0;
 end;
 
-function GetNextItemUInt64(var P: PUTF8Char): ULONGLONG;
+// returned P^ points to the first non digit char - not as GetNextItemQWord()
+function GetNextNumber(var P: PUtf8Char): Qword;
 var
   c: PtrUInt;
 begin
@@ -2593,63 +2669,63 @@ begin
       if c > 9 then
         break
       else
-        result := result * 10 + ULONGLONG(c);
+        result := result * 10 + Qword(c);
       inc(P);
     until false;
-end; // P^ will point to the first non digit char
+end;
 
 procedure THttpApiServer.Execute;
 type
-  TVerbText = array[hvOPTIONS..pred(hvMaximum)] of RawUTF8;
+  TVerbText = array[hvOPTIONS..pred(hvMaximum)] of RawUtf8;
 const
   VERB_TEXT: TVerbText = (
     'OPTIONS', 'GET', 'HEAD', 'POST', 'PUT', 'DELETE',
     'TRACE', 'CONNECT', 'TRACK', 'MOVE', 'COPY', 'PROPFIND', 'PROPPATCH',
     'MKCOL', 'LOCK', 'UNLOCK', 'SEARCH');
 var
-  Req: PHTTP_REQUEST;
-  ReqID: HTTP_REQUEST_ID;
-  ReqBuf, RespBuf: RawByteString;
-  RemoteIP, RemoteConn: RawUTF8;
-  i, L: integer;
+  req: PHTTP_REQUEST;
+  reqid: HTTP_REQUEST_ID;
+  reqbuf, respbuf: RawByteString;
+  remoteip, remoteconn, token: RawUtf8;
+  i, L: PtrInt;
   P: PHTTP_UNKNOWN_HEADER;
-  flags, bytesRead, bytesSent: cardinal;
-  Err: HRESULT;
-  InCompressAccept: THttpSocketCompressSet;
-  InContentLength, InContentLengthChunk, InContentLengthRead: cardinal;
-  InContentEncoding, InAcceptEncoding, Range: RawUTF8;
-  OutContentEncoding, OutStatus: RawUTF8;
-  OutStatusCode, AfterStatusCode: Cardinal;
-  RespSent: boolean;
-  Context: THttpServerRequest;
-  FileHandle: THandle;
-  Resp: PHTTP_RESPONSE;
-  BufRead, R: PUTF8Char;
-  Heads: HTTP_UNKNOWN_HEADERs;
-  RangeStart, RangeLength: ULONGLONG;
-  OutContentLength: ULARGE_INTEGER;
-  DataChunkInMemory: HTTP_DATA_CHUNK_INMEMORY;
-  DataChunkFile: HTTP_DATA_CHUNK_FILEHANDLE;
-  CurrentLog: PHTTP_LOG_FIELDS_DATA;
-  ContentRange: ShortString;
-  Verbs: TVerbText; // to avoid memory allocation
+  flags, bytesread, bytessent: cardinal;
+  err: HRESULT;
+  compressset: THttpSocketCompressSet;
+  incontlen, incontlenchunk, incontlenread: cardinal;
+  incontenc, inaccept, range: RawUtf8;
+  outcontenc, outstat: RawUtf8;
+  outstatcode, afterstatcode: cardinal;
+  respsent: boolean;
+  ctxt: THttpServerRequest;
+  filehandle: THandle;
+  reps: PHTTP_RESPONSE;
+  bufread, R: PUtf8Char;
+  heads: HTTP_UNKNOWN_HEADERs;
+  rangestart, rangelen: ULONGLONG;
+  outcontlen: ULARGE_INTEGER;
+  datachunkmem: HTTP_DATA_CHUNK_INMEMORY;
+  datachunkfile: HTTP_DATA_CHUNK_FILEHANDLE;
+  logdata: PHTTP_LOG_FIELDS_DATA;
+  contrange: ShortString;
+  vervs: TVerbText; // to avoid memory allocation
 
   procedure SendError(StatusCode: cardinal; const ErrorMsg: string; E: Exception = nil);
   var
-    Msg: RawUTF8;
+    msg: RawUtf8;
   begin
     try
-      Resp^.SetStatus(StatusCode, OutStatus);
-      CurrentLog^.ProtocolStatus := StatusCode;
-      FormatUTF8('<html><body style="font-family:verdana;"><h1>Server Error %: %</h1><p>',
-        [StatusCode, OutStatus], Msg);
+      reps^.SetStatus(StatusCode, outstat);
+      logdata^.ProtocolStatus := StatusCode;
+      FormatUtf8('<html><body style="font-family:verdana;"><h1>Server Error %: %</h1><p>',
+        [StatusCode, outstat], msg);
       if E <> nil then
-        Msg := FormatUTF8('%% Exception raised:<br>', [Msg, E]);
-      Resp^.SetContent(DataChunkInMemory, Msg + HtmlEscapeString(ErrorMsg)
+        msg := FormatUtf8('%% Exception raised:<br>', [msg, E]);
+      reps^.SetContent(datachunkmem, msg + HtmlEscapeString(ErrorMsg)
         {$ifndef NOXPOWEREDNAME} + '</p><p><small>' + XPOWEREDVALUE {$endif},
         'text/html; charset=utf-8');
-      Http.SendHttpResponse(fReqQueue, Req^.RequestId, 0, Resp^, nil,
-        bytesSent, nil, 0, nil, fLogData);
+      Http.SendHttpResponse(fReqQueue, req^.RequestId, 0, reps^, nil,
+        bytessent, nil, 0, nil, fLogData);
     except
       on Exception do
         ; // ignore any HttpApi level errors here (client may crashed)
@@ -2661,13 +2737,13 @@ var
     result := not Terminated; // true=success
     if not result then
       exit;
-    RespSent := true;
-    Resp^.SetStatus(OutStatusCode, OutStatus);
+    respsent := true;
+    reps^.SetStatus(outstatcode, outstat);
     if Terminated then
       exit;
     // update log information
     if Http.Version.MajorVersion >= 2 then
-      with Req^, CurrentLog^ do
+      with req^, logdata^ do
       begin
         MethodNum := Verb;
         UriStemLength := CookedUrl.AbsPathLength;
@@ -2687,174 +2763,175 @@ var
           ReferrerLength := RawValueLength;
           Referrer := pRawValue;
         end;
-        ProtocolStatus := Resp^.StatusCode;
-        ClientIp := pointer(RemoteIP);
-        ClientIpLength := length(RemoteIP);
-        Method := pointer(Context.fMethod);
-        MethodLength := length(Context.fMethod);
-        UserName := pointer(Context.fAuthenticatedUser);
-        UserNameLength := Length(Context.fAuthenticatedUser);
+        ProtocolStatus := reps^.StatusCode;
+        ClientIp := pointer(remoteip);
+        ClientIpLength := length(remoteip);
+        Method := pointer(ctxt.fMethod);
+        MethodLength := length(ctxt.fMethod);
+        UserName := pointer(ctxt.fAuthenticatedUser);
+        UserNameLength := Length(ctxt.fAuthenticatedUser);
       end;
     // send response
-    Resp^.Version := Req^.Version;
-    Resp^.SetHeaders(pointer(Context.OutCustomHeaders), Heads);
+    reps^.Version := req^.Version;
+    reps^.SetHeaders(pointer(ctxt.OutCustomHeaders), heads);
     if fCompressAcceptEncoding <> '' then
-      Resp^.AddCustomHeader(pointer(fCompressAcceptEncoding), Heads, false);
-    with Resp^.headers.KnownHeaders[respServer] do
+      reps^.AddCustomHeader(pointer(fCompressAcceptEncoding), heads, false);
+    with reps^.headers.KnownHeaders[respServer] do
     begin
       pRawValue := pointer(fServerName);
       RawValueLength := length(fServerName);
     end;
-    if Context.OutContentType = STATICFILE_CONTENT_TYPE then
+    if ctxt.OutContentType = STATICFILE_CONTENT_TYPE then
     begin
       // response is file -> OutContent is UTF-8 file name to be served
-      FileHandle := FileOpen(UTF8ToString(Context.OutContent),
+      filehandle := FileOpen(Utf8ToString(ctxt.OutContent),
         fmOpenRead or fmShareDenyNone);
-      if PtrInt(FileHandle) < 0 then
+      if not ValidHandle(filehandle)  then
       begin
         SendError(HTTP_NOTFOUND, SysErrorMessage(GetLastError));
         result := false; // notify fatal error
       end;
       try // http.sys will serve then close the file from kernel
-        DataChunkFile.DataChunkType := hctFromFileHandle;
-        DataChunkFile.FileHandle := FileHandle;
+        datachunkfile.DataChunkType := hctFromFileHandle;
+        datachunkfile.filehandle := filehandle;
         flags := 0;
-        DataChunkFile.ByteRange.StartingOffset.QuadPart := 0;
-        Int64(DataChunkFile.ByteRange.Length.QuadPart) := -1; // to eof
-        with Req^.headers.KnownHeaders[reqRange] do
+        datachunkfile.ByteRange.StartingOffset.QuadPart := 0;
+        Int64(datachunkfile.ByteRange.Length.QuadPart) := -1; // to eof
+        with req^.headers.KnownHeaders[reqRange] do
         begin
           if (RawValueLength > 6) and
              IdemPChar(pointer(pRawValue), 'BYTES=') and
              (pRawValue[6] in ['0'..'9']) then
           begin
-            FastSetString(Range, pRawValue + 6, RawValueLength - 6); // need #0 end
-            R := pointer(Range);
-            RangeStart := GetNextItemUInt64(R);
+            FastSetString(range, pRawValue + 6, RawValueLength - 6); // need #0 end
+            R := pointer(range);
+            rangestart := GetNextNumber(R);
             if R^ = '-' then
             begin
-              OutContentLength.QuadPart := FileSize(FileHandle);
-              DataChunkFile.ByteRange.Length.QuadPart :=
-                OutContentLength.QuadPart - RangeStart;
+              outcontlen.QuadPart := FileSize(filehandle);
+              datachunkfile.ByteRange.Length.QuadPart :=
+                outcontlen.QuadPart - rangestart;
               inc(R);
               flags := HTTP_SEND_RESPONSE_FLAG_PROCESS_RANGES;
-              DataChunkFile.ByteRange.StartingOffset.QuadPart := RangeStart;
+              datachunkfile.ByteRange.StartingOffset.QuadPart := rangestart;
               if R^ in ['0'..'9'] then
               begin
-                RangeLength := GetNextItemUInt64(R) - RangeStart + 1;
-                if RangeLength < DataChunkFile.ByteRange.Length.QuadPart then
+                rangelen := GetNextNumber(R) - rangestart + 1;
+                if rangelen < datachunkfile.ByteRange.Length.QuadPart then
                   // "bytes=0-499" -> start=0, len=500
-                  DataChunkFile.ByteRange.Length.QuadPart := RangeLength;
+                  datachunkfile.ByteRange.Length.QuadPart := rangelen;
               end; // "bytes=1000-" -> start=1000, to eof)
-              FormatShort('Content-Range: bytes %-%/%'#0, [RangeStart,
-                RangeStart + DataChunkFile.ByteRange.Length.QuadPart - 1,
-                OutContentLength.QuadPart], ContentRange);
-              Resp^.AddCustomHeader(@ContentRange[1], Heads, false);
-              Resp^.SetStatus(HTTP_PARTIALCONTENT, OutStatus);
+              FormatShort('Content-range: bytes %-%/%'#0, [rangestart,
+                rangestart + datachunkfile.ByteRange.Length.QuadPart - 1,
+                outcontlen.QuadPart], contrange);
+              reps^.AddCustomHeader(@contrange[1], heads, false);
+              reps^.SetStatus(HTTP_PARTIALCONTENT, outstat);
             end;
           end;
-          with Resp^.headers.KnownHeaders[respAcceptRanges] do
+          with reps^.headers.KnownHeaders[respAcceptRanges] do
           begin
             pRawValue := 'bytes';
             RawValueLength := 5;
           end;
         end;
-        Resp^.EntityChunkCount := 1;
-        Resp^.pEntityChunks := @DataChunkFile;
-        Http.SendHttpResponse(fReqQueue, Req^.RequestId, flags, Resp^, nil,
-          bytesSent, nil, 0, nil, fLogData);
+        reps^.EntityChunkCount := 1;
+        reps^.pEntityChunks := @datachunkfile;
+        Http.SendHttpResponse(fReqQueue, req^.RequestId, flags, reps^, nil,
+          bytessent, nil, 0, nil, fLogData);
       finally
-        FileClose(FileHandle);
+        FileClose(filehandle);
       end;
     end
     else
     begin
       // response is in OutContent -> send it from memory
-      if Context.OutContentType = NORESPONSE_CONTENT_TYPE then
-        Context.OutContentType := ''; // true HTTP always expects a response
+      if ctxt.OutContentType = NORESPONSE_CONTENT_TYPE then
+        ctxt.OutContentType := ''; // true HTTP always expects a response
       if fCompress <> nil then
       begin
-        with Resp^.headers.KnownHeaders[reqContentEncoding] do
+        with reps^.headers.KnownHeaders[reqContentEncoding] do
           if RawValueLength = 0 then
           begin
-          // no previous encoding -> try if any compression
-            OutContentEncoding := CompressDataAndGetHeaders(InCompressAccept,
-              fCompress, Context.OutContentType, Context.fOutContent);
-            pRawValue := pointer(OutContentEncoding);
-            RawValueLength := length(OutContentEncoding);
+            // no previous encoding -> try if any compression
+            outcontenc := CompressDataAndGetHeaders(compressset,
+              fCompress, ctxt.OutContentType, ctxt.fOutContent);
+            pRawValue := pointer(outcontenc);
+            RawValueLength := length(outcontenc);
           end;
       end;
-      Resp^.SetContent(DataChunkInMemory, Context.OutContent, Context.OutContentType);
+      reps^.SetContent(datachunkmem, ctxt.OutContent, ctxt.OutContentType);
       EHttpApiServer.RaiseOnError(hSendHttpResponse,
-        Http.SendHttpResponse(fReqQueue, Req^.RequestId,
-          getSendResponseFlags(Context), Resp^, nil,
-          bytesSent, nil, 0, nil, fLogData));
+        Http.SendHttpResponse(fReqQueue, req^.RequestId,
+          getSendResponseFlags(ctxt), reps^, nil,
+          bytessent, nil, 0, nil, fLogData));
     end;
   end;
 
 begin
   if Terminated then
     exit;
-  fExecuting := true;
-  Context := nil;
+  ctxt := nil;
   try
     // THttpServerGeneric thread preparation: launch any OnHttpThreadStart event
     NotifyThreadStart(self);
     // reserve working buffers
-    SetLength(Heads, 64);
-    SetLength(RespBuf, sizeof(HTTP_RESPONSE));
-    Resp := pointer(RespBuf);
-    SetLength(ReqBuf, 16384 + sizeof(HTTP_REQUEST)); // Req^ + 16 KB of headers
-    Req := pointer(ReqBuf);
-    CurrentLog := pointer(fLogDataStorage);
-    Verbs := VERB_TEXT;
-    Context := THttpServerRequest.Create(self, 0, self);
-    // main loop reusing a single Context instance for this thread
-    ReqID := 0;
-    Context.fServer := self;
+    SetLength(heads, 64);
+    SetLength(respbuf, sizeof(HTTP_RESPONSE));
+    reps := pointer(respbuf);
+    SetLength(reqbuf, 16384 + sizeof(HTTP_REQUEST)); // req^ + 16 KB of headers
+    req := pointer(reqbuf);
+    logdata := pointer(fLogDataStorage);
+    vervs := VERB_TEXT;
+    ctxt := THttpServerRequest.Create(self, 0, self, []);
+    // main loop reusing a single ctxt instance for this thread
+    reqid := 0;
+    ctxt.fServer := self;
     repeat
-      Context.fInContent := ''; // release input/output body buffers ASAP
-      Context.fOutContent := '';
+      // release input/output body buffers ASAP
+      ctxt.fInContent := '';
+      ctxt.fOutContent := '';
       // reset authentication status & user between requests
-      Context.fAuthenticationStatus := hraNone;
-      Context.fAuthenticatedUser := '';
+      ctxt.fAuthenticationStatus := hraNone;
+      ctxt.fAuthenticatedUser := '';
       // retrieve next pending request, and read its headers
-      FillcharFast(Req^, sizeof(HTTP_REQUEST), 0);
-      Err := Http.ReceiveHttpRequest(fReqQueue, ReqID, 0,
-        Req^, length(ReqBuf), bytesRead);
+      FillcharFast(req^, sizeof(HTTP_REQUEST), 0);
+      err := Http.ReceiveHttpRequest(fReqQueue, reqid, 0,
+        req^, length(reqbuf), bytesread);
       if Terminated then
         break;
-      case Err of
+      case err of
         NO_ERROR:
           try
             // parse method and headers
-            Context.fConnectionID := Req^.ConnectionID;
-            Context.fHttpApiRequest := Req;
-            SetString(Context.fFullURL, Req^.CookedUrl.pFullUrl, Req^.CookedUrl.FullUrlLength);
-            FastSetString(Context.fURL, Req^.pRawUrl, Req^.RawUrlLength);
-            if Req^.Verb in [low(Verbs)..high(Verbs)] then
-              Context.fMethod := Verbs[Req^.Verb]
+            ctxt.fConnectionID := req^.ConnectionID;
+            ctxt.fHttpApiRequest := req;
+            SetString(ctxt.fFullURL, req^.CookedUrl.pFullUrl, req^.CookedUrl.FullUrlLength);
+            FastSetString(ctxt.fUrl, req^.pRawUrl, req^.RawUrlLength);
+            if req^.Verb in [low(vervs)..high(vervs)] then
+              ctxt.fMethod := vervs[req^.Verb]
             else
-              FastSetString(Context.fMethod, Req^.pUnknownVerb, Req^.UnknownVerbLength);
-            with Req^.headers.KnownHeaders[reqContentType] do
-              FastSetString(Context.fInContentType, pRawValue, RawValueLength);
-            with Req^.headers.KnownHeaders[reqAcceptEncoding] do
-              FastSetString(InAcceptEncoding, pRawValue, RawValueLength);
-            InCompressAccept := ComputeContentEncoding(fCompress, pointer(InAcceptEncoding));
-            Context.fUseSSL := Req^.pSslInfo <> nil;
-            Context.fInHeaders := RetrieveHeaders(Req^, fRemoteIPHeaderUpper, RemoteIP);
+              FastSetString(ctxt.fMethod, req^.pUnknownVerb, req^.UnknownVerbLength);
+            with req^.headers.KnownHeaders[reqContentType] do
+              FastSetString(ctxt.fInContentType, pRawValue, RawValueLength);
+            with req^.headers.KnownHeaders[reqAcceptEncoding] do
+              FastSetString(inaccept, pRawValue, RawValueLength);
+            compressset := ComputeContentEncoding(fCompress, pointer(inaccept));
+            if req^.pSslInfo <> nil then
+              ctxt.ConnectionFlags := [hsrHttps, hsrSecured];
+            ctxt.fInHeaders := RetrieveHeaders(req^, fRemoteIPHeaderUpper, remoteip);
             // compute remote connection ID
             L := length(fRemoteConnIDHeaderUpper);
             if L <> 0 then
             begin
-              P := Req^.headers.pUnknownHeaders;
+              P := req^.headers.pUnknownHeaders;
               if P <> nil then
-                for i := 1 to Req^.headers.UnknownHeaderCount do
+                for i := 1 to req^.headers.UnknownHeaderCount do
                   if (P^.NameLength = L) and
                      IdemPChar(P^.pName, Pointer(fRemoteConnIDHeaderUpper)) then
                   begin
-                    FastSetString(RemoteConn, P^.pRawValue, P^.RawValueLength); // need #0 end
-                    R := pointer(RemoteConn);
-                    Context.fConnectionID := GetNextItemUInt64(R);
+                    FastSetString(remoteconn, P^.pRawValue, P^.RawValueLength); // need #0 end
+                    R := pointer(remoteconn);
+                    ctxt.fConnectionID := GetNextNumber(R);
                     break;
                   end
                   else
@@ -2862,154 +2939,159 @@ begin
             end;
             // retrieve any SetAuthenticationSchemes() information
             if byte(fAuthenticationSchemes) <> 0 then // set only with HTTP API 2.0
-              for i := 0 to Req^.RequestInfoCount - 1 do
-                if Req^.pRequestInfo^[i].InfoType = HttpRequestInfoTypeAuth then
-                  with PHTTP_REQUEST_AUTH_INFO(Req^.pRequestInfo^[i].pInfo)^ do
+              for i := 0 to req^.RequestInfoCount - 1 do
+                if req^.pRequestInfo^[i].InfoType = HttpRequestInfoTypeAuth then
+                  with PHTTP_REQUEST_AUTH_INFO(req^.pRequestInfo^[i].pInfo)^ do
                     case AuthStatus of
                       HttpAuthStatusSuccess:
                         if AuthType > HttpRequestAuthTypeNone then
                         begin
-                          byte(Context.fAuthenticationStatus) := ord(AuthType) + 1;
+                          byte(ctxt.fAuthenticationStatus) := ord(AuthType) + 1;
                           if AccessToken <> 0 then
                           begin
-                            GetDomainUserNameFromToken(AccessToken, Context.fAuthenticatedUser);
+                            GetDomainUserNameFromToken(AccessToken, ctxt.fAuthenticatedUser);
                             // Per spec https://docs.microsoft.com/en-us/windows/win32/http/authentication-in-http-version-2-0
                             // AccessToken lifecycle is application responsability and should be closed after use
                             CloseHandle(AccessToken);
                           end;
                         end;
                       HttpAuthStatusFailure:
-                        Context.fAuthenticationStatus := hraFailed;
+                        ctxt.fAuthenticationStatus := hraFailed;
                     end;
-            with Req^.headers.KnownHeaders[reqContentLength] do
-              InContentLength := GetCardinal(
+            with req^.headers.KnownHeaders[reqContentLength] do
+              incontlen := GetCardinal(
                 pointer(pRawValue), pointer(pRawValue + RawValueLength));
-            if (InContentLength > 0) and
+            if (incontlen > 0) and
                (MaximumAllowedContentLength > 0) and
-               (InContentLength > MaximumAllowedContentLength) then
+               (incontlen > MaximumAllowedContentLength) then
             begin
               SendError(HTTP_PAYLOADTOOLARGE, 'Rejected');
               continue;
             end;
             if Assigned(OnBeforeBody) then
             begin
-              Err := OnBeforeBody(Context.URL, Context.Method, Context.InHeaders,
-                Context.InContentType, RemoteIP, InContentLength, Context.fUseSSL);
-              if Err <> HTTP_SUCCESS then
+              with req^.Headers.KnownHeaders[reqAuthorization] do
+                if (RawValueLength > 7) and
+                   IdemPChar(pointer(pRawValue), 'BEARER ') then
+                  FastSetString(token, pRawValue + 7, RawValueLength - 7)
+                else
+                  token := '';
+              err := OnBeforeBody(ctxt.fUrl, ctxt.fMethod, ctxt.fInHeaders,
+                ctxt.fInContentType, remoteip, token, incontlen, ctxt.ConnectionFlags);
+              if err <> HTTP_SUCCESS then
               begin
-                SendError(Err, 'Rejected');
+                SendError(err, 'Rejected');
                 continue;
               end;
             end;
             // retrieve body
-            if HTTP_REQUEST_FLAG_MORE_ENTITY_BODY_EXISTS and Req^.flags <> 0 then
+            if HTTP_REQUEST_FLAG_MORE_ENTITY_BODY_EXISTS and req^.flags <> 0 then
             begin
-              with Req^.headers.KnownHeaders[reqContentEncoding] do
-                FastSetString(InContentEncoding, pRawValue, RawValueLength);
-              if InContentLength <> 0 then
+              with req^.headers.KnownHeaders[reqContentEncoding] do
+                FastSetString(incontenc, pRawValue, RawValueLength);
+              if incontlen <> 0 then
               begin
-                SetLength(Context.fInContent, InContentLength);
-                BufRead := pointer(Context.InContent);
-                InContentLengthRead := 0;
+                SetLength(ctxt.fInContent, incontlen);
+                bufread := pointer(ctxt.InContent);
+                incontlenread := 0;
                 repeat
-                  bytesRead := 0;
+                  bytesread := 0;
                   if Http.Version.MajorVersion > 1 then // speed optimization for Vista+
                     flags := HTTP_RECEIVE_REQUEST_ENTITY_BODY_FLAG_FILL_BUFFER
                   else
                     flags := 0;
-                  InContentLengthChunk := InContentLength - InContentLengthRead;
+                  incontlenchunk := incontlen - incontlenread;
                   if (fReceiveBufferSize >= 1024) and
-                     (InContentLengthChunk > fReceiveBufferSize) then
-                    InContentLengthChunk := fReceiveBufferSize;
-                  Err := Http.ReceiveRequestEntityBody(fReqQueue, Req^.RequestId,
-                    flags, BufRead, InContentLengthChunk, bytesRead);
+                     (incontlenchunk > fReceiveBufferSize) then
+                    incontlenchunk := fReceiveBufferSize;
+                  err := Http.ReceiveRequestEntityBody(fReqQueue, req^.RequestId,
+                    flags, bufread, incontlenchunk, bytesread);
                   if Terminated then
                     exit;
-                  inc(InContentLengthRead, bytesRead);
-                  if Err = ERROR_HANDLE_EOF then
+                  inc(incontlenread, bytesread);
+                  if err = ERROR_HANDLE_EOF then
                   begin
-                    if InContentLengthRead < InContentLength then
-                      SetLength(Context.fInContent, InContentLengthRead);
-                    Err := NO_ERROR;
+                    if incontlenread < incontlen then
+                      SetLength(ctxt.fInContent, incontlenread);
+                    err := NO_ERROR;
                     break; // should loop until returns ERROR_HANDLE_EOF
                   end;
-                  if Err <> NO_ERROR then
+                  if err <> NO_ERROR then
                     break;
-                  inc(BufRead, bytesRead);
-                until InContentLengthRead = InContentLength;
-                if Err <> NO_ERROR then
+                  inc(bufread, bytesread);
+                until incontlenread = incontlen;
+                if err <> NO_ERROR then
                 begin
-                  SendError(HTTP_NOTACCEPTABLE, SysErrorMessagePerModule(Err, HTTPAPI_DLL));
+                  SendError(HTTP_NOTACCEPTABLE, SysErrorMessagePerModule(err, HTTPAPI_DLL));
                   continue;
                 end;
-                if InContentEncoding <> '' then
+                if incontenc <> '' then
                   for i := 0 to high(fCompress) do
-                    if fCompress[i].Name = InContentEncoding then
+                    if fCompress[i].Name = incontenc then
                     begin
-                      fCompress[i].Func(Context.fInContent, false); // uncompress
+                      fCompress[i].Func(ctxt.fInContent, false); // uncompress
                       break;
                     end;
               end;
             end;
             try
               // compute response
-              Context.OutContent := '';
-              Context.OutContentType := '';
-              Context.OutCustomHeaders := '';
-              FillcharFast(Resp^, sizeof(Resp^), 0);
-              RespSent := false;
-              OutStatusCode := DoBeforeRequest(Context);
-              if OutStatusCode > 0 then
+              ctxt.OutContent := '';
+              ctxt.OutContentType := '';
+              ctxt.OutCustomHeaders := '';
+              FillcharFast(reps^, sizeof(reps^), 0);
+              respsent := false;
+              outstatcode := DoBeforeRequest(ctxt);
+              if outstatcode > 0 then
                 if not SendResponse or
-                   (OutStatusCode <> HTTP_ACCEPTED) then
+                   (outstatcode <> HTTP_ACCEPTED) then
                   continue;
-              OutStatusCode := Request(Context);
-              AfterStatusCode := DoAfterRequest(Context);
-              if AfterStatusCode > 0 then
-                OutStatusCode := AfterStatusCode;
+              outstatcode := Request(ctxt);
+              afterstatcode := DoAfterRequest(ctxt);
+              if afterstatcode > 0 then
+                outstatcode := afterstatcode;
               // send response
-              if not RespSent then
+              if not respsent then
                 if not SendResponse then
                   continue;
-              DoAfterResponse(Context, OutStatusCode);
+              DoAfterResponse(ctxt, outstatcode);
             except
               on E: Exception do
                 // handle any exception raised during process: show must go on!
-                if not RespSent then
+                if not respsent then
                   if not E.InheritsFrom(EHttpApiServer) or // ensure still connected
                     (EHttpApiServer(E).LastError <> HTTPAPI_ERROR_NONEXISTENTCONNECTION) then
                     SendError(HTTP_SERVERERROR, E.Message, E);
             end;
           finally
-            ReqID := 0; // reset Request ID to handle the next pending request
+            reqid := 0; // reset Request ID to handle the next pending request
           end;
         ERROR_MORE_DATA:
           begin
             // input buffer was too small to hold the request headers
             // -> increase buffer size and call the API again
-            ReqID := Req^.RequestId;
-            SetLength(ReqBuf, bytesRead);
-            Req := pointer(ReqBuf);
+            reqid := req^.RequestId;
+            SetLength(reqbuf, bytesread);
+            req := pointer(reqbuf);
           end;
         ERROR_CONNECTION_INVALID:
-          if ReqID = 0 then
+          if reqid = 0 then
             break
           else
             // TCP connection was corrupted by the peer -> ignore + next request
-            ReqID := 0;
+            reqid := 0;
       else
-        break; // unhandled Err value
+        break; // unhandled err value
       end;
     until Terminated;
   finally
-    Context.Free;
-    fExecuting := false;
+    ctxt.Free;
   end;
 end;
 
-function THttpApiServer.GetHTTPQueueLength: Cardinal;
+function THttpApiServer.GetHttpQueueLength: cardinal;
 var
-  returnLength: ULONG;
+  len: ULONG;
 begin
   if (Http.Version.MajorVersion < 2) or
      (self = nil) then
@@ -3023,11 +3105,11 @@ begin
     else
       EHttpApiServer.RaiseOnError(hQueryRequestQueueProperty,
         Http.QueryRequestQueueProperty(fReqQueue, HttpServerQueueLengthProperty,
-          @result, sizeof(result), 0, @returnLength, nil));
+          @result, sizeof(result), 0, @len, nil));
   end;
 end;
 
-procedure THttpApiServer.SetHTTPQueueLength(aValue: Cardinal);
+procedure THttpApiServer.SetHttpQueueLength(aValue: cardinal);
 begin
   if Http.Version.MajorVersion < 2 then
     raise EHttpApiServer.Create(hSetRequestQueueProperty, ERROR_OLD_WIN_VERSION);
@@ -3040,7 +3122,7 @@ end;
 
 function THttpApiServer.GetRegisteredUrl: SynUnicode;
 var
-  i: integer;
+  i: PtrInt;
 begin
   if fRegisteredUnicodeUrl = nil then
     result := ''
@@ -3055,10 +3137,10 @@ begin
   result := (fOwner <> nil);
 end;
 
-procedure THttpApiServer.SetMaxBandwidth(aValue: Cardinal);
+procedure THttpApiServer.SetMaxBandwidth(aValue: cardinal);
 var
-  qosInfo: HTTP_QOS_SETTING_INFO;
-  limitInfo: HTTP_BANDWIDTH_LIMIT_INFO;
+  qos: HTTP_QOS_SETTING_INFO;
+  limit: HTTP_BANDWIDTH_LIMIT_INFO;
 begin
   if Http.Version.MajorVersion < 2 then
     raise EHttpApiServer.Create(hSetUrlGroupProperty, ERROR_OLD_WIN_VERSION);
@@ -3066,28 +3148,28 @@ begin
      (fUrlGroupID <> 0) then
   begin
     if aValue = 0 then
-      limitInfo.MaxBandwidth := HTTP_LIMIT_INFINITE
+      limit.MaxBandwidth := HTTP_LIMIT_INFINITE
     else if aValue < HTTP_MIN_ALLOWED_BANDWIDTH_THROTTLING_RATE then
-      limitInfo.MaxBandwidth := HTTP_MIN_ALLOWED_BANDWIDTH_THROTTLING_RATE
+      limit.MaxBandwidth := HTTP_MIN_ALLOWED_BANDWIDTH_THROTTLING_RATE
     else
-      limitInfo.MaxBandwidth := aValue;
-    limitInfo.Flags := 1;
-    qosInfo.QosType := HttpQosSettingTypeBandwidth;
-    qosInfo.QosSetting := @limitInfo;
+      limit.MaxBandwidth := aValue;
+    limit.Flags := 1;
+    qos.QosType := HttpQosSettingTypeBandwidth;
+    qos.QosSetting := @limit;
     EHttpApiServer.RaiseOnError(hSetServerSessionProperty,
       Http.SetServerSessionProperty(fServerSessionID, HttpServerQosProperty,
-        @qosInfo, SizeOf(qosInfo)));
+        @qos, SizeOf(qos)));
     EHttpApiServer.RaiseOnError(hSetUrlGroupProperty,
       Http.SetUrlGroupProperty(fUrlGroupID, HttpServerQosProperty,
-        @qosInfo, SizeOf(qosInfo)));
+        @qos, SizeOf(qos)));
   end;
 end;
 
-function THttpApiServer.GetMaxBandwidth: Cardinal;
+function THttpApiServer.GetMaxBandwidth: cardinal;
 var
-  qosInfoGet: record
-    qosInfo: HTTP_QOS_SETTING_INFO;
-    limitInfo: HTTP_BANDWIDTH_LIMIT_INFO;
+  info: record
+    qos: HTTP_QOS_SETTING_INFO;
+    limit: HTTP_BANDWIDTH_LIMIT_INFO;
   end;
 begin
   if (Http.Version.MajorVersion < 2) or
@@ -3103,21 +3185,21 @@ begin
     result := 0;
     exit;
   end;
-  qosInfoGet.qosInfo.QosType := HttpQosSettingTypeBandwidth;
-  qosInfoGet.qosInfo.QosSetting := @qosInfoGet.limitInfo;
+  info.qos.QosType := HttpQosSettingTypeBandwidth;
+  info.qos.QosSetting := @info.limit;
   EHttpApiServer.RaiseOnError(hQueryUrlGroupProperty,
     Http.QueryUrlGroupProperty(fUrlGroupID, HttpServerQosProperty,
-      @qosInfoGet, SizeOf(qosInfoGet)));
-  result := qosInfoGet.limitInfo.MaxBandwidth;
+      @info, SizeOf(info)));
+  result := info.limit.MaxBandwidth;
 end;
 
-function THttpApiServer.GetMaxConnections: Cardinal;
+function THttpApiServer.GetMaxConnections: cardinal;
 var
-  qosInfoGet: record
-    qosInfo: HTTP_QOS_SETTING_INFO;
-    limitInfo: HTTP_CONNECTION_LIMIT_INFO;
+  info: record
+    qos: HTTP_QOS_SETTING_INFO;
+    limit: HTTP_CONNECTION_LIMIT_INFO;
   end;
-  returnLength: ULONG;
+  len: ULONG;
 begin
   if (Http.Version.MajorVersion < 2) or
      (self = nil) then
@@ -3132,18 +3214,18 @@ begin
     result := 0;
     exit;
   end;
-  qosInfoGet.qosInfo.QosType := HttpQosSettingTypeConnectionLimit;
-  qosInfoGet.qosInfo.QosSetting := @qosInfoGet.limitInfo;
+  info.qos.QosType := HttpQosSettingTypeConnectionLimit;
+  info.qos.QosSetting := @info.limit;
   EHttpApiServer.RaiseOnError(hQueryUrlGroupProperty,
     Http.QueryUrlGroupProperty(fUrlGroupID, HttpServerQosProperty,
-      @qosInfoGet, SizeOf(qosInfoGet), @returnLength));
-  result := qosInfoGet.limitInfo.MaxConnections;
+      @info, SizeOf(info), @len));
+  result := info.limit.MaxConnections;
 end;
 
-procedure THttpApiServer.SetMaxConnections(aValue: Cardinal);
+procedure THttpApiServer.SetMaxConnections(aValue: cardinal);
 var
-  qosInfo: HTTP_QOS_SETTING_INFO;
-  limitInfo: HTTP_CONNECTION_LIMIT_INFO;
+  qos: HTTP_QOS_SETTING_INFO;
+  limit: HTTP_CONNECTION_LIMIT_INFO;
 begin
   if Http.Version.MajorVersion < 2 then
     raise EHttpApiServer.Create(hSetUrlGroupProperty, ERROR_OLD_WIN_VERSION);
@@ -3151,19 +3233,19 @@ begin
      (fUrlGroupID <> 0) then
   begin
     if aValue = 0 then
-      limitInfo.MaxConnections := HTTP_LIMIT_INFINITE
+      limit.MaxConnections := HTTP_LIMIT_INFINITE
     else
-      limitInfo.MaxConnections := aValue;
-    limitInfo.Flags := 1;
-    qosInfo.QosType := HttpQosSettingTypeConnectionLimit;
-    qosInfo.QosSetting := @limitInfo;
+      limit.MaxConnections := aValue;
+    limit.Flags := 1;
+    qos.QosType := HttpQosSettingTypeConnectionLimit;
+    qos.QosSetting := @limit;
     EHttpApiServer.RaiseOnError(hSetUrlGroupProperty,
       Http.SetUrlGroupProperty(fUrlGroupID, HttpServerQosProperty,
-        @qosInfo, SizeOf(qosInfo)));
+        @qos, SizeOf(qos)));
   end;
 end;
 
-function THttpApiServer.HasAPI2: boolean;
+function THttpApiServer.HasApi2: boolean;
 begin
   result := Http.Version.MajorVersion >= 2;
 end;
@@ -3173,12 +3255,12 @@ begin
   result := (fLogData <> nil);
 end;
 
-procedure THttpApiServer.LogStart(const aLogFolder: TFileName; aType:
-  THttpApiLoggingType; const aSoftwareName: TFileName; aRolloverType:
-  THttpApiLoggingRollOver; aRolloverSize: cardinal; aLogFields:
-  THttpApiLogFields; aFlags: THttpApiLoggingFlags);
+procedure THttpApiServer.LogStart(const aLogFolder: TFileName;
+  aType: THttpApiLoggingType; const aSoftwareName: TFileName;
+  aRolloverType: THttpApiLoggingRollOver; aRolloverSize: cardinal;
+  aLogFields: THttpApiLogFields; aFlags: THttpApiLoggingFlags);
 var
-  logInfo: HTTP_LOGGING_INFO;
+  log: HTTP_LOGGING_INFO;
   folder, software: SynUnicode;
 begin
   if (self = nil) or
@@ -3187,9 +3269,9 @@ begin
   if Http.Version.MajorVersion < 2 then
     raise EHttpApiServer.Create(hSetUrlGroupProperty, ERROR_OLD_WIN_VERSION);
   fLogData := nil; // disable any previous logging
-  FillcharFast(logInfo, SizeOf(logInfo), 0);
-  logInfo.Flags := 1;
-  logInfo.LoggingFlags := byte(aFlags);
+  FillcharFast(log, SizeOf(log), 0);
+  log.Flags := 1;
+  log.LoggingFlags := byte(aFlags);
   if aLogFolder = '' then
     raise EHttpApiServer.CreateFmt('LogStart(aLogFolder="")', []);
   if length(aLogFolder) > 212 then
@@ -3197,37 +3279,37 @@ begin
     raise EHttpApiServer.CreateFmt('aLogFolder is too long for LogStart(%s)', [aLogFolder]);
   folder := SynUnicode(aLogFolder);
   software := SynUnicode(aSoftwareName);
-  logInfo.SoftwareNameLength := length(software) * 2;
-  logInfo.SoftwareName := pointer(software);
-  logInfo.DirectoryNameLength := length(folder) * 2;
-  logInfo.DirectoryName := pointer(folder);
-  logInfo.Format := HTTP_LOGGING_TYPE(aType);
+  log.SoftwareNameLength := length(software) * 2;
+  log.SoftwareName := pointer(software);
+  log.DirectoryNameLength := length(folder) * 2;
+  log.DirectoryName := pointer(folder);
+  log.Format := HTTP_LOGGING_TYPE(aType);
   if aType = hltNCSA then
     aLogFields := [hlfDate..hlfSubStatus];
-  logInfo.Fields := integer(aLogFields);
-  logInfo.RolloverType := HTTP_LOGGING_ROLLOVER_TYPE(aRolloverType);
+  log.Fields := integer(aLogFields);
+  log.RolloverType := HTTP_LOGGING_ROLLOVER_TYPE(aRolloverType);
   if aRolloverType = hlrSize then
-    logInfo.RolloverSize := aRolloverSize;
+    log.RolloverSize := aRolloverSize;
   EHttpApiServer.RaiseOnError(hSetUrlGroupProperty,
     Http.SetUrlGroupProperty(fUrlGroupID, HttpServerLoggingProperty,
-      @logInfo, SizeOf(logInfo)));
+      @log, SizeOf(log)));
   // on success, update the actual log memory structure
   fLogData := pointer(fLogDataStorage);
 end;
 
 procedure THttpApiServer.RegisterCompress(aFunction: THttpSocketCompress;
-  aCompressMinSize: integer = 1024);
+  aCompressMinSize: integer);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited;
   for i := 0 to length(fClones) - 1 do
     fClones[i].RegisterCompress(aFunction, aCompressMinSize);
 end;
 
-procedure THttpApiServer.SetOnTerminate(const Event: TNotifyThreadEvent);
+procedure THttpApiServer.SetOnTerminate(const Event: TOnNotifyThread);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited SetOnTerminate(Event);
   if fOwner = nil then
@@ -3237,7 +3319,7 @@ end;
 
 procedure THttpApiServer.LogStop;
 var
-  i: integer;
+  i: PtrInt;
 begin
   if (self = nil) or
      (fClones = nil) or
@@ -3250,16 +3332,16 @@ end;
 
 procedure THttpApiServer.SetReceiveBufferSize(Value: cardinal);
 var
-  i: integer;
+  i: PtrInt;
 begin
   fReceiveBufferSize := Value;
   for i := 0 to length(fClones) - 1 do
     fClones[i].fReceiveBufferSize := Value;
 end;
 
-procedure THttpApiServer.SetServerName(const aName: RawUTF8);
+procedure THttpApiServer.SetServerName(const aName: RawUtf8);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited SetServerName(aName);
   with PHTTP_LOG_FIELDS_DATA(fLogDataStorage)^ do
@@ -3273,7 +3355,7 @@ end;
 
 procedure THttpApiServer.SetOnRequest(const aRequest: TOnHttpServerRequest);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited SetOnRequest(aRequest);
   for i := 0 to length(fClones) - 1 do
@@ -3282,7 +3364,7 @@ end;
 
 procedure THttpApiServer.SetOnBeforeBody(const aEvent: TOnHttpServerBeforeBody);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited SetOnBeforeBody(aEvent);
   for i := 0 to length(fClones) - 1 do
@@ -3291,7 +3373,7 @@ end;
 
 procedure THttpApiServer.SetOnBeforeRequest(const aEvent: TOnHttpServerRequest);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited SetOnBeforeRequest(aEvent);
   for i := 0 to length(fClones) - 1 do
@@ -3300,7 +3382,7 @@ end;
 
 procedure THttpApiServer.SetOnAfterRequest(const aEvent: TOnHttpServerRequest);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited SetOnAfterRequest(aEvent);
   for i := 0 to length(fClones) - 1 do
@@ -3309,7 +3391,7 @@ end;
 
 procedure THttpApiServer.SetOnAfterResponse(const aEvent: TOnHttpServerAfterResponse);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited SetOnAfterResponse(aEvent);
   for i := 0 to length(fClones) - 1 do
@@ -3318,44 +3400,47 @@ end;
 
 procedure THttpApiServer.SetMaximumAllowedContentLength(aMax: cardinal);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited SetMaximumAllowedContentLength(aMax);
   for i := 0 to length(fClones) - 1 do
     fClones[i].SetMaximumAllowedContentLength(aMax);
 end;
 
-procedure THttpApiServer.SetRemoteIPHeader(const aHeader: RawUTF8);
+procedure THttpApiServer.SetRemoteIPHeader(const aHeader: RawUtf8);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited SetRemoteIPHeader(aHeader);
   for i := 0 to length(fClones) - 1 do
     fClones[i].SetRemoteIPHeader(aHeader);
 end;
 
-procedure THttpApiServer.SetRemoteConnIDHeader(const aHeader: RawUTF8);
+procedure THttpApiServer.SetRemoteConnIDHeader(const aHeader: RawUtf8);
 var
-  i: integer;
+  i: PtrInt;
 begin
   inherited SetRemoteConnIDHeader(aHeader);
   for i := 0 to length(fClones) - 1 do
     fClones[i].SetRemoteConnIDHeader(aHeader);
 end;
 
-procedure THttpApiServer.SetLoggingServiceName(const aName: RawUTF8);
+procedure THttpApiServer.SetLoggingServiceName(const aName: RawUtf8);
 begin
   if self = nil then
     exit;
   fLoggingServiceName := aName;
-  PHTTP_LOG_FIELDS_DATA(fLogDataStorage)^.ServiceNameLength := Length(fLoggingServiceName);
-  PHTTP_LOG_FIELDS_DATA(fLogDataStorage)^.ServiceName := pointer(fLoggingServiceName);
+  with PHTTP_LOG_FIELDS_DATA(fLogDataStorage)^ do
+  begin
+    ServiceName := pointer(fLoggingServiceName);
+    ServiceNameLength := Length(fLoggingServiceName);
+  end;
 end;
 
 procedure THttpApiServer.SetAuthenticationSchemes(schemes:
   THttpApiRequestAuthentications; const DomainName, Realm: SynUnicode);
 var
-  authInfo: HTTP_SERVER_AUTHENTICATION_INFO;
+  auth: HTTP_SERVER_AUTHENTICATION_INFO;
 begin
   if (self = nil) or
      (fOwner <> nil) then
@@ -3363,18 +3448,18 @@ begin
   if Http.Version.MajorVersion < 2 then
     raise EHttpApiServer.Create(hSetUrlGroupProperty, ERROR_OLD_WIN_VERSION);
   fAuthenticationSchemes := schemes;
-  FillcharFast(authInfo, SizeOf(authInfo), 0);
-  authInfo.Flags := 1;
-  authInfo.AuthSchemes := byte(schemes);
-  authInfo.ReceiveMutualAuth := true;
+  FillcharFast(auth, SizeOf(auth), 0);
+  auth.Flags := 1;
+  auth.AuthSchemes := byte(schemes);
+  auth.ReceiveMutualAuth := true;
   if haBasic in schemes then
-    with authInfo.BasicParams do
+    with auth.BasicParams do
     begin
       RealmLength := Length(Realm);
       Realm := pointer(Realm);
     end;
   if haDigest in schemes then
-    with authInfo.DigestParams do
+    with auth.DigestParams do
     begin
       DomainNameLength := Length(DomainName);
       DomainName := pointer(DomainName);
@@ -3383,30 +3468,30 @@ begin
     end;
   EHttpApiServer.RaiseOnError(hSetUrlGroupProperty,
     Http.SetUrlGroupProperty(fUrlGroupID, HttpServerAuthenticationProperty,
-      @authInfo, SizeOf(authInfo)));
+      @auth, SizeOf(auth)));
 end;
 
 procedure THttpApiServer.SetTimeOutLimits(aEntityBody, aDrainEntityBody,
   aRequestQueue, aIdleConnection, aHeaderWait, aMinSendRate: cardinal);
 var
-  timeoutInfo: HTTP_TIMEOUT_LIMIT_INFO;
+  timeout: HTTP_TIMEOUT_LIMIT_INFO;
 begin
   if (self = nil) or
      (fOwner <> nil) then
     exit;
   if Http.Version.MajorVersion < 2 then
     raise EHttpApiServer.Create(hSetUrlGroupProperty, ERROR_OLD_WIN_VERSION);
-  FillcharFast(timeoutInfo, SizeOf(timeoutInfo), 0);
-  timeoutInfo.Flags := 1;
-  timeoutInfo.EntityBody := aEntityBody;
-  timeoutInfo.DrainEntityBody := aDrainEntityBody;
-  timeoutInfo.RequestQueue := aRequestQueue;
-  timeoutInfo.IdleConnection := aIdleConnection;
-  timeoutInfo.HeaderWait := aHeaderWait;
-  timeoutInfo.MinSendRate := aMinSendRate;
+  FillcharFast(timeout, SizeOf(timeout), 0);
+  timeout.Flags := 1;
+  timeout.EntityBody := aEntityBody;
+  timeout.DrainEntityBody := aDrainEntityBody;
+  timeout.RequestQueue := aRequestQueue;
+  timeout.IdleConnection := aIdleConnection;
+  timeout.HeaderWait := aHeaderWait;
+  timeout.MinSendRate := aMinSendRate;
   EHttpApiServer.RaiseOnError(hSetUrlGroupProperty,
     Http.SetUrlGroupProperty(fUrlGroupID, HttpServerTimeoutsProperty,
-      @timeoutInfo, SizeOf(timeoutInfo)));
+      @timeout, SizeOf(timeout)));
 end;
 
 
@@ -3419,9 +3504,9 @@ const
   WebSocketConnectionCapacity = 1000;
 
 function THttpApiWebSocketServerProtocol.AddConnection(
-  aConn: PHttpApiWebSocketConnection): Integer;
+  aConn: PHttpApiWebSocketConnection): integer;
 var
-  i: integer;
+  i: PtrInt;
 begin
   if fFirstEmptyConnectionIndex >= fConnectionsCapacity - 1 then
   begin
@@ -3448,7 +3533,7 @@ function THttpApiWebSocketServerProtocol.Broadcast(
   aBufferType: WEB_SOCKET_BUFFER_TYPE; aBuffer: Pointer;
   aBufferSize: ULONG): boolean;
 var
-  i: integer;
+  i: PtrInt;
 begin
   EnterCriticalSection(fSafe);
   try
@@ -3461,7 +3546,7 @@ begin
   result := True;
 end;
 
-function THttpApiWebSocketServerProtocol.Close(index: Integer;
+function THttpApiWebSocketServerProtocol.Close(index: integer;
   aStatus: WEB_SOCKET_CLOSE_STATUS; aBuffer: Pointer; aBufferSize: ULONG): boolean;
 var
   conn: PHttpApiWebSocketConnection;
@@ -3479,13 +3564,13 @@ begin
   end;
 end;
 
-constructor THttpApiWebSocketServerProtocol.Create(const aName: RawUTF8;
-  aManualFragmentManagement: Boolean; aServer: THttpApiWebSocketServer;
-  const aOnAccept: THttpApiWebSocketServerOnAcceptEvent;
-  const aOnMessage: THttpApiWebSocketServerOnMessageEvent;
-  const aOnConnect: THttpApiWebSocketServerOnConnectEvent;
-  const aOnDisconnect: THttpApiWebSocketServerOnDisconnectEvent;
-  const aOnFragment: THttpApiWebSocketServerOnMessageEvent);
+constructor THttpApiWebSocketServerProtocol.Create(const aName: RawUtf8;
+  aManualFragmentManagement: boolean; aServer: THttpApiWebSocketServer;
+  const aOnAccept: TOnHttpApiWebSocketServerAcceptEvent;
+  const aOnMessage: TOnHttpApiWebSocketServerMessageEvent;
+  const aOnConnect: TOnHttpApiWebSocketServerConnectEvent;
+  const aOnDisconnect: TOnHttpApiWebSocketServerDisconnectEvent;
+  const aOnFragment: TOnHttpApiWebSocketServerMessageEvent);
 begin
   if aManualFragmentManagement and
      not Assigned(aOnFragment) then
@@ -3510,7 +3595,7 @@ end;
 
 destructor THttpApiWebSocketServerProtocol.Destroy;
 var
-  i: integer;
+  i: PtrInt;
   conn: PHttpApiWebSocketConnection;
 begin
   EnterCriticalSection(fSafe);
@@ -3537,7 +3622,7 @@ end;
 
 procedure THttpApiWebSocketServerProtocol.doShutdown;
 var
-  i: Integer;
+  i: PtrInt;
   conn: PHttpApiWebSocketConnection;
 const
   sReason = 'Server shutdown';
@@ -3571,7 +3656,7 @@ begin
     fFirstEmptyConnectionIndex := index;
 end;
 
-function THttpApiWebSocketServerProtocol.Send(index: Integer;
+function THttpApiWebSocketServerProtocol.Send(index: integer;
   aBufferType: WEB_SOCKET_BUFFER_TYPE; aBuffer: Pointer; aBufferSize: ULONG): boolean;
 var
   conn: PHttpApiWebSocketConnection;
@@ -3595,12 +3680,12 @@ end;
 
 function THttpApiWebSocketConnection.TryAcceptConnection(
   aProtocol: THttpApiWebSocketServerProtocol;
-  Ctxt: THttpServerRequest; aNeedHeader: boolean): boolean;
+  Ctxt: THttpServerRequestAbstract; aNeedHeader: boolean): boolean;
 var
   req: PHTTP_REQUEST;
-  wsRequestHeaders: WEB_SOCKET_HTTP_HEADER_ARR;
-  wsServerHeaders: PWEB_SOCKET_HTTP_HEADER;
-  wsServerHeadersCount: ULONG;
+  reqhead: WEB_SOCKET_HTTP_HEADER_ARR;
+  srvhead: PWEB_SOCKET_HTTP_HEADER;
+  srvheadcount: ULONG;
 begin
   fState := wsConnecting;
   fBuffer := '';
@@ -3608,32 +3693,32 @@ begin
   fLastActionContext := nil;
   FillcharFast(fOverlapped, SizeOf(fOverlapped), 0);
   fProtocol := aProtocol;
-  req := PHTTP_REQUEST(Ctxt.HttpApiRequest);
+  req := PHTTP_REQUEST((Ctxt as THttpServerRequest).HttpApiRequest);
   fIndex := fProtocol.fFirstEmptyConnectionIndex;
   fOpaqueHTTPRequestId := req^.RequestId;
   if (fProtocol = nil) or
      (Assigned(fProtocol.OnAccept) and
-      not fProtocol.OnAccept(Ctxt, Self)) then
+      not fProtocol.OnAccept(Ctxt as THttpServerRequest, Self)) then
   begin
     result := False;
     exit;
   end;
   EWebSocketApi.RaiseOnError(hCreateServerHandle,
-    WebSocketAPI.CreateServerHandle(nil, 0, fWSHandle));
-  wsRequestHeaders := HttpSys2ToWebSocketHeaders(req^.headers);
+    WebSocketApi.CreateServerHandle(nil, 0, fWSHandle));
+  reqhead := HttpSys2ToWebSocketHeaders(req^.headers);
   if aNeedHeader then
-    result := WebSocketAPI.BeginServerHandshake(fWSHandle, Pointer(fProtocol.name),
-      nil, 0, @wsRequestHeaders[0], Length(wsRequestHeaders), wsServerHeaders,
-      wsServerHeadersCount) = S_OK
+    result := WebSocketApi.BeginServerHandshake(fWSHandle,
+      Pointer(fProtocol.name), nil, 0, @reqhead[0], Length(reqhead), srvhead,
+      srvheadcount) = S_OK
   else
-    result := WebSocketAPI.BeginServerHandshake(fWSHandle, nil, nil, 0,
-      pointer(wsRequestHeaders), Length(wsRequestHeaders),
-      wsServerHeaders, wsServerHeadersCount) = S_OK;
+    result := WebSocketApi.BeginServerHandshake(fWSHandle, nil, nil, 0,
+      pointer(reqhead), Length(reqhead),
+      srvhead, srvheadcount) = S_OK;
   if result then
   try
-    Ctxt.OutCustomHeaders := WebSocketHeadersToText(wsServerHeaders, wsServerHeadersCount);
+    Ctxt.OutCustomHeaders := WebSocketHeadersToText(srvhead, srvheadcount);
   finally
-    result := WebSocketAPI.EndServerHandshake(fWSHandle) = S_OK;
+    result := WebSocketApi.EndServerHandshake(fWSHandle) = S_OK;
   end;
   if not result then
     Disconnect
@@ -3646,10 +3731,10 @@ procedure THttpApiWebSocketConnection.DoOnMessage(
 
   procedure PushFragmentIntoBuffer;
   var
-    l: Integer;
+    l: integer;
   begin
     l := Length(fBuffer);
-    SetLength(fBuffer, l + Integer(aBufferSize));
+    SetLength(fBuffer, l + integer(aBufferSize));
     MoveFast(aBuffer^, fBuffer[l + 1], aBufferSize);
   end;
 
@@ -3698,17 +3783,17 @@ end;
 
 function THttpApiWebSocketConnection.ReadData(const WebsocketBufferData): integer;
 var
-  Err: HRESULT;
-  fBytesRead: cardinal;
-  aBuf: WEB_SOCKET_BUFFER_DATA absolute WebsocketBufferData;
+  err: HRESULT;
+  read: cardinal;
+  buf: WEB_SOCKET_BUFFER_DATA absolute WebsocketBufferData;
 begin
   result := 0;
   if fWSHandle = nil then
     exit;
-  Err := Http.ReceiveRequestEntityBody(fProtocol.fServer.FReqQueue,
-    fOpaqueHTTPRequestId, 0, aBuf.pbBuffer, aBuf.ulBufferLength, fBytesRead,
+  err := Http.ReceiveRequestEntityBody(fProtocol.fServer.fReqQueue,
+    fOpaqueHTTPRequestId, 0, buf.pbBuffer, buf.ulBufferLength, read,
     @self.fOverlapped);
-  case Err of
+  case err of
     // On page reload Safari do not send a WEB_SOCKET_INDICATE_RECEIVE_COMPLETE_ACTION
     // with BufferType = WEB_SOCKET_CLOSE_BUFFER_TYPE, instead it send a dummy packet
     // (WEB_SOCKET_RECEIVE_FROM_NETWORK_ACTION) and terminate socket
@@ -3726,22 +3811,22 @@ end;
 
 procedure THttpApiWebSocketConnection.WriteData(const WebsocketBufferData);
 var
-  Err: HRESULT;
-  httpSendEntity: HTTP_DATA_CHUNK_INMEMORY;
-  bytesWrite: Cardinal;
-  aBuf: WEB_SOCKET_BUFFER_DATA absolute WebsocketBufferData;
+  err: HRESULT;
+  inmem: HTTP_DATA_CHUNK_INMEMORY;
+  writ: cardinal;
+  buf: WEB_SOCKET_BUFFER_DATA absolute WebsocketBufferData;
 begin
   if fWSHandle = nil then
     exit;
-  bytesWrite := 0;
-  httpSendEntity.DataChunkType := hctFromMemory;
-  httpSendEntity.pBuffer := aBuf.pbBuffer;
-  httpSendEntity.BufferLength := aBuf.ulBufferLength;
-  Err := Http.SendResponseEntityBody(fProtocol.fServer.FReqQueue,
+  writ := 0;
+  inmem.DataChunkType := hctFromMemory;
+  inmem.pBuffer := buf.pbBuffer;
+  inmem.BufferLength := buf.ulBufferLength;
+  err := Http.SendResponseEntityBody(fProtocol.fServer.fReqQueue,
     fOpaqueHTTPRequestId, HTTP_SEND_RESPONSE_FLAG_BUFFER_DATA or
-    HTTP_SEND_RESPONSE_FLAG_MORE_DATA, 1, @httpSendEntity, bytesWrite, nil, nil,
+    HTTP_SEND_RESPONSE_FLAG_MORE_DATA, 1, @inmem, writ, nil, nil,
     @fProtocol.fServer.fSendOverlaped);
-  case Err of
+  case err of
     ERROR_HANDLE_EOF:
       Disconnect;
     ERROR_IO_PENDING:
@@ -3756,8 +3841,6 @@ end;
 procedure THttpApiWebSocketConnection.CheckIsActive;
 var
   elapsed: Int64;
-const
-  sCloseReason = 'Closed after ping timeout';
 begin
   if (fLastReceiveTickCount > 0) and
      (fProtocol.fServer.fPingTimeout > 0) then
@@ -3768,9 +3851,9 @@ begin
       fProtocol.RemoveConnection(fIndex);
       fState := wsClosedByGuard;
       fCloseStatus := WEB_SOCKET_ENDPOINT_UNAVAILABLE_CLOSE_STATUS;
-      fBuffer := sCloseReason;
-      PostQueuedCompletionStatus(fProtocol.fServer.fThreadPoolServer.FRequestQueue,
-        0, nil, @fOverlapped);
+      fBuffer := 'Closed after ping timeout';
+      PostQueuedCompletionStatus(
+        fProtocol.fServer.fThreadPoolServer.FRequestQueue, 0, nil, @fOverlapped);
     end
     else if elapsed >= fProtocol.fServer.PingTimeout * 1000 then
       Ping;
@@ -3779,17 +3862,17 @@ end;
 
 procedure THttpApiWebSocketConnection.Disconnect;
 var //Err: HRESULT; //todo: handle error
-  httpSendEntity: HTTP_DATA_CHUNK_INMEMORY;
-  bytesWrite: Cardinal;
+  chunk: HTTP_DATA_CHUNK_INMEMORY;
+  writ: cardinal;
 begin
-  WebSocketAPI.AbortHandle(fWSHandle);
-  WebSocketAPI.DeleteHandle(fWSHandle);
+  WebSocketApi.AbortHandle(fWSHandle);
+  WebSocketApi.DeleteHandle(fWSHandle);
   fWSHandle := nil;
-  httpSendEntity.DataChunkType := hctFromMemory;
-  httpSendEntity.pBuffer := nil;
-  httpSendEntity.BufferLength := 0;
+  chunk.DataChunkType := hctFromMemory;
+  chunk.pBuffer := nil;
+  chunk.BufferLength := 0;
   Http.SendResponseEntityBody(fProtocol.fServer.fReqQueue, fOpaqueHTTPRequestId,
-    HTTP_SEND_RESPONSE_FLAG_DISCONNECT, 1, @httpSendEntity, bytesWrite, nil, nil, nil);
+    HTTP_SEND_RESPONSE_FLAG_DISCONNECT, 1, @chunk, writ, nil, nil, nil);
 end;
 
 procedure THttpApiWebSocketConnection.BeforeRead;
@@ -3800,16 +3883,17 @@ begin
     if Assigned(fLastActionContext) then
     begin
       EWebSocketApi.RaiseOnError(hCompleteAction,
-        WebSocketAPI.CompleteAction(fWSHandle, fLastActionContext,
+        WebSocketApi.CompleteAction(fWSHandle, fLastActionContext,
         fOverlapped.InternalHigh));
       fLastActionContext := nil;
     end
     else
       EWebSocketApi.RaiseOnError(hReceive,
-        WebSocketAPI.Receive(fWSHandle, nil, nil));
+        WebSocketApi.Receive(fWSHandle, nil, nil));
   end
   else
-    raise EWebSocketApi.Create('THttpApiWebSocketConnection.BeforeRead state is not wsOpen');
+    raise EWebSocketApi.Create('THttpApiWebSocketConnection.BeforeRead state ' +
+      'is not wsOpen (%d)', [ord(fState)]);
 end;
 
 const
@@ -3821,14 +3905,14 @@ type
 function THttpApiWebSocketConnection.ProcessActions(
   ActionQueue: WEB_SOCKET_ACTION_QUEUE): boolean;
 var
-  ulDataBufferCount: ULONG;
-  Action: WEB_SOCKET_ACTION;
-  BufferType: WEB_SOCKET_BUFFER_TYPE;
-  ApplicationContext: Pointer;
-  ActionContext: Pointer;
-  i: integer;
-  Err: HRESULT;
-  Buffer: TWebSocketBufferDataArr;
+  buf: TWebSocketBufferDataArr;
+  bufcount: ULONG;
+  buftyp: WEB_SOCKET_BUFFER_TYPE;
+  action: WEB_SOCKET_ACTION;
+  appctxt: Pointer;
+  actctxt: Pointer;
+  i: PtrInt;
+  err: HRESULT;
 
   procedure CloseConnection;
   begin
@@ -3839,27 +3923,27 @@ var
       LeaveCriticalSection(fProtocol.fSafe);
     end;
     EWebSocketApi.RaiseOnError(hCompleteAction,
-      WebSocketAPI.CompleteAction(fWSHandle, ActionContext, 0));
+      WebSocketApi.CompleteAction(fWSHandle, actctxt, 0));
   end;
 
 begin
   result := true;
   repeat
-    ulDataBufferCount := Length(Buffer);
+    bufcount := Length(buf);
     EWebSocketApi.RaiseOnError(hGetAction,
-      WebSocketAPI.GetAction(fWSHandle, ActionQueue, @Buffer[0], ulDataBufferCount,
-      Action, BufferType, ApplicationContext, ActionContext));
-    case Action of
+      WebSocketApi.GetAction(fWSHandle, ActionQueue, @buf[0], bufcount,
+      action, buftyp, appctxt, actctxt));
+    case action of
       WEB_SOCKET_NO_ACTION:
         ;
       WEB_SOCKET_SEND_TO_NETWORK_ACTION:
         begin
-          for i := 0 to ulDataBufferCount - 1 do
-            WriteData(Buffer[i]);
+          for i := 0 to bufcount - 1 do
+            WriteData(buf[i]);
           if fWSHandle <> nil then
           begin
-            Err := WebSocketAPI.CompleteAction(fWSHandle, ActionContext, 0);
-            EWebSocketApi.RaiseOnError(hCompleteAction, Err);
+            err := WebSocketApi.CompleteAction(fWSHandle, actctxt, 0);
+            EWebSocketApi.RaiseOnError(hCompleteAction, err);
           end;
           result := False;
           exit;
@@ -3868,95 +3952,95 @@ begin
         ;
       WEB_SOCKET_RECEIVE_FROM_NETWORK_ACTION:
         begin
-          for i := 0 to ulDataBufferCount - 1 do
-            if ReadData(Buffer[i]) = -1 then
+          for i := 0 to bufcount - 1 do
+            if ReadData(buf[i]) = -1 then
             begin
               fState := wsClosedByClient;
               fBuffer := '';
               fCloseStatus := WEB_SOCKET_ENDPOINT_UNAVAILABLE_CLOSE_STATUS;
               CloseConnection;
             end;
-          fLastActionContext := ActionContext;
+          fLastActionContext := actctxt;
           result := False;
           exit;
         end;
       WEB_SOCKET_INDICATE_RECEIVE_COMPLETE_ACTION:
         begin
           fLastReceiveTickCount := GetTickCount64;
-          if BufferType = WEB_SOCKET_CLOSE_BUFFER_TYPE then
+          if buftyp = WEB_SOCKET_CLOSE_BUFFER_TYPE then
           begin
             if fState = wsOpen then
               fState := wsClosedByClient
             else
               fState := wsClosedByServer;
-            SetString(fBuffer, PAnsiChar(Buffer[0].pbBuffer), Buffer[0].ulBufferLength);
-            fCloseStatus := Buffer[0].Reserved1;
+            SetString(fBuffer, PAnsiChar(buf[0].pbBuffer), buf[0].ulBufferLength);
+            fCloseStatus := buf[0].Reserved1;
             CloseConnection;
             result := False;
             exit;
           end
-          else if BufferType = WEB_SOCKET_PING_PONG_BUFFER_TYPE then
+          else if buftyp = WEB_SOCKET_PING_PONG_BUFFER_TYPE then
           begin
-          // todo: may be answer to client's ping
+            // todo: may be answer to client's ping
             EWebSocketApi.RaiseOnError(hCompleteAction,
-              WebSocketAPI.CompleteAction(fWSHandle, ActionContext, 0));
+              WebSocketApi.CompleteAction(fWSHandle, actctxt, 0));
             exit;
           end
-          else if BufferType = WEB_SOCKET_UNSOLICITED_PONG_BUFFER_TYPE then
+          else if buftyp = WEB_SOCKET_UNSOLICITED_PONG_BUFFER_TYPE then
           begin
-          // todo: may be handle this situation
+            // todo: may be handle this situation
             EWebSocketApi.RaiseOnError(hCompleteAction,
-              WebSocketAPI.CompleteAction(fWSHandle, ActionContext, 0));
+              WebSocketApi.CompleteAction(fWSHandle, actctxt, 0));
             exit;
           end
           else
           begin
-            DoOnMessage(BufferType, Buffer[0].pbBuffer, Buffer[0].ulBufferLength);
+            DoOnMessage(buftyp, buf[0].pbBuffer, buf[0].ulBufferLength);
             EWebSocketApi.RaiseOnError(hCompleteAction,
-              WebSocketAPI.CompleteAction(fWSHandle, ActionContext, 0));
+              WebSocketApi.CompleteAction(fWSHandle, actctxt, 0));
             exit;
           end;
         end
     else
-      raise EWebSocketApi.CreateFmt('Invalid WebSocket action %d', [byte(Action)]);
+      raise EWebSocketApi.CreateFmt('Invalid WebSocket action %d', [byte(action)]);
     end;
-    Err := WebSocketAPI.CompleteAction(fWSHandle, ActionContext, 0);
-    if ActionContext <> nil then
-      EWebSocketApi.RaiseOnError(hCompleteAction, Err);
-  until {%H-}Action = WEB_SOCKET_NO_ACTION;
+    err := WebSocketApi.CompleteAction(fWSHandle, actctxt, 0);
+    if actctxt <> nil then
+      EWebSocketApi.RaiseOnError(hCompleteAction, err);
+  until {%H-}action = WEB_SOCKET_NO_ACTION;
 end;
 
 procedure THttpApiWebSocketConnection.InternalSend(
   aBufferType: WEB_SOCKET_BUFFER_TYPE; WebsocketBufferData: pointer);
 begin
   EWebSocketApi.RaiseOnError(hSend,
-    WebSocketAPI.Send(fWSHandle, aBufferType, WebsocketBufferData, nil));
+    WebSocketApi.Send(fWSHandle, aBufferType, WebsocketBufferData, nil));
   ProcessActions(WEB_SOCKET_SEND_ACTION_QUEUE);
 end;
 
 procedure THttpApiWebSocketConnection.Send(aBufferType: WEB_SOCKET_BUFFER_TYPE;
   aBuffer: Pointer; aBufferSize: ULONG);
 var
-  wsSendBuf: WEB_SOCKET_BUFFER_DATA;
+  buf: WEB_SOCKET_BUFFER_DATA;
 begin
   if fState <> wsOpen then
     exit;
-  wsSendBuf.pbBuffer := aBuffer;
-  wsSendBuf.ulBufferLength := aBufferSize;
-  InternalSend(aBufferType, @wsSendBuf);
+  buf.pbBuffer := aBuffer;
+  buf.ulBufferLength := aBufferSize;
+  InternalSend(aBufferType, @buf);
 end;
 
 procedure THttpApiWebSocketConnection.Close(aStatus: WEB_SOCKET_CLOSE_STATUS;
   aBuffer: Pointer; aBufferSize: ULONG);
 var
-  wsSendBuf: WEB_SOCKET_BUFFER_DATA;
+  buf: WEB_SOCKET_BUFFER_DATA;
 begin
   if fState = wsOpen then
     fState := wsClosing;
-  wsSendBuf.pbBuffer := aBuffer;
-  wsSendBuf.ulBufferLength := aBufferSize;
-  wsSendBuf.Reserved1 := aStatus;
-  InternalSend(WEB_SOCKET_CLOSE_BUFFER_TYPE, @wsSendBuf);
+  buf.pbBuffer := aBuffer;
+  buf.ulBufferLength := aBufferSize;
+  buf.Reserved1 := aStatus;
+  InternalSend(WEB_SOCKET_CLOSE_BUFFER_TYPE, @buf);
 end;
 
 procedure THttpApiWebSocketConnection.Ping;
@@ -3967,13 +4051,13 @@ end;
 
 { THttpApiWebSocketServer }
 
-constructor THttpApiWebSocketServer.Create(CreateSuspended: Boolean;
+constructor THttpApiWebSocketServer.Create(CreateSuspended: boolean;
   aSocketThreadsCount, aPingTimeout: integer; const QueueName: SynUnicode;
-  const aOnWSThreadStart, aOnWSThreadTerminate: TNotifyThreadEvent);
+  const aOnWSThreadStart, aOnWSThreadTerminate: TOnNotifyThread);
 begin
   inherited Create(CreateSuspended, QueueName);
-  if not (WebSocketAPI.WebSocketEnabled) then
-    raise EWebSocketApi.Create('WebSocket is not supported');
+  if not (WebSocketApi.WebSocketEnabled) then
+    raise EWebSocketApi.Create('WebSocket API not supported', []);
   fPingTimeout := aPingTimeout;
   if fPingTimeout > 0 then
     fGuard := TSynWebSocketGuard.Create(Self);
@@ -3987,12 +4071,12 @@ end;
 
 constructor THttpApiWebSocketServer.CreateClone(From: THttpApiServer);
 var
-  wsServer: THttpApiWebSocketServer absolute From;
+  serv: THttpApiWebSocketServer absolute From;
 begin
   inherited CreateClone(From);
-  fThreadPoolServer := wsServer.fThreadPoolServer;
-  fPingTimeout := wsServer.fPingTimeout;
-  fRegisteredProtocols := wsServer.fRegisteredProtocols
+  fThreadPoolServer := serv.fThreadPoolServer;
+  fPingTimeout := serv.fPingTimeout;
+  fRegisteredProtocols := serv.fRegisteredProtocols
 end;
 
 procedure THttpApiWebSocketServer.DestroyMainThread;
@@ -4029,7 +4113,7 @@ begin
     result := nil;
 end;
 
-function THttpApiWebSocketServer.getProtocolsCount: Integer;
+function THttpApiWebSocketServer.getProtocolsCount: integer;
 begin
   if self = nil then
     result := 0
@@ -4037,7 +4121,7 @@ begin
     result := Length(fRegisteredProtocols^);
 end;
 
-function THttpApiWebSocketServer.getSendResponseFlags(Ctxt: THttpServerRequest): Integer;
+function THttpApiWebSocketServer.getSendResponseFlags(Ctxt: THttpServerRequest): integer;
 begin
   if (PHTTP_REQUEST(Ctxt.HttpApiRequest)^.UrlContext = WEB_SOCKET_URL_CONTEXT) and
      (fLastConnection <> nil) then
@@ -4047,27 +4131,30 @@ begin
     result := inherited getSendResponseFlags(Ctxt);
 end;
 
-function THttpApiWebSocketServer.UpgradeToWebSocket(Ctxt: THttpServerRequest): cardinal;
+function THttpApiWebSocketServer.UpgradeToWebSocket(
+  Ctxt: THttpServerRequestAbstract): cardinal;
 var
-  Protocol: THttpApiWebSocketServerProtocol;
-  i, j: Integer;
+  proto: THttpApiWebSocketServerProtocol;
+  i, j: PtrInt;
+  req: PHTTP_REQUEST;
   p: PHTTP_UNKNOWN_HEADER;
-  ch, chB: PUTF8Char;
-  aName: RawUTF8;
-  ProtocolHeaderFound: Boolean;
+  ch, chB: PUtf8Char;
+  protoname: RawUtf8;
+  protofound: boolean;
 label
-  protocolFound;
+  fnd;
 begin
   result := 404;
-  Protocol := nil;
-  ProtocolHeaderFound := false;
-  p := PHTTP_REQUEST(Ctxt.HttpApiRequest)^.headers.pUnknownHeaders;
-  for j := 1 to PHTTP_REQUEST(Ctxt.HttpApiRequest)^.headers.UnknownHeaderCount do
+  proto := nil;
+  protofound := false;
+  req := PHTTP_REQUEST((Ctxt as THttpServerRequest).HttpApiRequest);
+  p := req^.headers.pUnknownHeaders;
+  for j := 1 to req^.headers.UnknownHeaderCount do
   begin
     if (p.NameLength = Length(sProtocolHeader)) and
-       IdemPChar(p.pName, Pointer(sProtocolHeader)) then
+       IdemPChar(p.pName, pointer(sProtocolHeader)) then
     begin
-      ProtocolHeaderFound := True;
+      protofound := true;
       for i := 0 to Length(fRegisteredProtocols^) - 1 do
       begin
         ch := p.pRawValue;
@@ -4080,57 +4167,59 @@ begin
           while ((ch - p.pRawValue) < p.RawValueLength) and
                 not (ch^ in [',']) do
             inc(ch);
-          FastSetString(aName, chB, ch - chB);
-          if aName = fRegisteredProtocols^[i].name then
+          FastSetString(protoname, chB, ch - chB);
+          if protoname = fRegisteredProtocols^[i].name then
           begin
-            Protocol := fRegisteredProtocols^[i];
-            goto protocolFound;
+            proto := fRegisteredProtocols^[i];
+            goto fnd;
           end;
         end;
       end;
     end;
     inc(p);
   end;
-  if not ProtocolHeaderFound and
-     (Protocol = nil) and
+  if not protofound and
+     (proto = nil) and
      (Length(fRegisteredProtocols^) = 1) then
-    Protocol := fRegisteredProtocols^[0];
-protocolFound:
-  if Protocol <> nil then
+    proto := fRegisteredProtocols^[0];
+fnd:
+  if proto <> nil then
   begin
-    EnterCriticalSection(Protocol.fSafe);
+    EnterCriticalSection(proto.fSafe);
     try
       New(fLastConnection);
-      if fLastConnection.TryAcceptConnection(Protocol, Ctxt, ProtocolHeaderFound) then
+      if fLastConnection.TryAcceptConnection(
+          proto, Ctxt, protofound) then
       begin
-        Protocol.AddConnection(fLastConnection);
+        proto.AddConnection(fLastConnection);
         result := 101
       end
       else
       begin
         Dispose(fLastConnection);
         fLastConnection := nil;
-        result := 405;
+        result := HTTP_NOTALLOWED;
       end;
     finally
-      LeaveCriticalSection(Protocol.fSafe);
+      LeaveCriticalSection(proto.fSafe);
     end;
   end;
 end;
 
-function THttpApiWebSocketServer.AddUrlWebSocket(const aRoot, aPort: RawUTF8;
-  Https: boolean; const aDomainName: RawUTF8; aRegisterURI: boolean): integer;
+function THttpApiWebSocketServer.AddUrlWebSocket(const aRoot, aPort: RawUtf8;
+  Https: boolean; const aDomainName: RawUtf8; aRegisterUri: boolean): integer;
 begin
-  result := AddUrl(aRoot, aPort, Https, aDomainName, aRegisterURI, WEB_SOCKET_URL_CONTEXT);
+  result := AddUrl(
+    aRoot, aPort, Https, aDomainName, aRegisterUri, WEB_SOCKET_URL_CONTEXT);
 end;
 
-procedure THttpApiWebSocketServer.RegisterProtocol(const aName: RawUTF8;
-  aManualFragmentManagement: Boolean;
-  const aOnAccept: THttpApiWebSocketServerOnAcceptEvent;
-  const aOnMessage: THttpApiWebSocketServerOnMessageEvent;
-  const aOnConnect: THttpApiWebSocketServerOnConnectEvent;
-  const aOnDisconnect: THttpApiWebSocketServerOnDisconnectEvent;
-  const aOnFragment: THttpApiWebSocketServerOnMessageEvent);
+procedure THttpApiWebSocketServer.RegisterProtocol(const aName: RawUtf8;
+  aManualFragmentManagement: boolean;
+  const aOnAccept: TOnHttpApiWebSocketServerAcceptEvent;
+  const aOnMessage: TOnHttpApiWebSocketServerMessageEvent;
+  const aOnConnect: TOnHttpApiWebSocketServerConnectEvent;
+  const aOnDisconnect: TOnHttpApiWebSocketServerDisconnectEvent;
+  const aOnFragment: TOnHttpApiWebSocketServerMessageEvent);
 var
   protocol: THttpApiWebSocketServerProtocol;
 begin
@@ -4144,9 +4233,11 @@ begin
   fRegisteredProtocols^[protocol.fIndex] := protocol;
 end;
 
-function THttpApiWebSocketServer.Request(Ctxt: THttpServerRequest): cardinal;
+function THttpApiWebSocketServer.Request(
+  Ctxt: THttpServerRequestAbstract): cardinal;
 begin
-  if PHTTP_REQUEST(Ctxt.HttpApiRequest).UrlContext = WEB_SOCKET_URL_CONTEXT then
+  if PHTTP_REQUEST(THttpServerRequest(Ctxt).HttpApiRequest).
+       UrlContext = WEB_SOCKET_URL_CONTEXT then
     result := UpgradeToWebSocket(Ctxt)
   else
   begin
@@ -4157,15 +4248,16 @@ end;
 
 procedure THttpApiWebSocketServer.SendServiceMessage;
 begin
-  PostQueuedCompletionStatus(fThreadPoolServer.FRequestQueue, 0, nil, @fServiceOverlaped);
+  PostQueuedCompletionStatus(
+    fThreadPoolServer.FRequestQueue, 0, nil, @fServiceOverlaped);
 end;
 
-procedure THttpApiWebSocketServer.SetOnWSThreadStart(const Value: TNotifyThreadEvent);
+procedure THttpApiWebSocketServer.SetOnWSThreadStart(const Value: TOnNotifyThread);
 begin
   FOnWSThreadStart := Value;
 end;
 
-procedure THttpApiWebSocketServer.SetOnWSThreadTerminate(const Value: TNotifyThreadEvent);
+procedure THttpApiWebSocketServer.SetOnWSThreadTerminate(const Value: TOnNotifyThread);
 begin
   FOnWSThreadTerminate := Value;
 end;
@@ -4173,7 +4265,7 @@ end;
 
 { TSynThreadPoolHttpApiWebSocketServer }
 
-function TSynThreadPoolHttpApiWebSocketServer.NeedStopOnIOError: Boolean;
+function TSynThreadPoolHttpApiWebSocketServer.NeedStopOnIOError: boolean;
 begin
   // If connection closed by guard than ERROR_HANDLE_EOF or ERROR_OPERATION_ABORTED
   // can be returned - Other connections must work normally
@@ -4192,8 +4284,8 @@ begin
     fServer.OnWSThreadTerminate(Sender);
 end;
 
-procedure TSynThreadPoolHttpApiWebSocketServer.Task(aCaller: TSynThread;
-  aContext: Pointer);
+procedure TSynThreadPoolHttpApiWebSocketServer.Task(
+  aCaller: TSynThreadPoolWorkThread; aContext: Pointer);
 var
   conn: PHttpApiWebSocketConnection;
 begin
@@ -4218,9 +4310,9 @@ begin
     until not conn.ProcessActions(WEB_SOCKET_RECEIVE_ACTION_QUEUE);
   if conn.fState in [wsClosedByGuard] then
     EWebSocketApi.RaiseOnError(hCompleteAction,
-      WebSocketAPI.CompleteAction(conn.fWSHandle, conn.fLastActionContext, 0));
-  if conn.fState in [wsClosedByClient, wsClosedByServer, wsClosedByGuard,
-      wsClosedByShutdown] then
+      WebSocketApi.CompleteAction(conn.fWSHandle, conn.fLastActionContext, 0));
+  if conn.fState in
+       [wsClosedByClient, wsClosedByServer, wsClosedByGuard, wsClosedByShutdown] then
   begin
     conn.DoOnDisconnect;
     if conn.fState = wsClosedByClient then
@@ -4237,7 +4329,7 @@ begin
 end;
 
 constructor TSynThreadPoolHttpApiWebSocketServer.Create(Server:
-  THttpApiWebSocketServer; NumberOfThreads: Integer);
+  THttpApiWebSocketServer; NumberOfThreads: integer);
 begin
   fServer := Server;
   fOnThreadStart := OnThreadStart;
@@ -4250,7 +4342,7 @@ end;
 
 procedure TSynWebSocketGuard.Execute;
 var
-  i, j: Integer;
+  i, j: PtrInt;
   prot: THttpApiWebSocketServerProtocol;
 begin
   if fServer.fPingTimeout > 0 then
@@ -4287,12 +4379,7 @@ begin
   inherited Create(false);
 end;
 
-
 {$endif USEWININET}
-
-initialization
-
-finalization
 
 end.
 

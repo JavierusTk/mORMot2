@@ -2,13 +2,17 @@
   This file is a part of the Open Source Synopse mORMot framework 2,
   licensed under a MPL/GPL/LGPL three license - see LICENSE.md
 
-  Implements WinSock2 API calls, as used by mormot.net.sock.pas
+  Implements WinSock2 API calls, as used by mormot.net.sock.pas on Windows.
+  Using our own unit makes code easier to maintain between Delphi/FPC versions,
+  and allow to increase FD_SETSIZE for better TPollSocketSelect performance.
 }
 
 uses
   Windows;
   
-function NetLastError(AnotherNonFatal: integer = 0{NO_ERROR}): TNetResult; forward;
+function NetLastError(AnotherNonFatal: integer = 0{NO_ERROR};
+  Error: PInteger = nil): TNetResult; forward;
+
 
 { ******** WinSock2 Type Definitions }
 
@@ -20,7 +24,7 @@ const
   // as stated by Raymond Chen: "you can make FD_SET­SIZE bigger if you need to"
   // https://devblogs.microsoft.com/oldnewthing/20161221-00/?p=94985
   // -> Xitami uses 1024 since 1996
-  // -> safe since our TFDSet is INTERNAl to this unit, and never published :)
+  // -> safe since our TFDSet is INTERNAL to this unit, and never published :)
   FD_SETSIZE = 512;
 
 type
@@ -29,7 +33,7 @@ type
   PFDSet = ^TFDSet;
   TFDSet = record
     fd_count: integer;
-    fd_array: array[0..FD_SETSIZE-1] of TSocket;
+    fd_array: array[0 .. FD_SETSIZE - 1] of TSocket;
   end;
 
 const
@@ -40,8 +44,8 @@ const
 type
   PTimeVal = ^TTimeVal;
   TTimeVal = record
-    tv_sec: Longint;
-    tv_usec: Longint;
+    tv_sec: integer;
+    tv_usec: integer;
   end;
 
 const
@@ -241,7 +245,7 @@ const
   WSABASEERR              = 10000;
 
   { Windows Sockets definitions of regular Microsoft C error constants }
-  WSAEINTR                = (WSABASEERR+4);
+  WSAEINTR                = (WSABASEERR+4);  // legacy flag
   WSAEBADF                = (WSABASEERR+9);
   WSAEACCES               = (WSABASEERR+13);
   WSAEFAULT               = (WSABASEERR+14);
@@ -333,10 +337,10 @@ type
      iMaxSockets: word;
      iMaxUdpDg: word;
      lpVendorInfo: PAnsiChar;
-     szDescription: array[0..WSADESCRIPTION_LEN] of AnsiChar;
+     szDescription:  array[0..WSADESCRIPTION_LEN] of AnsiChar;
      szSystemStatus: array[0..WSASYS_STATUS_LEN] of AnsiChar;
      {$else}
-     szDescription: array[0..WSADESCRIPTION_LEN] of AnsiChar;
+     szDescription:  array[0..WSADESCRIPTION_LEN] of AnsiChar;
      szSystemStatus: array[0..WSASYS_STATUS_LEN] of AnsiChar;
      iMaxSockets: word;
      iMaxUdpDg: word;
@@ -346,8 +350,20 @@ type
   WSAData = TWSAData;
 
 const
-  _ST: array[TNetLayer] of integer = (SOCK_STREAM, SOCK_DGRAM, 0);
-  _IP: array[TNetLayer] of integer = (IPPROTO_TCP, IPPROTO_UDP, 0);
+  _ST: array[TNetLayer] of integer = (
+    SOCK_STREAM,
+    SOCK_DGRAM,
+    0);
+
+  _IP: array[TNetLayer] of integer = (
+    IPPROTO_TCP,
+    IPPROTO_UDP,
+    0);
+
+function htons(port: cardinal): cardinal; {$ifdef HASINLINE} inline; {$endif}
+begin
+  result := swap(word(port)); // port should be 16-bit word
+end;
 
 
 { ******** WinSock2 API calls }
@@ -359,7 +375,7 @@ function WSACleanup: integer; stdcall;
 function sockerrno: integer; stdcall;
   external ws2 name 'WSAGetLastError';
 
-function getaddrinfo(NodeName: PAnsiChar; ServName: PAnsiChar; Hints: PAddrInfo;
+function getaddrinfo(NodeName, ServName: PAnsiChar; Hints: PAddrInfo;
    var Addrinfo: PAddrInfo): integer; stdcall;
   external ws2 name 'getaddrinfo';
 procedure freeaddrinfo(ai: PAddrInfo); stdcall;
@@ -407,7 +423,7 @@ function getpeername(s: TSocket; name: PSockAddr; var namelen: integer): integer
 
 { TNetAddr }
 
-function SetAddr(const ip, port: RawUTF8; var h: TAddrInfo; var a: TSockAddr): boolean;
+function SetAddr(const ip, port: RawUtf8; var h: TAddrInfo; var a: TSockAddr): boolean;
 var
   res: PAddrInfo;
 begin
@@ -441,12 +457,12 @@ begin
     freeaddrinfo(res);
 end;
 
-function TNetAddr.SetFrom(const address, addrport: RawUTF8;
+function TNetAddr.SetFrom(const address, addrport: RawUtf8;
   layer: TNetLayer): TNetResult;
 var
   h4, h6: TAddrInfo;
 begin
-  if layer = nlUNIX then
+  if layer = nlUnix then
     result := nrNotImplemented
   else
   begin
@@ -570,7 +586,7 @@ end;
 
 procedure FD_CLR(Socket: TNetSocket; var FDSet: TFDSet);
 var
-  i: integer;
+  i: PtrInt;
 begin
   i := PtrUIntScanIndex(@FDSet.fd_array, FDSet.fd_count, PtrUInt(Socket));
   if i < 0 then
@@ -581,10 +597,9 @@ begin
 end;
 
 procedure FD_SET(Socket: TNetSocket; var FDSet: TFDSet);
+  {$ifdef HASINLINE}inline;{$endif}
 begin
-  if (FDSet.fd_count >= FD_SETSIZE) or
-     PtrUIntScanExists(@FDSet.fd_array, FDSet.fd_count, PtrUInt(Socket)) then
-    exit;
+  // caller should ensure that the Socket is not already part of fd_array[]
   FDSet.fd_array[FDSet.fd_count] := TSocket(Socket);
   inc(FDSet.fd_count);
 end;
@@ -593,7 +608,7 @@ type
   /// socket polling via Windows' Select() API
   // - under Windows, Select() handles up to 64 TSocket by default, but we
   // grow FD_SETSIZE up to 512 for the purpose of this class
-  // - under Linux, select() is very limited, so poll/epoll APIs are to be used
+  // - under POSIX, select() is very limited, so poll/epoll APIs are to be used
   // - in practice, TPollSocketSelect is FASTER than TPollSocketPoll + WSAPoll()
   TPollSocketSelect = class(TPollSocketAbstract)
   protected
@@ -607,8 +622,8 @@ type
     function Subscribe(socket: TNetSocket; events: TPollSocketEvents;
       tag: TPollSocketTag): boolean; override;
     function Unsubscribe(socket: TNetSocket): boolean; override;
-    function WaitForModified(out results: TPollSocketResults;
-      timeoutMS: integer): integer; override;
+    function WaitForModified(var results: TPollSocketResults;
+      timeoutMS: integer): boolean; override;
   end;
 
 constructor TPollSocketSelect.Create;
@@ -630,7 +645,7 @@ begin
      PtrUIntScanExists(pointer(fTagSocket), fCount, PtrUInt(socket)) then
     exit;
   if pseRead in events then
-    FD_SET(socket, fRead);
+    FD_SET(socket, fRead); // if not in fTagSocket[] -> not in fRead/fWrite
   if pseWrite in events then
     FD_SET(socket, fWrite);
   fTagSocket[fCount] := socket;
@@ -643,7 +658,7 @@ end;
 
 function TPollSocketSelect.Unsubscribe(socket: TNetSocket): boolean;
 var
-  i: PtrInt;
+  i, n: PtrInt;
 begin
   result := false;
   if (self <> nil) and
@@ -655,10 +670,11 @@ begin
     FD_CLR(socket, fRead);
     FD_CLR(socket, fWrite);
     dec(fCount);
-    if i < fCount then
+    n := fCount - i;
+    if n > 0 then
     begin
-      MoveFast(fTagSocket[i + 1], fTagSocket[i], (fCount - i) * sizeof(fTagSocket[i]));
-      MoveFast(fTagTag[i + 1], fTagTag[i], (fCount - i) * sizeof(fTagTag[i]));
+      MoveFast(fTagSocket[i + 1], fTagSocket[i], n * sizeof(fTagSocket[i]));
+      MoveFast(fTagTag[i + 1], fTagTag[i], n * sizeof(fTagTag[i]));
     end;
     if fCount = 0 then
       fHighestSocket := nil;
@@ -666,8 +682,8 @@ begin
   end;
 end;
 
-function TPollSocketSelect.WaitForModified(out results: TPollSocketResults;
-  timeoutMS: integer): integer;
+function TPollSocketSelect.WaitForModified(var results: TPollSocketResults;
+  timeoutMS: integer): boolean;
 var
   tv: TTimeVal;
   rdp, wrp: PFDSet;
@@ -675,10 +691,10 @@ var
   i: PtrInt;
   pending: cardinal;
   sock: TNetSocket;
-  rd, wr: TFDSet;
-  tmp: array[0..FD_SETSIZE - 1] of TPollSocketResult;
+  rd, wr: TFDSet; // modified by select() -> local copy on stack
 begin
-  result := -1; // error
+  result := false; // error
+  results.Count := 0;
   if (self = nil) or
      (fCount = 0) then
     exit;
@@ -697,15 +713,16 @@ begin
   else
     wrp := nil;
   SetTimeVal(timeoutMS, tv);
-  result := Select(PtrUInt(fHighestSocket) + 1, rdp, wrp, nil, @tv);
-  if result <= 0 then
+  if select(PtrUInt(fHighestSocket) + 1, rdp, wrp, nil, @tv) <= 0 then
     exit;
-  result := 0;
+  if length(results.Events) < fCount then
+    SetLength(results.Events, FD_SETSIZE);
   for i := 0 to fCount - 1 do
   begin
     byte(ev) := 0;
     sock := fTagSocket[i];
-    if (rdp <> nil) and FD_ISSET(sock, rd{%H-}) then
+    if (rdp <> nil) and
+       FD_ISSET(sock, rd{%H-}) then
     begin
       if (IoctlSocket(TSocket(sock), FIONREAD, @pending) = NO_ERROR) and
          ({%H-}pending = 0) then
@@ -714,18 +731,18 @@ begin
       else
         include(ev, pseRead);
     end;
-    if (wrp <> nil) and FD_ISSET(sock, wr{%H-}) then
+    if (wrp <> nil) and
+       FD_ISSET(sock, wr{%H-}) then
       include(ev, pseWrite);
     if byte(ev) <> 0 then
-      with {%H-}tmp[result] do
+      with results.Events[results.Count] do
       begin
+        result := true;
         events := ev;
         tag := fTagTag[i];
-        inc(result);
+        inc(results.Count);
       end;
   end;
-  SetLength(results, result);
-  MoveFast(tmp, results[0], result * sizeof(tmp[0]));
 end;
 
 
@@ -748,10 +765,6 @@ type
 
   TCtxtHandle = type TCredHandle;
   PCtxtHandle = ^TCtxtHandle;
-
-  {$ifdef DELPHI5OROLDER}
-  PCardinal = ^Cardinal;
-  {$endif}
 
   TSChannelCred = record
     dwVersion: cardinal;
@@ -800,22 +813,41 @@ type
   end;
   PSecPkgContextStreamSizes = ^TSecPkgContextStreamSizes;
 
+  ALG_ID = Cardinal;
+  TSecPkgConnectionInfo = record
+    dwProtocol: cardinal;
+    aiCipher: ALG_ID;
+    dwCipherStrength: cardinal;
+    aiHash: ALG_ID;
+    dwHashStrength: cardinal;
+    aiExch: ALG_ID;
+    dwExchStrength: cardinal;
+   end;
+  PSecPkgConnectionInfo = ^TSecPkgConnectionInfo;
+
   ESChannel = class(Exception);
 
-  TSChannelClient = class(TInterfacedObject, INetTLS)
+  TSChannelClient = class(TInterfacedObject, INetTls)
   private
-    Cred: TCredHandle;
-    Ctxt: TCtxtHandle;
-    Sizes: TSecPkgContextStreamSizes;
-    Data, Input: AnsiString;
-    InputSize, DataPos, DataCount, InputCount: integer;
-    procedure HandshakeLoop(aSocket: THandle);
-    procedure AppendData(const aBuffer: TSecBuffer);
+    fSocket: TNetSocket;
+    fContext: PNetTlsContext;
+    fServerAddress: RawUtf8;
+    fCred: TCredHandle;
+    fCtxt: TCtxtHandle;
+    fFlags: cardinal;
+    fSizes: TSecPkgContextStreamSizes;
+    fData, fInput: AnsiString;
+    fInputSize, fDataPos, fDataCount, fInputCount: integer;
+    fSessionClosed: boolean;
+    procedure ESChannelRaiseLastError(res: cardinal);
+    function CheckSEC_E_OK(res: integer): cardinal;
+    procedure HandshakeLoop;
   public
-    procedure AfterConnection(aSocket: TNetSocket; const aServerAddress: RawUTF8);
-    procedure BeforeDisconnection(aSocket: TNetSocket);
-    function Receive(aSocket: TNetSocket; aBuffer: pointer; var aLength: integer): TNetResult;
-    function Send(aSocket: TNetSocket; aBuffer: pointer; var aLength: integer): TNetResult;
+    destructor Destroy; override;
+    procedure AfterConnection(Socket: TNetSocket;  var Context: TNetTlsContext;
+      const ServerAddress: RawUtf8);
+    function Receive(Buffer: pointer; var Length: integer): TNetResult;
+    function Send(Buffer: pointer; var Length: integer): TNetResult;
   end;
 
 var
@@ -850,6 +882,9 @@ const
   SP_PROT_TLS1_2 = $C00;
   SP_PROT_TLS1_2_SERVER = $400;
   SP_PROT_TLS1_2_CLIENT = $800;
+  SP_PROT_TLS1_3 = $3000; // Windows Server 2022 ;)
+  SP_PROT_TLS1_3_SERVER = $1000;
+  SP_PROT_TLS1_3_CLIENT = $2000 ;
 
   SECPKG_CRED_INBOUND = 1;
   SECPKG_CRED_OUTBOUND = 2;
@@ -888,34 +923,120 @@ const
   SECBUFFER_EXTRA = 5;
   SECBUFFER_STREAM_TRAILER = 6;
   SECBUFFER_STREAM_HEADER = 7;
+  SECBUFFER_ALERT = 17;
 
   SEC_E_OK = 0;
   SEC_I_CONTINUE_NEEDED = $00090312;
-  SEC_I_RENEGOTIATE = $00090321;
   SEC_I_CONTEXT_EXPIRED	= $00090317;
+  SEC_I_INCOMPLETE_CREDENTIALS = $00090320;
+  SEC_I_RENEGOTIATE = $00090321;
   SEC_E_INCOMPLETE_MESSAGE = $80090318;
   SEC_E_INVALID_TOKEN = $80090308;
+  SEC_E_ILLEGAL_MESSAGE = $80090326;
 
   DLLSecur32: PChar = 'secur32.dll';
   UNISP_NAME = 'Microsoft Unified Security Protocol Provider';
   SECPKG_ATTR_STREAM_SIZES = 4;
-  SECURITY_NATIVE_DREP = $10;
+  SECPKG_ATTR_CONNECTION_INFO = $5a;
+
   SCHANNEL_SHUTDOWN = 1;
 
-{ TSChannel }
 
-procedure ESChannelRaiseLastError; // not defined e.g. with Delphi 5
-var
-  LastError: Integer;
+function ResToText(res: cardinal): string;
 begin
-  LastError := GetLastError;
-  raise ESChannel.CreateFmt('System Error %d [%s]', [LastError, SysErrorMessage(LastError)]);
+  case res of
+    SEC_E_OK:
+      result := 'SEC_E_OK';
+    SEC_I_CONTINUE_NEEDED:
+      result := 'SEC_I_CONTINUE_NEEDED';
+    SEC_I_CONTEXT_EXPIRED:
+      result := 'SEC_I_CONTEXT_EXPIRED';
+    SEC_I_INCOMPLETE_CREDENTIALS:
+      result := 'SEC_I_INCOMPLETE_CREDENTIALS';
+    SEC_I_RENEGOTIATE:
+      result := 'SEC_I_RENEGOTIATE';
+    SEC_E_INCOMPLETE_MESSAGE:
+      result := 'SEC_E_INCOMPLETE_MESSAGE';
+    SEC_E_INVALID_TOKEN:
+      result := 'SEC_E_INVALID_TOKEN';
+    SEC_E_ILLEGAL_MESSAGE:
+      result := 'SEC_E_ILLEGAL_MESSAGE';
+  else
+    result := IntToStr(res);
+  end;
 end;
 
-function CheckSEC_E_OK(res: integer): cardinal;
+procedure ProtoToText(var nfo: TSecPkgConnectionInfo; out text: RawUtf8);
+var
+  alg, hsh, xch: string[5];
+begin
+  if nfo.dwProtocol and SP_PROT_TLS1 <> 0 then
+    nfo.dwProtocol := 0
+  else if nfo.dwProtocol and SP_PROT_TLS1_1 <> 0 then
+    nfo.dwProtocol := 1
+  else if nfo.dwProtocol and SP_PROT_TLS1_2 <> 0 then
+    nfo.dwProtocol := 2
+  else if nfo.dwProtocol and SP_PROT_TLS1_3 <> 0 then
+    nfo.dwProtocol := 3;
+  if nfo.aiCipher and $1f in [14..17] then
+    alg := 'AES'
+  else
+    str(nfo.aiCipher and $1f, alg);
+  case nfo.aiHash and $1f of
+    1..3:
+      hsh := 'MD';
+    4, 12..14:
+      begin
+        hsh := 'SHA';
+        if nfo.dwHashStrength = 0 then
+          case nfo.aiHash and $1f of
+            4:
+              nfo.dwHashStrength := 1;
+            12:
+              nfo.dwHashStrength := 256;
+            13:
+              nfo.dwHashStrength := 384;
+            14:
+              nfo.dwHashStrength := 512;
+          end;
+      end;
+    9:
+      hsh := 'HMAC';
+  else
+    str(nfo.aiHash and $1f, hsh);
+  end;
+  if nfo.aiExch = $a400 then
+    xch := 'RSA'
+  else if nfo.aiExch = $aa02 then
+    xch := 'DH'
+  else if nfo.aiExch = $aa05 then
+    xch := 'ECDH'
+  else if nfo.aiExch = $ae06 then
+    xch := 'ECDHE'
+  else if nfo.aiExch = $2203 then
+    xch := 'ECDSA'
+  else
+    str(nfo.aiExch, xch);
+  text := RawUtf8(format('%s_%d-%s_%d-%s_%d TLSv1.%d ', [xch, nfo.dwExchStrength,
+    alg, nfo.dwCipherStrength, hsh, nfo.dwHashStrength, nfo.dwProtocol]));
+end;
+
+
+{ TSChannelClient }
+
+procedure TSChannelClient.ESChannelRaiseLastError(res: cardinal);
+var
+  LastError: integer;
+begin
+  LastError := GetLastError;
+  raise ESChannel.CreateFmt('<%s>: Result %x [%s], System Error %d ''%s''',
+    [fServerAddress, res, ResToText(res), LastError, SysErrorMessage(LastError)]);
+end;
+
+function TSChannelClient.CheckSEC_E_OK(res: integer): cardinal;
 begin
   if res <> SEC_E_OK then
-    ESChannelRaiseLastError;
+    ESChannelRaiseLastError(res);
   result := res;
 end;
 
@@ -929,126 +1050,140 @@ begin
 end;
 
 const
-  TLSRECMAXSIZE = 19000; // stack buffers for TSChannelClient.Receive/Send
+  TLSRECMAXSIZE = 19000; // buffers for TSChannelClient.Receive/Send
 
 type
-  {$ifdef USERECORDWITHMETHODS}THandshakeBuf = record
-    {$else}THandshakeBuf = object{$endif}
-  public
-    buf: array[0..2] of TSecBuffer;
+  THandshakeBuf = record
+    buf: array[0..4] of TSecBuffer;
     input, output: TSecBufferDesc;
-    procedure Init;
   end;
 
-procedure THandshakeBuf.Init;
+procedure HandshakeBufInit(var buf: THandshakeBuf);
 begin
-  input.ulVersion := SECBUFFER_VERSION;
-  input.cBuffers := 2;
-  input.pBuffers := @buf[0];
-  buf[0].cbBuffer := 0;
-  buf[0].BufferType := SECBUFFER_TOKEN;
-  buf[0].pvBuffer := nil;
-  buf[1].cbBuffer := 0;
-  buf[1].BufferType := SECBUFFER_EMPTY;
-  buf[1].pvBuffer := nil;
-  output.ulVersion := SECBUFFER_VERSION;
-  output.cBuffers := 1;
-  output.pBuffers := @buf[2];
-  buf[2].cbBuffer := 0;
-  buf[2].BufferType := SECBUFFER_TOKEN;
-  buf[2].pvBuffer := nil;
+  FillCharFast(buf, SizeOf(buf), 0);
+  buf.input.ulVersion := SECBUFFER_VERSION;
+  buf.input.cBuffers := 2;
+  buf.input.pBuffers := @buf.buf[0];
+  buf.buf[0].BufferType := SECBUFFER_TOKEN;
+  buf.buf[1].BufferType := SECBUFFER_EMPTY;
+  buf.output.ulVersion := SECBUFFER_VERSION;
+  buf.output.cBuffers := 3;
+  buf.output.pBuffers := @buf.buf[2];
+  buf.buf[2].BufferType := SECBUFFER_TOKEN;
+  buf.buf[3].BufferType := SECBUFFER_ALERT;
+  buf.buf[4].BufferType := SECBUFFER_EMPTY;
 end;
 
-procedure TSChannelClient.AppendData(const aBuffer: TSecBuffer);
-var
-  newlen: integer;
-begin
-  newlen := DataCount + integer(aBuffer.cbBuffer);
-  if newlen > Length(Data) then
-    SetLength(Data, newlen);
-  MoveFast(aBuffer.pvBuffer^, PByteArray(Data)[DataCount], aBuffer.cbBuffer);
-  inc(DataCount, aBuffer.cbBuffer);
-end;
-
-procedure TSChannelClient.AfterConnection(aSocket: TNetSocket;
-  const aServerAddress: RawUTF8);
+procedure TSChannelClient.AfterConnection(Socket: TNetSocket;
+  var Context: TNetTlsContext; const ServerAddress: RawUtf8);
 var
   buf: THandshakeBuf;
   res, f: cardinal;
 begin
+  // prepare execution context
+  fSocket := Socket;
+  fContext := @Context;
+  fServerAddress := ServerAddress;
   if not Assigned(AcquireCredentialsHandle) then
     raise ESChannel.Create('SChannel API not available');
   CheckSEC_E_OK(AcquireCredentialsHandle(nil, UNISP_NAME, SECPKG_CRED_OUTBOUND,
-    nil, nil, nil, nil, @Cred, nil));
-  DataPos := 0;
-  DataCount := 0;
-  buf.Init;
-  res := InitializeSecurityContext(@Cred, nil, pointer(aServerAddress), ISC_REQ_FLAGS, 0,
-    SECURITY_NATIVE_DREP, nil, 0, @Ctxt, @buf.output, @f, nil);
+    nil, nil, nil, nil, @fCred, nil));
+  fDataPos := 0;
+  fDataCount := 0;
+  fFlags := ISC_REQ_FLAGS;
+  if Context.IgnoreCertificateErrors then
+    // prevent SEC_E_UNTRUSTED_ROOT result in HandshakeLoop
+    fFlags := fFlags or ISC_REQ_MANUAL_CRED_VALIDATION;
+  // initiate a ClientHello TLS message and a new fCtxt
+  HandshakeBufInit(buf);
+  res := InitializeSecurityContext(@fCred, nil, pointer(ServerAddress),
+    fFlags, 0, 0, nil, 0, @fCtxt, @buf.output, @f, nil);
   if res <> SEC_I_CONTINUE_NEEDED then
-    ESChannelRaiseLastError;
-  CheckSocket(mormot.net.sock.Send(aSocket.Socket, buf.buf[2].pvBuffer, buf.buf[2].cbBuffer, 0));
+    ESChannelRaiseLastError(res);
+  if (buf.buf[2].cbBuffer = 0) or
+     (buf.buf[2].pvBuffer = nil) then
+    raise ESChannel.CreateFmt('Void Hello answer to %s', [ServerAddress]);
+  CheckSocket(mormot.net.sock.Send(
+    fSocket.Socket, buf.buf[2].pvBuffer, buf.buf[2].cbBuffer, 0));
   CheckSEC_E_OK(FreeContextBuffer(buf.buf[2].pvBuffer));
-  HandshakeLoop(aSocket.Socket);
-  CheckSEC_E_OK(QueryContextAttributes(@Ctxt, SECPKG_ATTR_STREAM_SIZES, @Sizes));
-  SetLength(Data, Sizes.cbMaximumMessage);
-  InputSize := Sizes.cbHeader + Sizes.cbMaximumMessage + Sizes.cbTrailer;
-  if InputSize > TLSRECMAXSIZE then
-    raise ESChannel.CreateFmt('InputSize=%d>%d', [InputSize, TLSRECMAXSIZE]);
-  SetLength(Input, InputSize);
-  InputCount := 0;
+  // make TLS handshake and prepare for process
+  SetLength(fData, TLSRECMAXSIZE);
+  HandshakeLoop;
+  CheckSEC_E_OK(QueryContextAttributes(@fCtxt, SECPKG_ATTR_STREAM_SIZES, @fSizes));
+  fInputSize := fSizes.cbHeader + fSizes.cbMaximumMessage + fSizes.cbTrailer;
+  if fInputSize > TLSRECMAXSIZE then
+    raise ESChannel.CreateFmt('InputSize=%d>%d on %s',
+      [fInputSize, TLSRECMAXSIZE, ServerAddress]);
+  SetLength(fInput, fInputSize);
+  fInputCount := 0;
 end;
 
-procedure TSChannelClient.HandshakeLoop(aSocket: THandle);
-var
-  buf: THandshakeBuf;
-  len: integer;
-  tmp: AnsiString;
-  res, f: cardinal;
-begin
-  len := 0;
-  SetLength(tmp, 65536);
-  res := SEC_I_CONTINUE_NEEDED;
-  while (res = SEC_I_CONTINUE_NEEDED) or
-        (res = SEC_E_INCOMPLETE_MESSAGE) do
+procedure TSChannelClient.HandshakeLoop;
+
+  function ComputeAndSendAnswer: cardinal;
+  var
+    f: cardinal;
+    buf: THandshakeBuf;
   begin
-    if res <> SEC_E_INCOMPLETE_MESSAGE then
-      len := 0;
-    inc(len, CheckSocket(Recv(aSocket, @PByteArray(tmp)[len], length(tmp) - len, 0)));
-    buf.Init;
-    buf.buf[0].cbBuffer := len;
-    buf.buf[0].BufferType := SECBUFFER_TOKEN;
-    buf.buf[0].pvBuffer := pointer(tmp);
-    res := InitializeSecurityContext(@Cred, @Ctxt, nil, ISC_REQ_FLAGS, 0,
-      SECURITY_NATIVE_DREP, @buf.input, 0, @Ctxt, @buf.output, @f, nil);
-    if (res = SEC_E_OK) or
-       (res = SEC_I_CONTINUE_NEEDED) or
+    HandshakeBufInit(buf);
+    buf.buf[0].cbBuffer := fDataCount;
+    buf.buf[0].pvBuffer := pointer(fData);
+    f := 0;
+    result := InitializeSecurityContext(@fCred, @fCtxt, pointer(fServerAddress),
+      fFlags, 0, 0, @buf.input, 0, nil, @buf.output, @f, nil);
+    //writeln(IntToHex(result, 8),' [',ResToText(result),'] tosend=',buf.buf[2].cbBuffer);
+    if (result = SEC_E_OK) or
+       (result = SEC_I_CONTINUE_NEEDED) or
        ((f and ISC_REQ_EXTENDED_ERROR) <> 0) then
-    begin
       if (buf.buf[2].cbBuffer <> 0) and
          (buf.buf[2].pvBuffer <> nil) then
       begin
+        // need to send back something to the server
         CheckSocket(mormot.net.sock.Send(
-          aSocket, buf.buf[2].pvBuffer, buf.buf[2].cbBuffer, 0));
+          fSocket.Socket, buf.buf[2].pvBuffer, buf.buf[2].cbBuffer, 0));
         CheckSEC_E_OK(FreeContextBuffer(buf.buf[2].pvBuffer));
       end;
-    end;
+    if (buf.buf[1].BufferType = SECBUFFER_EXTRA) and
+       (buf.buf[1].cbBuffer <> 0) then
+    begin
+      // reuse pending bytes - avoid unexpected SEC_E_INVALID_TOKEN
+      //writeln('SECBUFFER_EXTRA=',buf.buf[1].cbBuffer,' / ',fDataCount);
+      MoveFast(PByteArray(fData)[cardinal(fDataCount) - buf.buf[1].cbBuffer],
+               PByteArray(fData)[0], buf.buf[1].cbBuffer);
+      fDataCount := buf.buf[1].cbBuffer;
+    end
+    else if result <> SEC_E_INCOMPLETE_MESSAGE then
+      fDataCount := 0;
   end;
-  // TODO: handle SEC_I_INCOMPLETE_CREDENTIALS ?
-  // see https://github.com/curl/curl/blob/master/lib/vtls/schannel.c
+
+var
+  res: cardinal;
+  nfo: TSecPkgConnectionInfo;
+begin
+  repeat
+    inc(fDataCount, CheckSocket(
+      Recv(fSocket.Socket, @PByteArray(fData)[fDataCount], length(fData) - fDataCount,
+        MSG_NOSIGNAL)));
+    res := ComputeAndSendAnswer;
+    if res = SEC_I_INCOMPLETE_CREDENTIALS then
+      // check https://stackoverflow.com/a/47479968/458259
+      res := ComputeAndSendAnswer; // run twice to let the handshake pass
+  until (res <> SEC_I_CONTINUE_NEEDED) and
+        (res <> SEC_E_INCOMPLETE_MESSAGE);
   CheckSEC_E_OK(res);
-  if buf.buf[1].BufferType = SECBUFFER_EXTRA then
-    AppendData(buf.buf[1]);
+  // note: fDataCount trailing content may come from SECBUFFER_EXTRA bytes
+  if QueryContextAttributes(@fCtxt, SECPKG_ATTR_CONNECTION_INFO, @nfo) = SEC_E_OK then
+    ProtoToText(nfo, fContext.CipherName);
 end;
 
-procedure TSChannelClient.BeforeDisconnection(aSocket: TNetSocket);
+destructor TSChannelClient.Destroy;
 var
   desc: TSecBufferDesc;
   buf: TSecBuffer;
   dt, f: cardinal;
 begin
   try
-    if {%H-}PtrInt(aSocket) > 0 then
+    if {%H-}PtrInt(fSocket.Socket) > 0 then
     begin
       desc.ulVersion := SECBUFFER_VERSION;
       desc.cBuffers := 1;
@@ -1057,41 +1192,39 @@ begin
       buf.BufferType := SECBUFFER_TOKEN;
       dt := SCHANNEL_SHUTDOWN;
       buf.pvBuffer := @dt;
-      if ApplyControlToken(@Ctxt, @desc) = SEC_E_OK then
+      if ApplyControlToken(@fCtxt, @desc) = SEC_E_OK then
       begin
         buf.cbBuffer := 0;
         buf.BufferType := SECBUFFER_TOKEN;
         buf.pvBuffer := nil;
-        if InitializeSecurityContext(@Cred, @Ctxt, nil, ISC_REQ_FLAGS, 0,
-           SECURITY_NATIVE_DREP, nil, 0, @Ctxt, @desc, @f, nil) = SEC_E_OK then
+        if InitializeSecurityContext(@fCred, @fCtxt, nil, fFlags, 0,
+           0, nil, 0, @fCtxt, @desc, @f, nil) = SEC_E_OK then
         begin
-          mormot.net.sock.Send(aSocket.Socket, buf.pvBuffer, buf.cbBuffer, 0);
+          mormot.net.sock.Send(fSocket.Socket, buf.pvBuffer, buf.cbBuffer, 0);
           FreeContextBuffer(buf.pvBuffer);
         end;
       end;
     end;
-    DeleteSecurityContext(@Ctxt);
-    FreeCredentialsHandle(@Cred);
+    DeleteSecurityContext(@fCtxt);
+    FreeCredentialsHandle(@fCred);
   finally
-    Cred.dwLower := nil;
-    Cred.dwUpper := nil;
+    inherited Destroy;
   end;
 end;
 
-function TSChannelClient.Receive(aSocket: TNetSocket;
-  aBuffer: pointer; var aLength: integer): TNetResult;
+function TSChannelClient.Receive(Buffer: pointer; var Length: integer): TNetResult;
 var
   desc: TSecBufferDesc;
   buf: array[0..3] of TSecBuffer;
   res: cardinal;
-  read, i: integer;
+  read, i, newlen: integer;
   needsRenegotiate: boolean;
 
   function DecryptInput: cardinal;
   begin
-    buf[0].cbBuffer := InputCount;
+    buf[0].cbBuffer := fInputCount;
     buf[0].BufferType := SECBUFFER_DATA;
-    buf[0].pvBuffer := pointer(Input);
+    buf[0].pvBuffer := pointer(fInput);
     buf[1].cbBuffer := 0;
     buf[1].BufferType := SECBUFFER_EMPTY;
     buf[1].pvBuffer := nil;
@@ -1101,20 +1234,24 @@ var
     buf[3].cbBuffer := 0;
     buf[3].BufferType := SECBUFFER_EMPTY;
     buf[3].pvBuffer := nil;
-    result := DecryptMessage(@Ctxt, @desc, 0, nil);
+    result := DecryptMessage(@fCtxt, @desc, 0, nil);
   end;
 
 begin
-  result := nrFatalError;
-  while DataCount = 0 do
+  if fSessionClosed and (fDataCount = 0) then
+  begin
+    result := nrClosed;
+    exit;
+  end;
+  while fDataCount = 0 do
   try
-    DataPos := 0;
+    fDataPos := 0;
     desc.ulVersion := SECBUFFER_VERSION;
     desc.cBuffers := 4;
     desc.pBuffers := @buf[0];
     repeat
-      read := Recv(aSocket.Socket, @PByteArray(Input)[InputCount],
-        InputSize - InputCount, MSG_NOSIGNAL);
+      read := Recv(fSocket.Socket, @PByteArray(fInput)[fInputCount],
+        fInputSize - fInputCount, MSG_NOSIGNAL);
       if read <= 0 then
       begin
         result := NetLastError; // may be nrRetry for WSATRY_AGAIN
@@ -1122,7 +1259,7 @@ begin
           result := nrUnknownError;
         exit;
       end;
-      inc(InputCount, read);
+      inc(fInputCount, read);
       res := DecryptInput;
     until res <> SEC_E_INCOMPLETE_MESSAGE;
     needsRenegotiate := false;
@@ -1131,44 +1268,50 @@ begin
         SEC_I_RENEGOTIATE:
           needsRenegotiate := true;
         SEC_I_CONTEXT_EXPIRED:
-          exit;
+          fSessionClosed := true;
         SEC_E_INCOMPLETE_MESSAGE:
           break;
         else
           CheckSEC_E_OK(res);
       end;
-      InputCount := 0;
+      fInputCount := 0;
       for i := 1 to 3 do
         case buf[i].BufferType of
           SECBUFFER_DATA:
-            AppendData(buf[i]);
+            begin
+              newlen := fDataCount + integer(buf[i].cbBuffer);
+              if newlen > system.Length(fData) then
+                SetLength(fData, newlen);
+              MoveFast(buf[i].pvBuffer^, PByteArray(fData)[fDataCount], buf[i].cbBuffer);
+              inc(fDataCount, buf[i].cbBuffer);
+            end;
           SECBUFFER_EXTRA:
             begin
-              MoveFast(buf[i].pvBuffer^, pointer(Input)^, buf[i].cbBuffer);
-              InputCount := buf[i].cbBuffer;
+              MoveFast(buf[i].pvBuffer^, pointer(fInput)^, buf[i].cbBuffer);
+              fInputCount := buf[i].cbBuffer;
             end;
         end;
-      if InputCount = 0 then
+      if fInputCount = 0 then
         break;
       res := DecryptInput;
     until false;
     if needsRenegotiate then
-      HandshakeLoop(aSocket.Socket);
+      HandshakeLoop;
   except
+    result := nrFatalError;
     exit; // shutdown the connection on ESChannel fatal error
   end;
-  read := DataCount;
-  if aLength < read then
-    read := aLength;
-  MoveFast(PByteArray(Data)[DataPos], aBuffer^, read);
-  inc(DataPos, read);
-  dec(DataCount, read);
-  aLength := read;
+  read := fDataCount;
+  if Length < read then
+    read := Length;
+  MoveFast(PByteArray(fData)[fDataPos], Buffer^, read);
+  inc(fDataPos, read);
+  dec(fDataCount, read);
+  Length := read;
   result := nrOK;
 end;
 
-function TSChannelClient.Send(aSocket: TNetSocket; aBuffer: pointer;
-  var aLength: integer): TNetResult;
+function TSChannelClient.Send(Buffer: pointer; var Length: integer): TNetResult;
 var
   desc: TSecBufferDesc;
   buf: array[0..3] of TSecBuffer;
@@ -1179,34 +1322,34 @@ begin
   desc.ulVersion := SECBUFFER_VERSION;
   desc.cBuffers := 4;
   desc.pBuffers := @buf[0];
-  pending := aLength;
+  pending := Length;
   while pending > 0 do
   begin
     templen := pending;
-    if templen > Sizes.cbMaximumMessage then
-      templen := Sizes.cbMaximumMessage;
-    MoveFast(aBuffer^, temp[Sizes.cbHeader], templen);
-    inc(PByte(aBuffer), templen);
+    if templen > fSizes.cbMaximumMessage then
+      templen := fSizes.cbMaximumMessage;
+    MoveFast(Buffer^, temp[fSizes.cbHeader], templen);
+    inc(PByte(Buffer), templen);
     dec(pending, templen);
-    trailer := Sizes.cbHeader + templen;
-    buf[0].cbBuffer := Sizes.cbHeader;
+    trailer := fSizes.cbHeader + templen;
+    buf[0].cbBuffer := fSizes.cbHeader;
     buf[0].BufferType := SECBUFFER_STREAM_HEADER;
     buf[0].pvBuffer := @temp;
     buf[1].cbBuffer := templen;
     buf[1].BufferType := SECBUFFER_DATA;
-    buf[1].pvBuffer := @temp[Sizes.cbHeader];
-    buf[2].cbBuffer := Sizes.cbTrailer;
+    buf[1].pvBuffer := @temp[fSizes.cbHeader];
+    buf[2].cbBuffer := fSizes.cbTrailer;
     buf[2].BufferType := SECBUFFER_STREAM_TRAILER;
     buf[2].pvBuffer := @temp[trailer];
     buf[3].cbBuffer := 0;
     buf[3].BufferType := SECBUFFER_EMPTY;
     buf[3].pvBuffer := nil;
-    if EncryptMessage(@Ctxt, 0, @desc, 0) <> SEC_E_OK then
+    if EncryptMessage(@fCtxt, 0, @desc, 0) <> SEC_E_OK then
       exit; // shutdown the connection on SChannel error
     len := buf[0].cbBuffer + buf[1].cbBuffer + buf[2].cbBuffer;
     sent := 0;
     repeat
-      s := mormot.net.sock.Send(aSocket.Socket, @temp[sent], len, MSG_NOSIGNAL);
+      s := mormot.net.sock.Send(fSocket.Socket, @temp[sent], len, MSG_NOSIGNAL);
       if s = len then
         break; // whole message sent
       if s = 0 then
@@ -1222,14 +1365,16 @@ begin
         dec(len, s);
         inc(sent, s);
       end;
-      Sleep(1); // try again
+      SleepHiRes(0); // warning: Sleep(1) waits typically 1-15 ms on Windows
+      // loop to try again
     until false;
   end;
   result := nrOK;
 end;
 
 
-function SChannelNewNetTLS: INetTLS;
+
+function SChannelNewNetTls: INetTls;
 begin
   result := TSChannelClient.Create;
 end;
@@ -1241,25 +1386,35 @@ var
 procedure InitializeUnit;
 begin
   WSAStartup($0202, WsaDataOnce);
-  SocketAPIVersion := RawUTF8(Format('%s.%d', [WsaDataOnce.szDescription,WsaDataOnce.wVersion]));
+  SocketAPIVersion := RawUtf8(Format(
+    '%s.%d', [WsaDataOnce.szDescription, WsaDataOnce.wVersion]));
   LibSecurHandle := LoadLibrary(DLLSecur32);
   if LibSecurHandle <> 0 then
   begin
-    AcquireCredentialsHandle := GetProcAddress(LibSecurHandle, 'AcquireCredentialsHandleA');
-    FreeCredentialsHandle := GetProcAddress(LibSecurHandle, 'FreeCredentialsHandle');
-    InitializeSecurityContext := GetProcAddress(LibSecurHandle, 'InitializeSecurityContextA');
-    DeleteSecurityContext := GetProcAddress(LibSecurHandle, 'DeleteSecurityContext');
-    ApplyControlToken := GetProcAddress(LibSecurHandle, 'ApplyControlToken');
-    QueryContextAttributes := GetProcAddress(LibSecurHandle, 'QueryContextAttributesA');
-    FreeContextBuffer := GetProcAddress(LibSecurHandle, 'FreeContextBuffer');
-    EncryptMessage := GetProcAddress(LibSecurHandle, 'EncryptMessage');
-    DecryptMessage := GetProcAddress(LibSecurHandle, 'DecryptMessage');
+    AcquireCredentialsHandle :=
+      GetProcAddress(LibSecurHandle, 'AcquireCredentialsHandleA');
+    FreeCredentialsHandle :=
+      GetProcAddress(LibSecurHandle, 'FreeCredentialsHandle');
+    InitializeSecurityContext :=
+      GetProcAddress(LibSecurHandle, 'InitializeSecurityContextA');
+    DeleteSecurityContext :=
+      GetProcAddress(LibSecurHandle, 'DeleteSecurityContext');
+    ApplyControlToken :=
+      GetProcAddress(LibSecurHandle, 'ApplyControlToken');
+    QueryContextAttributes :=
+      GetProcAddress(LibSecurHandle, 'QueryContextAttributesA');
+    FreeContextBuffer :=
+      GetProcAddress(LibSecurHandle, 'FreeContextBuffer');
+    EncryptMessage :=
+      GetProcAddress(LibSecurHandle, 'EncryptMessage');
+    DecryptMessage :=
+      GetProcAddress(LibSecurHandle, 'DecryptMessage');
     if Assigned(AcquireCredentialsHandle) and
        Assigned(InitializeSecurityContext) and
        Assigned(QueryContextAttributes) and
        Assigned(EncryptMessage) and
        Assigned(DecryptMessage) then
-     NewNetTLS := SChannelNewNetTLS;
+     NewNetTls := SChannelNewNetTls;
   end;
 end;
 

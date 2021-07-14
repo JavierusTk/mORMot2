@@ -21,7 +21,7 @@ interface
 {$I ..\mormot.defines.inc}
 
 
-{$ifdef MSWINDOWS} // compiles as void unit for non-Windows - allow Lazarus package
+{$ifdef OSWINDOWS} // compiles as void unit for non-Windows - allow Lazarus package
 
 uses
   sysutils,
@@ -169,7 +169,7 @@ type
   // is to be used as the value of the column or parameter
   // - see http://msdn.microsoft.com/en-us/library/ms722617
   // and http://msdn.microsoft.com/en-us/library/windows/desktop/ms716934
-  TSQLDBOleDBStatus = (
+  TSqlDBOleDBStatus = (
     stOK,
     stBadAccessor,
     stCanNotConvertValue,
@@ -202,7 +202,7 @@ type
   /// binding status of a given column
   // - see http://msdn.microsoft.com/en-us/library/windows/desktop/ms720969
   // and http://msdn.microsoft.com/en-us/library/windows/desktop/ms716934
-  TSQLDBOleDBBindStatus = (
+  TSqlDBOleDBBindStatus = (
     bsOK, bsBadOrdinal,
     bsUnsupportedConversion,
     bsBadBindInfo,
@@ -244,7 +244,7 @@ type
   {$A-} // packed records
 {$endif}
   TBoid = record
-    rgb_: array[0..15] of Byte;
+    rgb_: array[0..15] of byte;
   end;
   PBoid = ^TBoid;
 
@@ -255,7 +255,7 @@ type
 
   TXactTransInfo = record
     uow: PBoid;
-    isoLevel: Integer;
+    isoLevel: integer;
     isoFlags: UINT;
     grfTCSupported: UINT;
     grfRMSupported: UINT;
@@ -269,7 +269,7 @@ type
     dwMinor: UINT;
     clsid: TGUID;
     iid: TGUID;
-    dispid: Integer;
+    dispid: integer;
   end;
 
   PDBParams = ^TDBParams;
@@ -306,21 +306,21 @@ type
     cbMaxLen: PtrUInt;
     dwFlags: UINT;
     wType: DBTYPE;
-    bPrecision: Byte;
-    bScale: Byte;
+    bPrecision: byte;
+    bScale: byte;
   end;
   PDBBindingArray = ^TDBBindingArray;
   TDBBindingArray = array[0..MAXBOUND] of TDBBinding;
   TDBBindingDynArray = array of TDBBinding;
 
   DBIDGUID = record
-    case Integer of
+    case integer of
       0: (guid: TGUID);
       1: (pguid: ^TGUID);
   end;
 
   DBIDNAME = record
-    case Integer of
+    case integer of
       0: (pwszName: PWideChar);
       1: (ulPropid: UINT);
   end;
@@ -342,8 +342,8 @@ type
     dwFlags: DBCOLUMNFLAGS;
     ulColumnSize: PtrUInt;
     wType: DBTYPE;
-    bPrecision: Byte;
-    bScale: Byte;
+    bPrecision: byte;
+    bScale: byte;
     columnid: DBID;
   end;
 
@@ -371,7 +371,7 @@ type
   TDBPropSetArray = array[0..MAXBOUND] of TDBPropSet;
   TDBSchemaRec = record
     SchemaGuid: TGuid;
-    SupportedRestrictions: Integer;
+    SupportedRestrictions: integer;
   end;
 
   TSSPARAMPROPS = record
@@ -392,8 +392,8 @@ type
     pTypeInfo: ITypeInfo;
     ulParamSize: DBLENGTH;
     wType: DBTYPE;
-    bPrecision: Byte;
-    bScale: Byte;
+    bPrecision: byte;
+    bScale: byte;
   end;
   TDBParamInfo = DBPARAMINFO;
 
@@ -407,8 +407,8 @@ type
     pwszName: PWideChar;
     ulParamSize: DBLENGTH;
     dwFlags: DBPARAMFLAGS;
-    bPrecision: Byte;
-    bScale: Byte;
+    bPrecision: byte;
+    bScale: byte;
   end;
   TDBParamBindInfo = DBPARAMBINDINFO;
   PDBParamBindInfoArray = ^TDBParamBindInfoArray;
@@ -426,9 +426,9 @@ type
     wLineNumber: word;
   end;
 
-{$ifndef CPU64}
+{$ifdef CPU32}
   {$A-} // packed records
-{$endif}
+{$endif CPU32}
 
 
 { ************ Native OleDB Interfaces }
@@ -448,7 +448,7 @@ type
       pwszInitializationString: POleStr; const riid: TIID;
       var DataSource: IUnknown): HRESULT; stdcall;
     function GetInitializationString(const DataSource: IUnknown;
-      fIncludePassword: Boolean; out pwszInitString: POleStr): HRESULT; stdcall;
+      fIncludePassword: boolean; out pwszInitString: POleStr): HRESULT; stdcall;
     function CreateDBInstance(const clsidProvider: TGUID;
       const pUnkOuter: IUnknown; dwClsCtx: DWORD; pwszReserved: POleStr;
       riid: TIID; var DataSource: IUnknown): HRESULT; stdcall;
@@ -487,7 +487,7 @@ type
   ITransactionLocal = interface(ITransaction)
     ['{0C733A5F-2A1C-11CE-ADE5-00AA0044773D}']
     function GetOptionsObject(out ppOptions: ITransactionOptions): HRESULT; stdcall;
-    function StartTransaction(isoLevel: Integer; isoFlags: UINT;
+    function StartTransaction(isoLevel: integer; isoFlags: UINT;
       const pOtherOptions: ITransactionOptions; pulTransactionLevel: PUINT): HRESULT; stdcall;
   end;
 
@@ -626,10 +626,10 @@ type
   IDBSchemaRowset = interface(IUnknown)
     ['{0c733a7b-2a1c-11ce-ade5-00aa0044773d}']
     function GetRowset(pUnkOuter: IUnknown; const rguidSchema: TGUID;
-      cRestrictions: Integer; rgRestrictions: pointer;
-      const riid: TIID; cPropertySets: Integer; rgPropertySets: PDBPROPSET;
+      cRestrictions: integer; rgRestrictions: pointer;
+      const riid: TIID; cPropertySets: integer; rgPropertySets: PDBPROPSET;
       var ppRowset: IRowset): HRESULT; stdcall;
-    function GetSchemas(var pcSchemas: Integer; var prgSchemas: PGUID;
+    function GetSchemas(var pcSchemas: integer; var prgSchemas: PGUID;
       var prgRestrictionSupport: PInteger): HRESULT; stdcall;
   end;
 
@@ -680,16 +680,10 @@ type
     constructor Create(cTotalRows: UINT);
     function SetupAccessors(pIAccessorTVP: IAccessor): HRESULT; virtual; abstract;
     destructor Destroy; override;
-    {$ifdef FPC}
     function QueryInterface({$ifdef FPC_HAS_CONSTREF}constref{$else}const{$endif}
-      iid : tguid; out obj) : longint;{$ifndef WINDOWS}cdecl{$else}stdcall{$endif};
-    function _AddRef : longint;{$ifndef WINDOWS}cdecl{$else}stdcall{$endif};
-    function _Release : longint;{$ifndef WINDOWS}cdecl{$else}stdcall{$endif};
-    {$else}
-    function QueryInterface(const IID: TGUID; out Obj): HRESULT; stdcall;
-    function _AddRef: Integer; stdcall;
-    function _Release: Integer; stdcall;
-    {$endif FPC}
+      IID: TGUID; out Obj): TIntQry; {$ifdef OSWINDOWS}stdcall{$else}cdecl{$endif};
+    function _AddRef: TIntCnt;       {$ifdef OSWINDOWS}stdcall{$else}cdecl{$endif};
+    function _Release: TIntCnt;      {$ifdef OSWINDOWS}stdcall{$else}cdecl{$endif};
     /// Adds a reference count to an existing row handle
     function AddRefRows(cRows: PtrUInt; rghRows: PPtrUIntArray;
       rgRefCounts, rgRowStatus: PCardinalArray): HRESULT; stdcall;
@@ -718,10 +712,10 @@ type
 
   TIDListRowset = class(TBaseAggregatingRowset)
   private
-    farr: TRawUTF8DynArray;
-    fType: TSQLDBFieldType;
+    farr: TRawUtf8DynArray;
+    fType: TSqlDBFieldType;
   public
-    constructor Create(arr: TRawUTF8DynArray; aType: TSQLDBFieldType);
+    constructor Create(arr: TRawUtf8DynArray; aType: TSqlDBFieldType);
 
     function Initialize(pIOpenRowset: IOpenRowset): HRESULT;
     function GetData(HROW: HROW; HACCESSOR: HACCESSOR; pData: Pointer): HRESULT; override; stdcall;
@@ -736,21 +730,21 @@ type
 
 type
   /// generic Exception type, generated for OleDB connection
-  EOleDBException = class(ESQLDBException);
+  EOleDBException = class(ESqlDBException);
 
 
 /// check from the file beginning if sounds like a valid Jet / MSAccess file
 function IsJetFile(const FileName: TFileName): boolean;
 
 /// low-level guess of our SQL Field Type from the OleDB numerical type value
-function OleDBColumnToFieldType(wType: DBTYPE; bScale: byte): TSQLDBFieldType;
+function OleDBColumnToFieldType(wType: DBTYPE; bScale: byte): TSqlDBFieldType;
 
-{$endif MSWINDOWS}
+{$endif OSWINDOWS}
 
 
 implementation
 
-{$ifdef MSWINDOWS} // compiles as void unit for non-Windows - allow Lazarus package
+{$ifdef OSWINDOWS} // compiles as void unit for non-Windows - allow Lazarus package
 
 
 { ************ Low-Level OleDB Custom RowSet Processing }
@@ -813,15 +807,11 @@ begin
     result := DB_S_ENDOFROWSET;
 end;
 
-{$ifdef FPC}
 function TBaseAggregatingRowset.QueryInterface(
-  {$ifdef FPC_HAS_CONSTREF}constref{$else}const{$endif} iid : tguid;out obj) : longint;
-  {$ifndef WINDOWS}cdecl{$else}stdcall{$endif};
-{$else}
-function TBaseAggregatingRowset.QueryInterface(const IID: TGUID; out Obj): HResult;
-{$endif FPC}
+  {$ifdef FPC_HAS_CONSTREF}constref{$else}const{$endif} IID: TGUID;
+  out Obj): TIntQry;
 begin
-  if IsEqualGUID(@IID, @IID_IUnknown) then
+  if IsEqualGuid(@IID, @IID_IUnknown) then
     IUnknown(Obj) := Self
   else
   begin
@@ -831,7 +821,7 @@ begin
       result := E_NOINTERFACE;
       Exit;
     end;
-    if IsEqualGUID(@IID, @IID_IRowset) then
+    if IsEqualGuid(@IID, @IID_IRowset) then
       IUnknown(Obj) := self
     else
     begin
@@ -857,28 +847,18 @@ begin
   result := S_OK;
 end;
 
-procedure TBaseAggregatingRowset.SetAccessorHandle(idxAccessor: ULONG; hAccessor:
-  hAccessor);
+procedure TBaseAggregatingRowset.SetAccessorHandle(idxAccessor: ULONG;
+  hAccessor: hAccessor);
 begin
   fhAccessor[idxAccessor] := hAccessor;
 end;
 
-{$ifdef FPC}
-function TBaseAggregatingRowset._AddRef: longint;
-  {$ifndef WINDOWS} cdecl {$else} stdcall {$endif};
-{$else}
-function TBaseAggregatingRowset._AddRef: Integer;
-{$endif FPC}
+function TBaseAggregatingRowset._AddRef: TIntCnt;
 begin
   result := 1;
 end;
 
-{$ifdef FPC}
-function TBaseAggregatingRowset._Release: longint;
-  {$ifndef WINDOWS} cdecl {$else} stdcall {$endif};
-{$else}
-function TBaseAggregatingRowset._Release: Integer;
-{$endif FPC}
+function TBaseAggregatingRowset._Release: TIntCnt;
 begin
   result := 1;
 end;
@@ -886,7 +866,7 @@ end;
 
 { TIDListRowset }
 
-constructor TIDListRowset.Create(arr: TRawUTF8DynArray; aType: TSQLDBFieldType);
+constructor TIDListRowset.Create(arr: TRawUtf8DynArray; aType: TSqlDBFieldType);
 begin
   farr := arr;
   fType := aType;
@@ -895,7 +875,7 @@ end;
 
 procedure TIDListRowset.FillBindingsAndSetupRowBuffer(pBindingsList: PDBBindingArray);
 var
-  i: Integer;
+  i: PtrInt;
   rec: TIDListRec; // pseudo record to compute offset within TIDListRec
 begin
   FillcharFast(rec, sizeof(rec), 0); // makes Win64 compiler happy
@@ -914,11 +894,11 @@ begin
         pBindingsList[0].obValue := PAnsiChar(@rec.IDVal) - pointer(@rec);
         pBindingsList[0].wType := DBTYPE_I8;
       end;
-    ftUTF8:
+    ftUtf8:
       begin
         pBindingsList[0].cbMaxLen := sizeof(PWideChar); //Check bind ''
         for i := 0 to Length(farr) - 1 do
-          if Length(farr[i]) * SizeOf(WideChar) > Integer(pBindingsList[0].cbMaxLen) then
+          if Length(farr[i]) * SizeOf(WideChar) > integer(pBindingsList[0].cbMaxLen) then
             pBindingsList[0].cbMaxLen := Length(farr[i]) * SizeOf(WideChar);
         pBindingsList[0].obValue := PAnsiChar(@rec.StrVal) - pointer(@rec);
         pBindingsList[0].wType := DBTYPE_BSTR
@@ -930,8 +910,8 @@ end;
 
 procedure TIDListRowset.FillRowData(pCurrentRec: PIDListRec);
 var
-  curInd: Integer;
-  tmp: RawUTF8;
+  curInd: integer;
+  tmp: RawUtf8;
 begin
   curInd := fidxRow - 2;
   if farr[curInd] = 'null' then
@@ -947,11 +927,11 @@ begin
           SetInt64(pointer(farr[curInd]), pCurrentRec.IDVal);
           pCurrentRec.IDLen := SizeOf(Int64);
         end;
-      ftUTF8:
+      ftUtf8:
         begin
-          tmp := UnQuoteSQLString(farr[curInd]);
+          tmp := UnQuoteSqlString(farr[curInd]);
           pCurrentRec.IDLen := (Length(tmp) + 1) * SizeOf(WideChar);
-          pCurrentRec.StrVal := Pointer(UTF8ToWideString(tmp));
+          pCurrentRec.StrVal := Pointer(Utf8ToWideString(tmp));
         end
     else
       raise EOleDBException.Create('Unsupported array parameter type');
@@ -979,7 +959,7 @@ begin
   case fType of
     ftInt64:
       dbidID.uName.pwszName := pointer(IDList_type);
-    ftUTF8:
+    ftUtf8:
       dbidID.uName.pwszName := pointer(StrList_type);
   end;
   OleCheck(pIOpenRowset.OpenRowset(self, @dbidID, nil, IID_IUnknown,
@@ -1011,7 +991,7 @@ var
   Header: array[0..31] of AnsiChar;
 begin
   F := FileOpen(FileName, fmOpenRead or fmShareDenyNone);
-  if F = INVALID_HANDLE_VALUE then
+  if not ValidHandle(F) then
     result := false
   else
   begin
@@ -1021,7 +1001,7 @@ begin
   end;
 end;
 
-function OleDBColumnToFieldType(wType: DBTYPE; bScale: byte): TSQLDBFieldType;
+function OleDBColumnToFieldType(wType: DBTYPE; bScale: byte): TSqlDBFieldType;
 begin
   case wType of
     DBTYPE_EMPTY:
@@ -1053,8 +1033,7 @@ begin
   end;
 end;
 
-
-{$endif MSWINDOWS}
+{$endif OSWINDOWS}
 
 end.
 

@@ -76,12 +76,14 @@ type
     /// access to the associated interface factory
     // - this property will be injected by TServiceFactoryServer.CreateInstance,
     // so may be nil if the instance was created outside the SOA context
-    property Factory: TServiceFactoryServer read fFactory;
+    property Factory: TServiceFactoryServer
+      read fFactory;
     /// access ot the associated REST Server, e.g. to its ORM methods
     // - slightly faster than Factory.RestServer
     // - this value will be injected by TServiceFactoryServer.CreateInstance,
     // so may be nil if the instance was created outside the SOA context
-    property Server: TRestServer read fServer;
+    property Server: TRestServer
+      read fServer;
   end;
 
   /// class-reference type (metaclass) of a TInjectableObjectRest type
@@ -130,8 +132,8 @@ type
   // - should return FALSE if the method should not be executed, and set the
   // corresponding error to the supplied context e.g.
   // ! Ctxt.Error('Unauthorized method',HTTP_NOTALLOWED);
-  // - i.e. called by TRestServerURIContext.InternalExecuteSOAByInterface
-  TOnServiceCanExecute = function(Ctxt: TRestServerURIContext;
+  // - i.e. called by TRestServerUriContext.InternalExecuteSoaByInterface
+  TOnServiceCanExecute = function(Ctxt: TRestServerUriContext;
     const Method: TInterfaceMethod): boolean of object;
 
   /// callbacked used by TServiceFactoryServer.RunOnAllInstances method
@@ -161,24 +163,16 @@ type
       ickFromInjectedResolver, ickFake);
     fImplementationClassInterfaceEntry: PInterfaceEntry;
     fSharedInterface: IInterface;
-    fResultAsJSONObject: boolean;
-    fResultAsJSONObjectWithoutResult: boolean;
-    fResultAsXMLObject: boolean;
-    fResultAsJSONObjectIfAccept: boolean;
-    fResultAsXMLObjectNameSpace: RawUTF8;
-    fExcludeServiceLogCustomAnswer: boolean;
     fBackgroundThread: TSynBackgroundThreadMethod;
     fOnMethodExecute: TOnServiceCanExecute;
-    fOnExecute: array of TInterfaceMethodExecuteEvent;
+    fOnExecute: array of TOnInterfaceMethodExecute;
     procedure SetServiceLogByIndex(const aMethods: TInterfaceFactoryMethodBits;
       const aLogRest: IRestOrm; aLogClass: TOrmServiceLogClass);
     procedure SetTimeoutSecInt(value: cardinal);
     function GetTimeoutSec: cardinal;
-    function GetStat(const aMethod: RawUTF8): TSynMonitorInputOutput;
-    // from client CacheFlush/_ping_
-    function RenewSession(aSession: cardinal): integer;
+    function GetStat(const aMethod: RawUtf8): TSynMonitorInputOutput;
     /// called by ExecuteMethod to append input/output params to Sender.TempTextWriter
-    procedure OnLogRestExecuteMethod(Sender: TInterfaceMethodExecute;
+    procedure OnLogRestExecuteMethod(Sender: TInterfaceMethodExecuteRaw;
       Step: TInterfaceMethodExecuteEventStep);
     /// this method will create an implementation instance
     // - reference count will be set to one, in order to allow safe passing
@@ -198,23 +192,24 @@ type
     // method instead of calling this constructor directly
     constructor Create(aRestServer: TRestServer; aInterface: PRttiInfo;
       aInstanceCreation: TServiceInstanceImplementation;
-      aImplementationClass: TInterfacedClass; const aContractExpected: RawUTF8;
+      aImplementationClass: TInterfacedClass; const aContractExpected: RawUtf8;
       aTimeOutSec: cardinal; aSharedInstance: TInterfacedObject); reintroduce;
     /// release all used memory
     // - e.g. any internal TServiceFactoryServerInstance instances (any shared
-    // instance, and all still living instances in sicClientDrive mode)
+    // instance, and all still living instances in sicClientDriven mode)
     destructor Destroy; override;
 
     /// you can define here an event to allow/deny execution of any method
     // of this service, at runtime
-    property OnMethodExecute: TOnServiceCanExecute read fOnMethodExecute write fOnMethodExecute;
+    property OnMethodExecute: TOnServiceCanExecute
+      read fOnMethodExecute write fOnMethodExecute;
     /// allow to hook the methods execution
     // - several events could be registered, and will be called directly
     // before and after method execution
     // - if optInterceptInputOutput is defined in Options, then Sender.Input/Output
     // fields will contain the execution data context when Hook is called
     // - see OnMethodExecute if you want to implement security features
-    procedure AddInterceptor(const Hook: TInterfaceMethodExecuteEvent);
+    procedure AddInterceptor(const Hook: TOnInterfaceMethodExecute);
 
     /// retrieve an instance of this interface from the server side
     // - sicShared mode will retrieve the shared instance
@@ -227,12 +222,12 @@ type
     // service context currently associated), this method will also update
     // ServiceRunningContext.Factory, so that the implementation method will be able
     // to access the associated TRestServer instance if needed
-    function Get(out Obj): Boolean; override;
+    function Get(out Obj): boolean; override;
     /// retrieve the published signature of this interface
     // - is always available on TServiceFactoryServer, but TServiceFactoryClient
     // will be able to retrieve it only if TServiceContainerServer.PublishSignature
     // is set to TRUE (which is not the default setting, for security reasons)
-    function RetrieveSignature: RawUTF8; override;
+    function RetrieveSignature: RawUtf8; override;
     /// call a given method of this service provider
     // - here Ctxt.ServiceMethod points to the corresponding fInterface.Methods[]
     // (i.e. excluding _free_/_contract_/_signature_ pseudo-methods)
@@ -253,13 +248,13 @@ type
     // $ {"result":[3],"id":0}
     // the returned "id" number is the Instance identifier to be used for any later
     // sicClientDriven remote call - or just 0 in case of sicSingle or sicShared
-    procedure ExecuteMethod(Ctxt: TRestServerURIContext);
+    procedure ExecuteMethod(Ctxt: TRestServerUriContext);
     /// call the supplied aEvent callback for all class instances implementing
     // this service
     function RunOnAllInstances(const aEvent: TOnServiceFactoryServerOne;
       var aOpaque): integer;
     /// get an implementation Inst.Instance for the given Inst.InstanceID
-    // - is called by ExecuteMethod() in sicClientDrive mode
+    // - is called by ExecuteMethod() in sicClientDriven mode
     // - returns -1 on error, or aMethodIndex for successfull execution,
     // e.g. 0 after {"method":"_free_".. call
     // - otherwise, fill Inst.Instance with the matching implementation (or nil)
@@ -268,20 +263,25 @@ type
     /// define the the instance life time-out, in seconds
     function SetTimeoutSec(value: cardinal): TServiceFactoryServerAbstract; override;
     /// log method execution information to a TOrmServiceLog table
-    function SetServiceLog(const aMethod: array of RawUTF8;
+    function SetServiceLog(const aMethod: array of RawUtf8;
       const aLogRest: IRestOrm;
       aLogClass: TOrmServiceLogClass = nil): TServiceFactoryServerAbstract; override;
+    /// low-level method called from client CacheFlush/_ping_ URI
+    function RenewSession(aSession: cardinal): integer;
 
     /// the associated TRestServer instance
-    property RestServer: TRestServer read fRestServer;
+    property RestServer: TRestServer
+      read fRestServer;
     /// direct access to per-method detailed process statistics
     // - this Stats[] array follows Interface.Methods[] order
     // - see Stat[] property to retrieve information about a method by name
-    property Stats: TSynMonitorInputOutputObjArray read fStats;
+    property Stats: TSynMonitorInputOutputObjArray
+      read fStats;
     /// retrieve detailed statistics about a method use
     // - will return a reference to the actual item in Stats[]: caller should
     // not free the returned instance
-    property Stat[const aMethod: RawUTF8]: TSynMonitorInputOutput read GetStat;
+    property Stat[const aMethod: RawUtf8]: TSynMonitorInputOutput
+      read GetStat;
   published
     /// the class type used to implement this interface
     property ImplementationClass: TInterfacedClass
@@ -292,58 +292,6 @@ type
     // - you can also use the SetTimeOutSec() fluent function instead
     property TimeoutSec: cardinal
       read GetTimeoutSec write SetTimeoutSecInt;
-    /// set to TRUE to return the interface's methods result as JSON object
-    // - by default (FALSE), any method execution will return a JSON array with
-    // all VAR/OUT parameters, in order
-    // - TRUE will generate a JSON object instead, with the VAR/OUT parameter
-    // names as field names (and "Result" for any function result) - may be
-    // useful e.g. when working with JavaScript clients
-    // - Delphi clients (i.e. TServiceFactoryClient/TInterfacedObjectFake) will
-    // transparently handle both formats
-    // - this value can be overridden by setting ForceServiceResultAsJSONObject
-    // for a given TRestServerURIContext (e.g. for server-side JavaScript work)
-    property ResultAsJSONObject: boolean
-      read fResultAsJSONObject write fResultAsJSONObject;
-    /// set to TRUE to return the interface's methods result as JSON object
-    // with no '{"result":{...}}' nesting
-    // - could be used e.g. for plain non mORMot REST Client with in sicSingle
-    // or sicShared mode kind of services
-    // - on client side, consider using TRestClientURI.ServiceDefineSharedAPI
-    property ResultAsJSONObjectWithoutResult: boolean
-      read fResultAsJSONObjectWithoutResult write fResultAsJSONObjectWithoutResult;
-    /// set to TRUE to return the interface's methods result as XML object
-    // - by default (FALSE), method execution will return a JSON array with
-    // all VAR/OUT parameters, or a JSON object if ResultAsJSONObject is TRUE
-    // - TRUE will generate a XML object instead, with the VAR/OUT parameter
-    // names as field names (and "Result" for any function result) - may be
-    // useful e.g. when working with some XML-only clients
-    // - Delphi clients (i.e. TServiceFactoryClient/TInterfacedObjectFake) does
-    // NOT handle this XML format yet
-    // - this value can be overridden by setting ForceServiceResultAsXMLObject
-    // for a given TRestServerURIContext instance
-    property ResultAsXMLObject: boolean
-      read fResultAsXMLObject write fResultAsXMLObject;
-    /// set to TRUE to return XML objects for the interface's methods result
-    // if the Accept: HTTP header is exactly 'application/xml' or 'text/xml'
-    // - the header should be exactly 'Accept: application/xml' or
-    // 'Accept: text/xml' (and no other value)
-    // - in this case, ForceServiceResultAsXMLObject will be set for this
-    // particular TRestServerURIContext instance, and result returned as XML
-    // - using this method allows to mix standard JSON requests (from JSON
-    // or AJAX clients) and XML requests (from XML-only clients)
-    property ResultAsXMLObjectIfAcceptOnlyXML: boolean
-      read fResultAsJSONObjectIfAccept write fResultAsJSONObjectIfAccept;
-    /// specify a custom name space content when returning a XML object
-    // - by default, no name space will be appended - but such rough XML will
-    // have potential validation problems
-    // - you may use e.g. XMLUTF8_NAMESPACE, which will append <content ...> ...
-    // </content> around the generated XML data
-    property ResultAsXMLObjectNameSpace: RawUTF8
-      read fResultAsXMLObjectNameSpace write fResultAsXMLObjectNameSpace;
-    /// disable base64-encoded TOrmServiceLog.Output for methods
-    // returning TServiceCustomAnswer record (to reduce storage size)
-    property ExcludeServiceLogCustomAnswer: boolean read fExcludeServiceLogCustomAnswer
-      write fExcludeServiceLogCustomAnswer;
   end;
 
 
@@ -358,7 +306,8 @@ type
   IServiceRecordVersion = interface(IInvokable)
     ['{06A355CA-19EB-4CC6-9D87-7B48967D1D9F}']
     /// will register the supplied callback for the given table
-    function Subscribe(const SQLTableName: RawUTF8; const revision: TRecordVersion;
+    function Subscribe(const SqlTableName: RawUtf8;
+      const revision: TRecordVersion;
       const callback: IServiceRecordVersionCallback): boolean;
   end;
 
@@ -374,12 +323,13 @@ type
     // TServiceContainerServer.FakeCallbackRelease
     // - you may use it as such - see sample Project31ChatServer.dpr:
     // ! procedure TChatService.CallbackReleased(const callback: IInvokable;
-    // !   const interfaceName: RawUTF8);
+    // !   const interfaceName: RawUtf8);
     // ! begin  // unsubscribe from fConnected: array of IChatCallback
     // !   if interfaceName='IChatCallback' then
     // !     InterfaceArrayDelete(fConnected,callback);
     // ! end;
-    procedure CallbackReleased(const callback: IInvokable; const interfaceName: RawUTF8);
+    procedure CallbackReleased(const callback: IInvokable;
+      const interfaceName: RawUtf8);
   end;
 
   /// event signature triggerred when a callback instance is released
@@ -416,10 +366,9 @@ type
     fSessionTimeout: cardinal;
     procedure FakeCallbackAdd(aFakeInstance: TObject);
     procedure FakeCallbackRemove(aFakeInstance: TObject);
-    procedure FakeCallbackRelease(Ctxt: TRestServerURIContext);
     procedure RecordVersionCallbackNotify(TableIndex: integer;
       Occasion: TOrmOccasion; const DeletedID: TID;
-      const DeletedRevision: TRecordVersion; const AddUpdateJson: RawUTF8);
+      const DeletedRevision: TRecordVersion; const AddUpdateJson: RawUtf8);
   public
     /// initialize the list
     constructor Create(aOwner: TInterfaceResolver); override;
@@ -440,10 +389,12 @@ type
       const aInterfaces: array of PRttiInfo;
       aInstanceCreation: TServiceInstanceImplementation;
       aSharedImplementation: TInterfacedObject;
-      const aContractExpected: RawUTF8): TServiceFactoryServer;
+      const aContractExpected: RawUtf8): TServiceFactoryServer;
     /// initialize and register a server-side interface callback instance
-    procedure GetFakeCallback(Ctxt: TRestServerURIContext;
+    procedure GetFakeCallback(Ctxt: TRestServerUriContext;
       ParamInterfaceInfo: PRttiInfo; FakeID: PtrInt; out Obj);
+    /// low-level function called from TRestServer.CacheFlush URI method
+    procedure FakeCallbackRelease(Ctxt: TRestServerUriContext);
     /// class method able to check if a given server-side callback event fake
     // instance has been released on the client side
     // - may be used to automatically purge a list of subscribed callbacks,
@@ -460,14 +411,14 @@ type
       const SlaveCallback: IServiceRecordVersionCallback): boolean;
     /// notify any TRecordVersion callback for a table Add/Update from a
     // TDocVariant content
-    // - used e.g. by TRestStorageMongoDB.DocFromJSON()
+    // - used e.g. by TRestStorageMongoDB.DocFromJson()
     procedure RecordVersionNotifyAddUpdate(Occasion: TOrmOccasion;
       TableIndex: integer; const Document: TDocVariantData); overload;
     /// notify any TRecordVersion callback for a table Add/Update from a
-    // TJSONObjectDecoder content
-    // - used e.g. by TRestStorageMongoDB.DocFromJSON()
+    // TJsonObjectDecoder content
+    // - used e.g. by TRestStorageMongoDB.DocFromJson()
     procedure RecordVersionNotifyAddUpdate(Occasion: TOrmOccasion;
-      TableIndex: integer; const Decoder: TJSONObjectDecoder); overload;
+      TableIndex: integer; const Decoder: TJsonObjectDecoder); overload;
     /// notify any TRecordVersion callback for a table Delete
     procedure RecordVersionNotifyDelete(TableIndex: integer;
       const ID: TID; const Revision: TRecordVersion);
@@ -485,7 +436,7 @@ type
     // the interface name (as 'ICalculator.Add'), or not (as 'Add')
     procedure SetServiceLog(const aLogRest: IRestOrm;
       aLogClass: TOrmServiceLogClass = nil;
-      const aExcludedMethodNamesCSV: RawUTF8 = '');
+      const aExcludedMethodNamesCsv: RawUtf8 = '');
     /// defines if the "method":"_signature_" or /root/Interface._signature
     // pseudo method is available to retrieve the whole interface signature,
     // encoded as a JSON object
@@ -504,7 +455,7 @@ type
     // registration service interface type, which will be called when a
     // callback registered via this service is released (e.g. to unsubscribe
     // the callback from an interface list, via InterfaceArrayDelete):
-    // ! procedure CallbackReleased(const callback: IInvokable; const interfaceName: RawUTF8);
+    // ! procedure CallbackReleased(const callback: IInvokable; const interfaceName: RawUtf8);
     property OnCallbackReleasedOnClientSide: TOnCallbackReleased
       read fOnCallbackReleasedOnClientSide;
     /// this event will be launched when a callback interface is relased on
@@ -527,7 +478,7 @@ type
   TServiceRecordVersion = class(TInjectableObjectRest, IServiceRecordVersion)
   public
     /// will register the supplied callback for the given table
-    function Subscribe(const SQLTableName: RawUTF8;
+    function Subscribe(const SqlTableName: RawUtf8;
       const revision: TRecordVersion;
       const callback: IServiceRecordVersionCallback): boolean;
    end;
@@ -536,10 +487,11 @@ type
   // notifications to the local DB
   // - could be supplied as callback parameter, possibly via WebSockets
   // transmission, to TRestServer.RecordVersionSynchronizeSubscribeMaster()
-  TServiceRecordVersionCallback = class(TInterfacedCallback, IServiceRecordVersionCallback)
+  TServiceRecordVersionCallback = class(TInterfacedCallback,
+    IServiceRecordVersionCallback)
   protected
     fTable: TOrmClass;
-    fRecordVersionField: TOrmPropInfoRTTIRecordVersion;
+    fRecordVersionField: TOrmPropInfoRttiRecordVersion;
     fBatch: TRestBatch;
     fSlave: TRestServer; // fRest is master remote access
     fOnNotify: TOnBatchWrite;
@@ -552,18 +504,18 @@ type
     // a local slave REST server from a remote master REST server
     // - the optional low-level aOnNotify callback will be triggerred for each
     // incoming notification, to track the object changes in real-time
-    constructor Create(aSlave: TRestServer; aMaster: TRestClientURI;
-      aTable: TOrmClass; aOnNotify: TOnBatchWrite); reintroduce;
+    constructor Create(aSlave: TRestServer; aMaster: TRestClientUri;
+      aTable: TOrmClass; const aOnNotify: TOnBatchWrite); reintroduce;
     /// finalize this callback instance
     destructor Destroy; override;
     /// this event will be raised on any Add on a versioned record
-    procedure Added(const NewContent: RawJSON); virtual;
+    procedure Added(const NewContent: RawJson); virtual;
     /// this event will be raised on any Update on a versioned record
-    procedure Updated(const ModifiedContent: RawJSON); virtual;
+    procedure Updated(const ModifiedContent: RawJson); virtual;
     /// this event will be raised on any Delete on a versioned record
     procedure Deleted(const ID: TID; const Revision: TRecordVersion); virtual;
     /// match TInterfaceFactory.MethodIndexCurrentFrameCallback signature,
-    // so that TSQLHttpClientWebsockets.CallbackRequest will call it
+    // so that TRestHttpClientWebsockets.CallbackRequest will call it
     // - it will create a temporary TRestBatch for the whole "jumbo frame"
     procedure CurrentFrame(isLast: boolean); virtual;
     /// low-level event handler triggerred by Added/Updated/Deleted methods
@@ -581,6 +533,7 @@ implementation
 
 uses
   mormot.orm.server;
+
 
 { ***************** TInjectableObjectRest Service Implementation Parent Class }
 
@@ -602,33 +555,33 @@ end;
 
 constructor TServiceFactoryServer.Create(aRestServer: TRestServer;
   aInterface: PRttiInfo; aInstanceCreation: TServiceInstanceImplementation;
-  aImplementationClass: TInterfacedClass; const aContractExpected: RawUTF8;
+  aImplementationClass: TInterfacedClass; const aContractExpected: RawUtf8;
   aTimeOutSec: cardinal; aSharedInstance: TInterfacedObject);
 begin
   // extract RTTI from the interface
   InitializeCriticalSection(fInstanceLock);
   fRestServer := aRestServer;
   inherited Create(aRestServer, aInterface, aInstanceCreation, aContractExpected);
-  if fRestServer.MethodAddress(ShortString(InterfaceURI)) <> nil then
-    raise EServiceException.CreateUTF8(
+  if fRestServer.MethodAddress(ShortString(InterfaceUri)) <> nil then
+    raise EServiceException.CreateUtf8(
       '%.Create: I% already exposed as % published method',
-      [self, InterfaceURI, fRestServer]);
+      [self, InterfaceUri, fRestServer]);
   fImplementationClass := aImplementationClass;
   if fImplementationClass.InheritsFrom(TInterfacedObjectFake) then
   begin
     fImplementationClassKind := ickFake;
     if aSharedInstance = nil then
-      raise EServiceException.CreateUTF8('%.Create: no Shared Instance for %/I%',
-        [self, fImplementationClass, fInterfaceURI]);
+      raise EServiceException.CreateUtf8('%.Create: no Shared Instance for %/I%',
+        [self, fImplementationClass, fInterfaceUri]);
     if (aSharedInstance as TInterfacedObjectFake).
         Factory.InterfaceTypeInfo <> aInterface then
-      raise EServiceException.CreateUTF8(
+      raise EServiceException.CreateUtf8(
         '%.Create: shared % instance does not implement I%',
-        [self, fImplementationClass, fInterfaceURI]);
+        [self, fImplementationClass, fInterfaceUri]);
   end
   else
   begin
-    if aRestServer.Services.implements(fInterface.InterfaceTypeInfo) then
+    if aRestServer.Services.Implements(fInterface.InterfaceTypeInfo) then
       fImplementationClassKind := ickFromInjectedResolver
     else if fImplementationClass.InheritsFrom(TInjectableObjectRest) then
       fImplementationClassKind := ickInjectableRest
@@ -639,15 +592,12 @@ begin
     fImplementationClassInterfaceEntry := fImplementationClass.
       GetInterfaceEntry(fInterface.InterfaceIID);
     if fImplementationClassInterfaceEntry = nil then
-      raise EServiceException.CreateUTF8('%.Create: % does not implement I%',
-        [self, fImplementationClass, fInterfaceURI])
-    else
-
-
+      raise EServiceException.CreateUtf8('%.Create: % does not implement I%',
+        [self, fImplementationClass, fInterfaceUri]);
   end;
   if (fInterface.MethodIndexCallbackReleased >= 0) and
      (InstanceCreation <> sicShared) then
-    raise EServiceException.CreateUTF8(
+    raise EServiceException.CreateUtf8(
       '%.Create: I%() should be run as sicShared', [self,
       fInterface.Methods[fInterface.MethodIndexCallbackReleased].InterfaceDotMethodName]);
   // initialize the shared instance or client driven parameters
@@ -659,16 +609,16 @@ begin
         else if aSharedInstance.InheritsFrom(fImplementationClass) then
           fSharedInstance := aSharedInstance
         else
-          raise EServiceException.CreateUTF8(
+          raise EServiceException.CreateUtf8(
             '%.Create: % shared instance does not inherit from %',
             [self, aSharedInstance, fImplementationClass]);
         if fImplementationClassKind <> ickFake then
           if (fSharedInstance = nil) or
              not GetInterfaceFromEntry(fSharedInstance,
                fImplementationClassInterfaceEntry, fSharedInterface) then
-            raise EServiceException.CreateUTF8(
+            raise EServiceException.CreateUtf8(
               '%.Create: % is no implementation of I%',
-              [self, fSharedInstance, fInterfaceURI]);
+              [self, fSharedInstance, fInterfaceUri]);
       end;
     sicClientDriven, sicPerSession, sicPerUser, sicPerGroup, sicPerThread:
       if (aTimeOutSec = 0) and
@@ -690,7 +640,7 @@ procedure TServiceFactoryServer.SetTimeoutSecInt(value: cardinal);
 begin
   if (self = nil) or
      (InstanceCreation in SERVICE_IMPLEMENTATION_NOID) then
-    raise EServiceException.CreateUTF8('%.SetTimeoutSecInt() with %',
+    raise EServiceException.CreateUtf8('%.SetTimeoutSecInt() with %',
       [self, ToText(InstanceCreation)^]);
   fInstanceTimeOut := value * 1000;
 end;
@@ -712,7 +662,7 @@ begin
 end;
 
 function TServiceFactoryServer.GetStat(
-  const aMethod: RawUTF8): TSynMonitorInputOutput;
+  const aMethod: RawUtf8): TSynMonitorInputOutput;
 begin
   result := fStats[fInterface.CheckMethodIndex(aMethod)];
 end;
@@ -723,7 +673,7 @@ var
 begin
   if fInstanceCount > 0 then
     fRestServer.InternalLog('%.Destroy for I% %: fInstanceCount=%',
-      [ClassType, fInterfaceURI, ToText(InstanceCreation)^, fInstanceCount], sllDebug);
+      [ClassType, fInterfaceUri, ToText(InstanceCreation)^, fInstanceCount], sllDebug);
   try
     EnterCriticalSection(fInstanceLock);
     try
@@ -746,7 +696,7 @@ begin
   inherited Destroy;
 end;
 
-function TServiceFactoryServer.Get(out Obj): Boolean;
+function TServiceFactoryServer.Get(out Obj): boolean;
 var
   Inst: TServiceFactoryServerInstance;
 begin
@@ -785,7 +735,7 @@ begin
         Factory := self;
 end;
 
-function TServiceFactoryServer.RetrieveSignature: RawUTF8;
+function TServiceFactoryServer.RetrieveSignature: RawUtf8;
 begin
   if self = nil then
     result := ''
@@ -873,7 +823,7 @@ begin
   except
     on E: Exception do
       Factory.RestServer.Internallog('SafeFreeInstance: Ignored % exception ' +
-        'during %._Release', [E.ClassType, Factory.InterfaceURI], sllDebug);
+        'during %._Release', [E.ClassType, Factory.InterfaceUri], sllDebug);
   end;
 end;
 
@@ -894,7 +844,7 @@ function TServiceFactoryServer.InternalInstanceRetrieve(
     inc(fInstanceCount);
     fRestServer.InternalLog(
       '%.InternalInstanceRetrieve: Adding %(%) instance (id=%) count=%',
-      [ClassType, fInterfaceURI, pointer(Inst.Instance), Inst.InstanceID,
+      [ClassType, fInterfaceUri, pointer(Inst.Instance), Inst.InstanceID,
        fInstanceCount], sllDebug);
     P := pointer(fInstance);
     for i := 1 to fInstanceCapacity do
@@ -913,9 +863,9 @@ var
   P: ^TServiceFactoryServerInstance;
 begin
   result := -1;
+  Inst.LastAccess64 := GetTickCount64;
   EnterCriticalSection(fInstanceLock);
   try
-    Inst.LastAccess64 := GetTickCount64;
     // first release any deprecated instances
     if (fInstanceTimeout <> 0) and
        (fInstanceCount > 0) then
@@ -928,7 +878,7 @@ begin
         begin
           fRestServer.InternalLog('%.InternalInstanceRetrieve: Delete %(%) ' +
             'instance (id=%) after % minutes timeout (max % minutes)',
-            [ClassType, fInterfaceURI, pointer(Inst.Instance), P^.InstanceID,
+            [ClassType, fInterfaceUri, pointer(Inst.Instance), P^.InstanceID,
              (Inst.LastAccess64 - P^.LastAccess64) div 60000,
              fInstanceTimeOut div 60000], sllInfo);
           P^.SafeFreeInstance(self);
@@ -993,42 +943,41 @@ begin
         fImplementationClass).Create;
     ickInjectable:
       result := TInjectableObjectClass(
-        fImplementationClass).CreateWithResolver(fRestServer.Services, true);
+        fImplementationClass).CreateWithResolver(fResolver, true);
     ickInjectableRest:
       result := TInjectableObjectRestClass(fImplementationClass).
-        CreateWithResolverAndRest(fRestServer.Services, self, RestServer, true);
+        CreateWithResolverAndRest(fResolver, self, fRestServer, true);
     ickFromInjectedResolver:
       begin
         dummyObj := nil;
-        if not (fRestServer.Services as TServiceContainerServer).
-            TryResolveInternal(fInterface.InterfaceTypeInfo, dummyObj) then
-          raise EInterfaceFactory.CreateUTF8(
-            'ickFromInjectedResolver: TryResolveInternal(%)=false',
+        if not TServiceContainerServer(fResolver).TryResolve(
+            fInterface.InterfaceTypeInfo, dummyObj) then
+          raise EInterfaceFactory.CreateUtf8(
+            'ickFromInjectedResolver: TryResolve(%) failed',
             [fInterface.InterfaceName]);
         result := TInterfacedObject(ObjectFromInterface(IInterface(dummyObj)));
-        if AndIncreaseRefCount then
-          // RefCount=1 after TryResolveInternal()
-          AndIncreaseRefCount := false
-        else
-          // adjust the reference counter
-          dec(TInjectableObjectRest(result).fRefCount);
+        // RefCount=1 after TryResolve() -> adjust
+        dec(TInjectableObjectRest(result).fRefCount);
       end;
   else
     result := fImplementationClass.Create;
   end;
+  inc(TInjectableObjectRest(result).fRefCount); // >0 to call Support() in event
   if Assigned(fRestServer.OnServiceCreateInstance) then
     fRestServer.OnServiceCreateInstance(self, result);
-  if AndIncreaseRefCount then
-    IInterface(result)._AddRef; // allow passing self to sub-methods
+  if not AndIncreaseRefCount then
+    dec(TInjectableObjectRest(result).fRefCount);
 end;
 
 procedure TServiceFactoryServer.OnLogRestExecuteMethod(
-  Sender: TInterfaceMethodExecute; Step: TInterfaceMethodExecuteEventStep);
+  Sender: TInterfaceMethodExecuteRaw; Step: TInterfaceMethodExecuteEventStep);
 var
   W: TTextWriter;
-  a, len: integer;
+  a: PtrInt;
+  len: integer;
 begin
-  W := Sender.TempTextWriter;
+  // append the input/output/error parameters as batch JSON
+  W := (Sender as TInterfaceMethodExecute).TempTextWriter;
   with Sender.Method^ do
     case Step of
       smsBefore:
@@ -1036,7 +985,7 @@ begin
           W.CancelAll;
           W.AddShort('"POST",{Method:"');
           W.AddString(InterfaceDotMethodName);
-          W.AddShort('",Input:{'); // as TOrmPropInfoRTTIVariant.GetJSONValues
+          W.AddShort('",Input:{'); // as TOrmPropInfoRttiVariant.GetJsonValues
           if not (optNoLogInput in Sender.Options) then
           begin
             for a := ArgsInFirst to ArgsInLast do
@@ -1047,10 +996,10 @@ begin
                 begin
                   W.AddShort(ParamName^); // in JSON_OPTIONS_FAST_EXTENDED format
                   W.Add(':');
-                  if vIsSPI in ValueKindAsm then
-                    W.AddShort('"****",')
+                  if vIsSpi in ValueKindAsm then
+                    W.AddShorter('"****",')
                   else
-                    AddJSON(W, Sender.Values[a], SERVICELOG_WRITEOPTIONS);
+                    AddJson(W, Sender.Values[a], SERVICELOG_WRITEOPTIONS);
                 end;
             W.CancelLastComma;
           end;
@@ -1063,12 +1012,12 @@ begin
               with PServiceCustomAnswer(Sender.Values[ArgsResultIndex])^ do
               begin
                 len := length(Content);
-                W.AddShort('len:');
+                W.AddShorter('len:');
                 W.AddU(len);
                 if (Status <> 0) and
                    (Status <> HTTP_SUCCESS) then
                 begin
-                  W.AddShort(',status:');
+                  W.AddShorter(',status:');
                   W.AddU(Status);
                 end;
                 if not fExcludeServiceLogCustomAnswer and
@@ -1085,15 +1034,15 @@ begin
             begin
               for a := ArgsOutFirst to ArgsOutLast do
                 with Args[a] do
-                  if (ValueDirection in [imdVar, imdOut, imdResult]) and
+                  if (ValueDirection <> imdConst) and
                      not IsDefault(Sender.Values[a]) then
                   begin
                     W.AddShort(ParamName^);
                     W.Add(':');
-                    if vIsSPI in ValueKindAsm then
-                      W.AddShort('"****",')
+                    if vIsSpi in ValueKindAsm then
+                      W.AddShorter('"****",')
                     else
-                      AddJSON(W, Sender.Values[a], SERVICELOG_WRITEOPTIONS);
+                      AddJson(W, Sender.Values[a], SERVICELOG_WRITEOPTIONS);
                   end;
               W.CancelLastComma;
             end;
@@ -1103,16 +1052,16 @@ begin
           W.AddShort('},Output:{');
           W.AddClassName(Sender.LastException.ClassType);
           W.Add(':', '"');
-          W.AddJSONEscapeString(Sender.LastException.Message);
+          W.AddJsonEscapeString(Sender.LastException.Message);
           W.Add('"');
         end;
     end;
 end;
 
-procedure TServiceFactoryServer.ExecuteMethod(Ctxt: TRestServerURIContext);
+procedure TServiceFactoryServer.ExecuteMethod(Ctxt: TRestServerUriContext);
 var
   Inst: TServiceFactoryServerInstance;
-  WR: TJSONSerializer;
+  WR: TJsonSerializer;
   entry: PInterfaceEntry;
   instancePtr: pointer; // weak IInvokable reference
   dolock, execres: boolean;
@@ -1124,7 +1073,7 @@ var
   err: shortstring;
   temp: TTextWriterStackBuffer;
 
-  function GetFullMethodName: RawUTF8;
+  function GetFullMethodName: RawUtf8;
   begin
     if Ctxt.ServiceMethod <> nil then
       result := PInterfaceMethod(Ctxt.ServiceMethod)^.InterfaceDotMethodName
@@ -1132,7 +1081,7 @@ var
       result := fInterface.InterfaceName;
   end;
 
-  procedure Error(const Msg: RawUTF8; Status: integer);
+  procedure Error(const Msg: RawUtf8; Status: integer);
   begin
     Ctxt.Error('% % for %',
      [ToText(InstanceCreation)^, Msg, GetFullMethodName], Status);
@@ -1157,13 +1106,13 @@ var
     if exec.CurrentStep < smsAfter then
       W.AddShort('},Output:{Failed:"Probably due to wrong input"');
     W.Add('},Session:%,User:%,Time:%,MicroSec:%',
-      [integer(Ctxt.Session), Ctxt.SessionUser, TimeLogNowUTC, timeEnd]);
+      [integer(Ctxt.Session), Ctxt.SessionUser, TimeLogNowUtc, timeEnd]);
     if Ctxt.RemoteIPIsLocalHost then
       W.Add('}', ',')
     else
       W.Add(',IP:"%"},', [Ctxt.RemoteIP]);
     with Ctxt.ServiceExecution^ do
-      IRestOrm(LogRest).AsynchBatchRawAppend(LogClass, W);
+      IRestOrm(LogRest).AsyncBatchRawAppend(LogClass, W);
   end;
 
 begin
@@ -1197,7 +1146,7 @@ begin
             end
           else
           begin
-            Error('mode expects an authenticated session', HTTP_UNAUTHORIZED);
+            Error('mode expects an authenticated session', HTTP_FORBIDDEN);
             exit;
           end;
         end;
@@ -1219,7 +1168,7 @@ begin
   end;
   if Inst.Instance = nil then
   begin
-    Error('instance not found or deprecated', HTTP_UNAUTHORIZED);
+    Error('instance not found or deprecated', HTTP_FORBIDDEN);
     exit;
   end;
   Ctxt.ServiceInstanceID := Inst.InstanceID;
@@ -1277,20 +1226,20 @@ begin
     opt := Ctxt.ServiceExecution^.Options;
     if optExecInPerInterfaceThread in opt then
       if fBackgroundThread = nil then
-        fBackgroundThread := fRestServer.NewBackgroundThreadMethod(
+        fBackgroundThread := fRestServer.Run.NewBackgroundThreadMethod(
           '% %', [self, fInterface.InterfaceName]);
-    WR := TJSONSerializer.CreateOwnedStream(temp);
+    WR := TJsonSerializer.CreateOwnedStream(temp);
     try
       Ctxt.ThreadServer^.Factory := self;
-      if not (optForceStandardJSON in opt) and
+      if not (optForceStandardJson in opt) and
          ((Ctxt.Call.InHead = '') or
           (Ctxt.ClientKind = ckFramework)) then
         // return extended/optimized pseudo-JSON, as recognized by mORMot
-        WR.CustomOptions := WR.CustomOptions + [twoForceJSONExtended]
+        WR.CustomOptions := WR.CustomOptions + [twoForceJsonExtended]
       else
         // return standard JSON, as expected e.g. by a regular AJAX client
-        WR.CustomOptions := WR.CustomOptions + [twoForceJSONStandard];
-      if optDontStoreVoidJSON in opt then
+        WR.CustomOptions := WR.CustomOptions + [twoForceJsonStandard];
+      if optDontStoreVoidJson in opt then
         WR.CustomOptions := WR.CustomOptions + [twoIgnoreDefaultInRecord];
       // root/calculator {"method":"add","params":[1,2]} -> {"result":[3],"id":0}
       Ctxt.ServiceResultStart(WR);
@@ -1317,11 +1266,11 @@ begin
         else
           // regular execution
           execres := exec.ExecuteJson([instancePtr], Ctxt.ServiceParameters,
-            WR, @err, Ctxt.ForceServiceResultAsJSONObject);
+            WR, @err, Ctxt.ForceServiceResultAsJsonObject);
         if not execres then
         begin
+          // wrong request returns HTTP error 406
           if err <> '' then
-            // wrong request
             Ctxt.Error('%', [err], HTTP_NOTACCEPTABLE)
           else
             Error('execution failed (probably due to bad input parameters)',
@@ -1426,7 +1375,7 @@ begin
     aLogRest.Model.GetTableIndexExisting(aLogClass);
   end;
   for m := 0 to fInterface.MethodsCount - 1 do
-    if m in aMethods then
+    if byte(m) in aMethods then
       with fExecution[m] do
       begin
         LogRest := pointer(aLogRest); // weak pointer to avoid reference counting
@@ -1434,11 +1383,12 @@ begin
       end;
   if aLogRest <> nil then
     // write every second or after 500 rows in background
-    aLogRest.AsynchBatchStart(aLogClass, 1, 500, 1000); // do nothing if already set
+    aLogRest.AsyncBatchStart(aLogClass, 1, 500, 1000); // do nothing if already set
 end;
 
-function TServiceFactoryServer.SetServiceLog(const aMethod: array of RawUTF8;
-  const aLogRest: IRestOrm; aLogClass: TOrmServiceLogClass): TServiceFactoryServerAbstract;
+function TServiceFactoryServer.SetServiceLog(
+  const aMethod: array of RawUtf8; const aLogRest: IRestOrm;
+  aLogClass: TOrmServiceLogClass): TServiceFactoryServerAbstract;
 var
   bits: TInterfaceFactoryMethodBits;
 begin
@@ -1451,7 +1401,7 @@ begin
 end;
 
 procedure TServiceFactoryServer.AddInterceptor(
-  const Hook: TInterfaceMethodExecuteEvent);
+  const Hook: TOnInterfaceMethodExecute);
 begin
   MultiEventAdd(fOnExecute, TMethod(Hook));
 end;
@@ -1472,21 +1422,22 @@ type
     fFakeInterface: Pointer;
     fRaiseExceptionOnInvokeError: boolean;
     function CallbackInvoke(const aMethod: TInterfaceMethod;
-      const aParams: RawUTF8; aResult, aErrorMsg: PRawUTF8;
-      aClientDrivenID: PCardinal; aServiceCustomAnswer: PServiceCustomAnswer): boolean; virtual;
+      const aParams: RawUtf8; aResult, aErrorMsg: PRawUtf8;
+      aClientDrivenID: PCardinal;
+      aServiceCustomAnswer: PServiceCustomAnswer): boolean; virtual;
   public
-    constructor Create(aRequest: TRestServerURIContext;
-      aFactory: TInterfaceFactory; aFakeID: Integer);
+    constructor Create(aRequest: TRestServerUriContext;
+      aFactory: TInterfaceFactory; aFakeID: integer);
     destructor Destroy; override;
   end;
 
-constructor TInterfacedObjectFakeServer.Create(aRequest: TRestServerURIContext;
-  aFactory: TInterfaceFactory; aFakeID: Integer);
+constructor TInterfacedObjectFakeServer.Create(aRequest: TRestServerUriContext;
+  aFactory: TInterfaceFactory; aFakeID: integer);
 var
-  opt: TInterfacedObjectFromFactoryOptions;
+  opt: TInterfacedObjectFakeOptions;
 begin
   if aRequest.ClientKind = ckFramework then
-    opt := [ifoJsonAsExtended, ifoDontStoreVoidJSON]
+    opt := [ifoJsonAsExtended, ifoDontStoreVoidJson]
   else
     opt := [];
   fServer := aRequest.Server;
@@ -1503,7 +1454,7 @@ begin
   begin
     // may be called asynchronously AFTER server is down
     fServer.InternalLog('%(%:%).Destroy I%',
-      [ClassType, pointer(self), fClientDrivenID, fService.InterfaceURI]);
+      [ClassType, pointer(self), fClientDrivenID, fService.InterfaceUri]);
     if fServer.Services <> nil then
       with fServer.Services as TServiceContainerServer do
         if fFakeCallbacks <> nil then
@@ -1513,8 +1464,8 @@ begin
 end;
 
 function TInterfacedObjectFakeServer.CallbackInvoke(
-  const aMethod: TInterfaceMethod; const aParams: RawUTF8;
-  aResult, aErrorMsg: PRawUTF8; aClientDrivenID: PCardinal;
+  const aMethod: TInterfaceMethod; const aParams: RawUtf8;
+  aResult, aErrorMsg: PRawUtf8; aClientDrivenID: PCardinal;
   aServiceCustomAnswer: PServiceCustomAnswer): boolean;
 begin
   // here aClientDrivenID^ = FakeCall ID
@@ -1526,22 +1477,22 @@ begin
     exit;
   end;
   if not Assigned(fServer.OnNotifyCallback) then
-    raise EServiceException.CreateUTF8('%(%) does not support callbacks for I%',
+    raise EServiceException.CreateUtf8('%(%) does not support callbacks for I%',
       [fServer, fServer.Model.Root, aMethod.InterfaceDotMethodName]);
   if fReleasedOnClientSide then
   begin
     // there is no client side to call
-    if not IdemPropName(fFactory.InterfaceTypeInfo^.Name^, 'ISynLogCallback') then
+    if not IdemPropName(fFactory.InterfaceTypeInfo^.RawName, 'ISynLogCallback') then
       fServer.InternalLog('%.CallbackInvoke: % instance has been released on ' +
         'the client side, so I% callback notification was NOT sent', [self,
-        fFactory.InterfaceTypeInfo^.Name^, aMethod.InterfaceDotMethodName], sllWarning);
+        fFactory.InterfaceTypeInfo^.RawName, aMethod.InterfaceDotMethodName], sllWarning);
     if fRaiseExceptionOnInvokeError or
        ((fServer.Services <> nil) and
         (coRaiseExceptionIfReleasedByClient in
          (fServer.Services as TServiceContainerServer).CallbackOptions)) then
     begin
       if aErrorMsg <> nil then
-        FormatUTF8('%.CallbackInvoke(I%): instance has been released on client side',
+        FormatUtf8('%.CallbackInvoke(I%): instance has been released on client side',
           [self, aMethod.InterfaceDotMethodName], aErrorMsg^);
       result := false; // will raise an exception
     end
@@ -1566,10 +1517,10 @@ function TServiceContainerServer.AddImplementation(
   aImplementationClass: TInterfacedClass; const aInterfaces: array of PRttiInfo;
   aInstanceCreation: TServiceInstanceImplementation;
   aSharedImplementation: TInterfacedObject;
-  const aContractExpected: RawUTF8): TServiceFactoryServer;
+  const aContractExpected: RawUtf8): TServiceFactoryServer;
 var
   i, j: PtrInt;
-  UID, implemented: PGUIDDynArray;
+  UID, implemented: PGuidDynArray;
   F: TServiceFactoryServer;
 begin
   result := nil;
@@ -1581,28 +1532,28 @@ begin
   if aSharedImplementation <> nil then
     if (aSharedImplementation.ClassType <> aImplementationClass) or
        (aInstanceCreation <> sicShared) then
-      raise EServiceException.CreateUTF8('%.AddImplementation: invalid % class',
+      raise EServiceException.CreateUtf8('%.AddImplementation: invalid % class',
         [self, aSharedImplementation]);
   CheckInterface(aInterfaces);
   SetLength(UID, length(aInterfaces));
   for j := 0 to high(aInterfaces) do
-    UID[j] := pointer(aInterfaces[j]^.InterfaceGUID);
+    UID[j] := pointer(aInterfaces[j]^.InterfaceGuid);
   // check all interfaces available in aSharedImplementation/aImplementationClass
   if (aSharedImplementation <> nil) and
      aSharedImplementation.InheritsFrom(TInterfacedObjectFake) then
   begin
     // TInterfacedObjectFake has no RTTI
-    if IsEqualGUID(UID[0],
+    if IsEqualGuid(UID[0],
         @TInterfacedObjectFake(aSharedImplementation).Factory.InterfaceIID) then
       UID[0] := nil; // mark TGUID implemented by this fake interface
   end
   else
   begin
     // search all implemented TGUID for this class
-    implemented := GetRttiClassGUID(aImplementationClass);
+    implemented := GetRttiClassGuid(aImplementationClass);
     for j := 0 to high(UID) do
       for i := 0 to high(implemented) do
-        if IsEqualGUID(UID[j], implemented[i]) then
+        if IsEqualGuid(UID[j], implemented[i]) then
         begin
           UID[j] := nil; // mark TGUID found
           break;
@@ -1610,8 +1561,8 @@ begin
   end;
   for j := 0 to high(UID) do
     if UID[j] <> nil then
-      raise EServiceException.CreateUTF8('%.AddImplementation: % not found in %',
-        [self, aInterfaces[j]^.Name^, aImplementationClass]);
+      raise EServiceException.CreateUtf8('%.AddImplementation: % not found in %',
+        [self, aInterfaces[j]^.RawName, aImplementationClass]);
   // register this implementation class
   for j := 0 to high(aInterfaces) do
   begin
@@ -1735,13 +1686,13 @@ begin
 end;
 
 procedure TServiceContainerServer.FakeCallbackRelease(
-  Ctxt: TRestServerURIContext);
+  Ctxt: TRestServerUriContext);
 var
   i: PtrInt;
   fake: TInterfacedObjectFakeServer;
   connectionID: Int64;
   fakeID: PtrUInt;
-  Values: TNameValuePUTF8CharDynArray;
+  Values: TNameValuePUtf8CharDynArray;
   withLog: boolean; // avoid stack overflow
 begin
   if (self = nil) or
@@ -1749,7 +1700,7 @@ begin
     (Ctxt = nil) then
     exit;
   connectionID := Ctxt.Call^.LowLevelConnectionID;
-  JSONDecode(pointer(Ctxt.Call^.InBody), Values);
+  JsonDecode(pointer(Ctxt.Call^.InBody), Values);
   if length(Values) <> 1 then
     exit;
   fakeID := GetCardinal(Values[0].value);
@@ -1787,7 +1738,7 @@ begin
           Ctxt.Service := fake.fService;
           inc(Ctxt.ServiceMethodIndex, SERVICE_PSEUDO_METHOD_COUNT);
           fake._AddRef; // IInvokable=pointer in Ctxt.ExecuteCallback
-          Ctxt.ServiceParameters := pointer(FormatUTF8('[%,"%"]',
+          Ctxt.ServiceParameters := pointer(FormatUtf8('[%,"%"]',
             [PtrInt(PtrUInt(fake.fFakeInterface)), Values[0].Name]));
           fake.fService.ExecuteMethod(Ctxt);
           if withLog then
@@ -1833,7 +1784,7 @@ begin
   result := true;
 end;
 
-procedure TServiceContainerServer.GetFakeCallback(Ctxt: TRestServerURIContext;
+procedure TServiceContainerServer.GetFakeCallback(Ctxt: TRestServerUriContext;
   ParamInterfaceInfo: PRttiInfo; FakeID: PtrInt; out Obj);
 var
   factory: TInterfaceFactory;
@@ -1879,7 +1830,7 @@ end;
 
 procedure TServiceContainerServer.RecordVersionCallbackNotify(
   TableIndex: integer; Occasion: TOrmOccasion; const DeletedID: TID;
-  const DeletedRevision: TRecordVersion; const AddUpdateJson: RawUTF8);
+  const DeletedRevision: TRecordVersion; const AddUpdateJson: RawUtf8);
 var
   i: PtrInt;
   arr: ^IServiceRecordVersionCallbackDynArray;
@@ -1918,27 +1869,27 @@ end;
 procedure TServiceContainerServer.RecordVersionNotifyAddUpdate(
   Occasion: TOrmOccasion; TableIndex: integer; const Document: TDocVariantData);
 var
-  json: RawUTF8;
+  json: RawUtf8;
 begin
   if (Occasion in [ooInsert, ooUpdate]) and
      (fRecordVersionCallback <> nil) and
      (fRecordVersionCallback[TableIndex] <> nil) then
   begin
-    json := Document.ToJSON;
+    json := Document.ToJson;
     RecordVersionCallbackNotify(TableIndex, Occasion, 0, 0, json);
   end;
 end;
 
 procedure TServiceContainerServer.RecordVersionNotifyAddUpdate(
-  Occasion: TOrmOccasion; TableIndex: integer; const Decoder: TJSONObjectDecoder);
+  Occasion: TOrmOccasion; TableIndex: integer; const Decoder: TJsonObjectDecoder);
 var
-  json: RawUTF8;
+  json: RawUtf8;
 begin
   if (Occasion in [ooInsert, ooUpdate]) and
      (fRecordVersionCallback <> nil) and
      (fRecordVersionCallback[TableIndex] <> nil) then
   begin
-    Decoder.EncodeAsJSON(json);
+    Decoder.EncodeAsJson(json);
     RecordVersionCallbackNotify(TableIndex, Occasion, 0, 0, json);
   end;
 end;
@@ -1952,7 +1903,7 @@ begin
 end;
 
 procedure TServiceContainerServer.SetServiceLog(const aLogRest: IRestOrm;
-  aLogClass: TOrmServiceLogClass; const aExcludedMethodNamesCSV: RawUTF8);
+  aLogClass: TOrmServiceLogClass; const aExcludedMethodNamesCsv: RawUtf8);
 var
   i, n: PtrInt;
   fact: TServiceFactory;
@@ -1960,9 +1911,9 @@ var
   methods: TInterfaceFactoryMethodBits;
   somemethods: boolean;
 begin
-  somemethods := aExcludedMethodNamesCSV <> '';
+  somemethods := aExcludedMethodNamesCsv <> '';
   if somemethods then
-    SetInterfaceMethodBits(pointer(aExcludedMethodNamesCSV), true, excluded)
+    SetInterfaceMethodBits(pointer(aExcludedMethodNamesCsv), true, excluded)
   else
     FillcharFast(methods, SizeOf(methods), 255);
   n := length(fInterfaceMethod);
@@ -1976,8 +1927,8 @@ begin
       somemethods := false;
     end;
     repeat
-      if (aExcludedMethodNamesCSV <> '') and
-         not (i in {%H-}excluded) then
+      if (aExcludedMethodNamesCsv <> '') and
+         not (byte(i) in {%H-}excluded) then
       begin
         include(methods, fInterfaceMethod[i].InterfaceMethodIndex
           - SERVICE_PSEUDO_METHOD_COUNT);
@@ -1986,7 +1937,7 @@ begin
       inc(i);
     until (i >= n) or
           (fInterfaceMethod[i].InterfaceService <> fact);
-    if (aExcludedMethodNamesCSV = '') or
+    if (aExcludedMethodNamesCsv = '') or
        somemethods then
       TServiceFactoryServer(fact).SetServiceLogByIndex(
         methods, aLogRest, aLogClass);
@@ -1998,7 +1949,7 @@ end;
 
 { TServiceRecordVersion }
 
-function TServiceRecordVersion.Subscribe(const SQLTableName: RawUTF8;
+function TServiceRecordVersion.Subscribe(const SqlTableName: RawUtf8;
   const revision: TRecordVersion;
   const callback: IServiceRecordVersionCallback): boolean;
 var
@@ -2007,7 +1958,7 @@ begin
   result := false;
   if Server <> nil then
   begin
-    table := Server.Model.Table[SQLTableName];
+    table := Server.Model.Table[SqlTableName];
     if table <> nil then
       result := Server.RecordVersionSynchronizeSubscribeMaster(
         table, revision, callback);
@@ -2018,15 +1969,15 @@ end;
 { TServiceRecordVersionCallback }
 
 constructor TServiceRecordVersionCallback.Create(aSlave: TRestServer;
-  aMaster: TRestClientURI; aTable: TOrmClass; aOnNotify: TOnBatchWrite);
+  aMaster: TRestClientUri; aTable: TOrmClass; const aOnNotify: TOnBatchWrite);
 begin
   if aSlave = nil then
-    raise EServiceException.CreateUTF8('%.Create(%): Slave=nil',
+    raise EServiceException.CreateUtf8('%.Create(%): Slave=nil',
       [self, aTable]);
   fSlave := aSlave;
-  fRecordVersionField := aTable.RecordProps.RecordVersionField;
+  fRecordVersionField := aTable.OrmProps.RecordVersionField;
   if fRecordVersionField = nil then
-    raise EServiceException.CreateUTF8('%.Create: % has no TRecordVersion field',
+    raise EServiceException.CreateUtf8('%.Create: % has no TRecordVersion field',
       [self, aTable]);
   fTableDeletedIDOffset := Int64(fSlave.Model.GetTableIndexExisting(aTable))
     shl ORMVERSION_DELETEID_SHIFT;
@@ -2044,13 +1995,13 @@ begin
   if (Revision < current) or
      ((Revision = current) and
       (Event <> ooInsert)) then
-    raise EServiceException.CreateUTF8(
+    raise EServiceException.CreateUtf8(
       '%.SetCurrentRevision(%) on %: previous was %',
       [self, Revision, fTable, current]);
   fSlave.RecordVersionMax := Revision;
 end;
 
-procedure TServiceRecordVersionCallback.Added(const NewContent: RawJSON);
+procedure TServiceRecordVersionCallback.Added(const NewContent: RawJson);
 var
   rec: TOrm;
   fields: TFieldBits;
@@ -2070,7 +2021,7 @@ begin
   end;
 end;
 
-procedure TServiceRecordVersionCallback.Updated(const ModifiedContent: RawJSON);
+procedure TServiceRecordVersionCallback.Updated(const ModifiedContent: RawJson);
 var
   rec: TOrm;
   fields: TFieldBits;
@@ -2124,7 +2075,7 @@ end;
 
 procedure TServiceRecordVersionCallback.CurrentFrame(isLast: boolean);
 
-  procedure Error(const msg: RawUTF8);
+  procedure Error(const msg: RawUtf8);
   begin
     fRest.InternalLog('%.CurrentFrame(%) on %: %',
       [self, isLast, fTable, msg], sllError);

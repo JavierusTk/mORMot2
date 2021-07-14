@@ -12,20 +12,25 @@ The framework source code is licensed under a disjunctive three-license giving t
 - *GNU Lesser General Public License*, version 2.1 or later (LGPL), with *linking exception* of the *FPC modified LGPL*.
 This allows the use of our code in as wide a variety of software projects as possible, while still maintaining copy-left on code we wrote.
 
-See LICENSE.md file in the root folder of this repository for more information.
+See [the full licensing terms](../LICENCE.md) in the root folder of this repository for more information.
 
 ## Sub-Folders
 
 The source code tree is split into the following sub-folders:
 
-- `core` for low-level shared components like text, JSON, compression, crypto, network;
-- `lib` for external third-party libraries like zlib or openssl;
-- `net` for the client/server communication layer;
-- `db` for our SQLite3 kernel, and SQL/NoSQL direct access;
-- `orm` for high-level ORM features;
-- `soa` for high-level SOA features;
-- `app` for hosting REST (micro)services/daemons and applications;
-- `ddd` for *Domain-Driven-Design* related code.
+- [`core`](core) for low-level shared components like text, RTTI, JSON, compression;
+- [`lib`](lib) for external third-party libraries like *zlib* or *openssl*;
+- [`crypt`](crypt) for efficient symetric/asymetric cryptography;
+- [`net`](net) for the client/server communication layer;
+- [`db`](db) for our *SQLite3* kernel, and SQL/NoSQL direct access;
+- [`rest`](rest) for the RESTful client/server processing;
+- [`orm`](orm) for high-level ORM features;
+- [`soa`](soa) for high-level SOA features;
+- [`app`](app) for hosting (micro)services/daemons and applications;
+- [`ui`](ui) for VCL/LCL User Interface oriented components;
+- [`script`](script) for the supported (java)script engines;
+- [`ddd`](ddd) for *Domain-Driven-Design* related code;
+- [`tools`](tools) for some useful tools tied to our framework.
 
 
 ## Units Naming
@@ -35,9 +40,22 @@ By convention:
 - Unit names are dot-separated, and start with the `mormot.` prefix;
 - Unit names follow their location in the `src` sub folder, e.g. `mormot.core.json.pas` is located in the `src/core` folder.
 
+## Types Naming
+
+In respect to *mORMot 1.18*, some confusing/deprecated naming like `TSQLRecord` or `TSQLRest` prefix have been renamed as `TOrm` and `TRest`, since our ORM is not SQL-only, but works e.g. with NoSQL engines like MongoDB.
+
+Generally speaking, we followed the [Kotlin good naming rules](https://kotlinlang.org/docs/reference/coding-conventions.html#choosing-good-names):
+>  When using an acronym as part of a declaration name, capitalize it if it consists of two letters (IOStream); capitalize only the first letter if it is longer (XmlFormatter, HttpInputStream).
+
+Some types have been changed or enhanced:
+- `TSQLRawBlob` renamed as `RawBlob`;
+- `RawUtf8` is an alias to `System.UTF8String` type so you can use either of them in your code.
+
+Note that the `PUREMORMOT2` conditional can be defined for your project, to disable the type names backward compatible redirection enabled by default. It may be a good idea, because we may relax the backward compatibility in a few years.
 
 ## Include Files
 
 To clean the design and enhance source maintainibility, some units have associated `*.inc` source files:
-- To regroup Operating-System specific code - e.g. `mormot.core.os.posix.inc` to include non-Windows OS calls;
-- To regroup CPU-specific (asm) code - e.g. `mormot.core.crypto.asmx64.inc` to include `x86_64` assembly.
+- To regroup Operating-System specific code - e.g. `mormot.core.os.posix.inc` to include non-Windows OS calls in `mormot.core.os.pas`;
+- To regroupe Compiler-specific code - e.g. `mormot.core.rtti.fpc.inc` to include FPC RTTI in `mormot.core.rtti.pas`;
+- To regroup CPU-specific (asm) code - e.g. `mormot.crypt.core.asmx64.inc` to include `x86_64` assembly in `mormot.crypt.core.pas`.

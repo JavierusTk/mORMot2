@@ -1,12 +1,12 @@
 ## Copyright Holder
 
-According to our LICENSE.md terms, Synopse Informatique, and Arnaud Bouchez as the main Author of the Open Source *mORMot* framework, are the Copyright Holders.
+According to [the project licence terms](LICENCE.md), Synopse Informatique, and Arnaud Bouchez as the main Author of the Open Source *mORMot* framework, are the Copyright Holders.
 
 But nothing would have been possible without a big number of Contributors, who provided fixes or enhancements.
 
 ## Contributors
 
-A huge *THANK YOU* is worth giving to all of the contributors of our Open Source *mORMot* framework:
+A huge *THANK YOU* is worth giving to all of the contributors of our Open Source *mORMot* framework, since its initial release more than 10 years ago!
 
 - Alan Chate
 - Alexander (sha)
@@ -35,8 +35,10 @@ A huge *THANK YOU* is worth giving to all of the contributors of our Open Source
 - Esteban Martin (EMartin)
 - Eugene Ilyin
 - Eva Freimann (EVaF)
+- Evan (eblaudy)
 - F-Vicente
 - Goran Despalatovic (gigo)
+- Hubert Touvet
 - Jean-Baptiste Roussia (jbroussia)
 - Joe (jokusoft)
 - Johan Bontes
@@ -51,6 +53,7 @@ A huge *THANK YOU* is worth giving to all of the contributors of our Open Source
 - Marius Maximus (mariuszekpl)
 - Martin Eckes
 - Martin Suer
+- Matkov
 - Maxim Masiutin
 - Mazinsw
 - MChaos
@@ -63,6 +66,7 @@ A huge *THANK YOU* is worth giving to all of the contributors of our Open Source
 - Nicolas Marchand (MC)
 - Nortg
 - Nzsolt
+- OkobaPatino
 - Oleg Tretyakov
 - Ondrej (reddwarf)
 - Pavel Mashlyakovskii (mpv)

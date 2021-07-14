@@ -7,7 +7,7 @@ unit mormot.db.sql.oledb;
   *****************************************************************************
 
    Efficient SQL Database Connection via OleDB 
-    - TSQLDBOleDBConnection* and TSQLDBOleDBStatement Classes
+    - TSqlDBOleDBConnection* and TSqlDBOleDBStatement Classes
     - Database Engine Specific OleDB Connection Classes
 
   *****************************************************************************
@@ -17,7 +17,7 @@ interface
 
 {$I ..\mormot.defines.inc}
 
-{$ifdef MSWINDOWS} // compiles as void unit for non-Windows - allow Lazarus package
+{$ifdef OSWINDOWS} // compiles as void unit for non-Windows - allow Lazarus package
 
 uses
   sysutils,
@@ -41,23 +41,23 @@ uses
   mormot.db.raw.oledb;
 
 
-{ ************ TSQLDBOleDBConnection* and TSQLDBOleDBStatement Classes }
+{ ************ TSqlDBOleDBConnection* and TSqlDBOleDBStatement Classes }
 
 type
-  TSQLDBOleDBConnection = class;
+  TSqlDBOleDBConnection = class;
 
-  TSQLDBOleDBOnCustomError = function(Connection: TSQLDBOleDBConnection;
+  TSqlDBOleDBOnCustomError = function(Connection: TSqlDBOleDBConnection;
     ErrorRecords: IErrorRecords; RecordNum: cardinal): boolean of object;
 
   /// will implement properties shared by OleDB connections
-  TSQLDBOleDBConnectionProperties = class(TSQLDBConnectionPropertiesThreadSafe)
+  TSqlDBOleDBConnectionProperties = class(TSqlDBConnectionPropertiesThreadSafe)
   protected
-    fProviderName: RawUTF8;
+    fProviderName: RawUtf8;
     fConnectionString: SynUnicode;
-    fOnCustomError: TSQLDBOleDBOnCustomError;
+    fOnCustomError: TSqlDBOleDBOnCustomError;
     fSchemaRec: array of TDBSchemaRec;
     fSupportsOnlyIRowset: boolean;
-    function GetSchema(const aUID: TGUID; const Fields: array of RawUTF8;
+    function GetSchema(const aUID: TGUID; const Fields: array of RawUtf8;
       var aResult: IRowSet): boolean;
     /// will create the generic fConnectionString from supplied parameters
     procedure SetInternalProperties; override;
@@ -73,8 +73,8 @@ type
     // - call this method if the shared MainConnection is not enough (e.g. for
     // multi-thread access)
     // - the caller is responsible of freeing this instance
-    // - this overridden method will create an TSQLDBOleDBConnection instance
-    function NewConnection: TSQLDBConnection; override;
+    // - this overridden method will create an TSqlDBOleDBConnection instance
+    function NewConnection: TSqlDBConnection; override;
     /// display the OleDB/ADO Connection Settings dialog to customize the
     // OleDB connection string
     // - returns TRUE if the connection string has been modified
@@ -83,56 +83,59 @@ type
     /// get all table names
     // - will retrieve the corresponding metadata from OleDB interfaces if SQL
     // direct access was not defined
-    procedure GetTableNames(out Tables: TRawUTF8DynArray); override;
+    procedure GetTableNames(out Tables: TRawUtf8DynArray); override;
     /// retrieve the column/field layout of a specified table
     // - will retrieve the corresponding metadata from OleDB interfaces if SQL
     // direct access was not defined
-    procedure GetFields(const aTableName: RawUTF8; out Fields: TSQLDBColumnDefineDynArray); override;
-    /// convert a textual column data type, as retrieved e.g. from SQLGetField,
+    procedure GetFields(const aTableName: RawUtf8; out Fields: TSqlDBColumnDefineDynArray); override;
+    /// convert a textual column data type, as retrieved e.g. from SqlGetField,
     // into our internal primitive types
-    function ColumnTypeNativeToDB(const aNativeType: RawUTF8; aScale: integer): TSQLDBFieldType; override;
+    function ColumnTypeNativeToDB(const aNativeType: RawUtf8; aScale: integer): TSqlDBFieldType; override;
     /// the associated OleDB connection string
     // - is set by the Create() constructor most of the time from the supplied
     // server name, user id and password, according to the database provider
     // corresponding to the class
     // - you may want to customize it via the ConnectionStringDialogExecute
     // method, or to provide some additional parameters
-    property ConnectionString: SynUnicode read fConnectionString write fConnectionString;
+    property ConnectionString: SynUnicode
+      read fConnectionString write fConnectionString;
     /// custom Error handler for OleDB COM objects
     // - returns TRUE if specific error was retrieved and has updated
     // ErrorMessage and InfoMessage
     // - default implementation just returns false
-    property OnCustomError: TSQLDBOleDBOnCustomError read fOnCustomError write fOnCustomError;
+    property OnCustomError: TSqlDBOleDBOnCustomError
+      read fOnCustomError write fOnCustomError;
   published { to be loggged as JSON }
     /// the associated OleDB provider name, as set for each class
-    property ProviderName: RawUTF8 read fProviderName;
+    property ProviderName: RawUtf8
+      read fProviderName;
   end;
 
   /// implements an OleDB connection
   // - will retrieve the remote DataBase behavior from a supplied
-  // TSQLDBConnectionProperties class, shared among connections
-  TSQLDBOleDBConnection = class(TSQLDBConnectionThreadSafe)
+  // TSqlDBConnectionProperties class, shared among connections
+  TSqlDBOleDBConnection = class(TSqlDBConnectionThreadSafe)
   protected
     fMalloc: IMalloc;
     fDBInitialize: IDBInitialize;
     fTransaction: ITransactionLocal;
     fSession: IUnknown;
-    fOleDBProperties: TSQLDBOleDBConnectionProperties;
+    fOleDBProperties: TSqlDBOleDBConnectionProperties;
     fOleDBErrorMessage, fOleDBInfoMessage: string;
     /// Error handler for OleDB COM objects
     // - will update ErrorMessage and InfoMessage
-    procedure OleDBCheck(aStmt: TSQLDBStatement; aResult: HRESULT;
+    procedure OleDBCheck(aStmt: TSqlDBStatement; aResult: HRESULT;
       const aStatus: TCardinalDynArray = nil); virtual;
     /// called just after fDBInitialize.Initialized: could add parameters
     procedure OnDBInitialized; virtual;
   public
     /// connect to a specified OleDB database
-    constructor Create(aProperties: TSQLDBConnectionProperties); override;
+    constructor Create(aProperties: TSqlDBConnectionProperties); override;
     /// release all associated memory and OleDB COM objects
     destructor Destroy; override;
     /// initialize a new SQL query statement for the given connection
     // - the caller should free the instance after use
-    function NewStatement: TSQLDBStatement; override;
+    function NewStatement: TSqlDBStatement; override;
     /// connect to the specified database
     // - should raise an EOleDBException on error
     procedure Connect; override;
@@ -152,30 +155,33 @@ type
     // - StartTransaction method must have been called before
     procedure Rollback; override;
     /// the associated OleDB database properties
-    property OleDBProperties: TSQLDBOleDBConnectionProperties read fOleDBProperties;
+    property OleDBProperties: TSqlDBOleDBConnectionProperties
+      read fOleDBProperties;
     /// internal error message, as retrieved from the OleDB provider
-    property OleDBErrorMessage: string read fOleDBErrorMessage;
+    property OleDBErrorMessage: string
+      read fOleDBErrorMessage;
     /// internal information message, as retrieved from the OleDB provider
-    property OleDBInfoMessage: string read fOleDBInfoMessage;
+    property OleDBInfoMessage: string
+      read fOleDBInfoMessage;
   end;
 
-  /// used to store properties and value about one TSQLDBOleDBStatement Param
-  // - we don't use a Variant, not the standard TSQLDBParam record type,
+  /// used to store properties and value about one TSqlDBOleDBStatement Param
+  // - we don't use a Variant, not the standard TSqlDBParam record type,
   // but manual storage for better performance
-  // - whole memory block of a TSQLDBOleDBStatementParamDynArray will be used as the
+  // - whole memory block of a TSqlDBOleDBStatementParamDynArray will be used as the
   // source Data for the OleDB parameters - so we should align data carefully
   {$ifdef CPU64}
     {$A8} // un-packed records
   {$else}
     {$A-} // packed records
   {$endif}
-  TSQLDBOleDBStatementParam = record
+  TSqlDBOleDBStatementParam = record
     /// storage used for BLOB (ftBlob) values
     // - will be refered as DBTYPE_BYREF when sent as OleDB parameters, to
     // avoid unnecessary memory copy
     VBlob: RawByteString;
-    /// storage used for TEXT (ftUTF8) values
-    // - we store TEXT here as WideString, and not RawUTF8, since OleDB
+    /// storage used for TEXT (ftUtf8) values
+    // - we store TEXT here as WideString, and not RawUtf8, since OleDB
     // expects the text to be provided with Unicode encoding
     // - for some providers (like Microsoft SQL Server 2008 R2, AFAIK), using
     // DBTYPE_WSTR value (i.e. what the doc. says) will raise an OLEDB Error
@@ -190,36 +196,36 @@ type
     /// storage used for table variables
     VIUnknown: IUnknown;
     /// storage used for table variables
-    VArray: TRawUTF8DynArray;
+    VArray: TRawUtf8DynArray;
     /// storage used for the OleDB status field
     // - if VStatus=ord(stIsNull), then it will bind a NULL with the type
     // as set by VType (to avoid conversion error like in [e8c211062e])
     VStatus: integer;
     /// the column/parameter Value type
-    VType: TSQLDBFieldType;
+    VType: TSqlDBFieldType;
     /// define if parameter can be retrieved after a stored procedure execution
-    VInOut: TSQLDBParamInOutType;
+    VInOut: TSqlDBParamInOutType;
     // so that VInt64 will be 8 bytes aligned
-    VFill: array[sizeof(TSQLDBFieldType)+sizeof(TSQLDBParamInOutType)+sizeof(integer)..
+    VFill: array[sizeof(TSqlDBFieldType)+sizeof(TSqlDBParamInOutType)+sizeof(integer)..
       SizeOf(Int64)-1] of byte;
   end;
   {$ifdef CPU64}
     {$A-} // packed records
   {$endif}
-  POleDBStatementParam = ^TSQLDBOleDBStatementParam;
+  POleDBStatementParam = ^TSqlDBOleDBStatementParam;
 
-  /// used to store properties about TSQLDBOleDBStatement Parameters
-  // - whole memory block of a TSQLDBOleDBStatementParamDynArray will be used as the
+  /// used to store properties about TSqlDBOleDBStatement Parameters
+  // - whole memory block of a TSqlDBOleDBStatementParamDynArray will be used as the
   // source Data for the OleDB parameters
-  TSQLDBOleDBStatementParamDynArray = array of TSQLDBOleDBStatementParam;
+  TSqlDBOleDBStatementParamDynArray = array of TSqlDBOleDBStatementParam;
 
   /// implements an OleDB SQL query statement
   // - this statement won't retrieve all rows of data, but will allow direct
   // per-row access using the Step() and Column*() methods
-  TSQLDBOleDBStatement = class(TSQLDBStatement)
+  TSqlDBOleDBStatement = class(TSqlDBStatement)
   protected
-    fParams: TSQLDBOleDBStatementParamDynArray;
-    fColumns: TSQLDBColumnPropertyDynArray;
+    fParams: TSqlDBOleDBStatementParamDynArray;
+    fColumns: TSqlDBColumnPropertyDynArray;
     fParam: TDynArray;
     fColumn: TDynArrayHashed;
     fCommand: ICommandText;
@@ -234,7 +240,7 @@ type
     fParamBindings: TDBBindingDynArray;
     fColumnBindings: TDBBindingDynArray;
     fHasColumnValueInlined: boolean;
-    fOleDBConnection: TSQLDBOleDBConnection;
+    fOleDBConnection: TSqlDBOleDBConnection;
     fDBParams: TDBParams;
     fRowBufferSize: integer;
     fUpdateCount: integer;
@@ -243,16 +249,16 @@ type
     /// resize fParams[] if necessary, set the VType and return pointer to
     // the corresponding entry in fParams[]
     // - first parameter has Param=1
-    function CheckParam(Param: Integer; NewType: TSQLDBFieldType;
-      IO: TSQLDBParamInOutType): POleDBStatementParam; overload;
-    function CheckParam(Param: Integer; NewType: TSQLDBFieldType;
-      IO: TSQLDBParamInOutType; ArrayCount: integer): POleDBStatementParam; overload;
+    function CheckParam(Param: integer; NewType: TSqlDBFieldType;
+      IO: TSqlDBParamInOutType): POleDBStatementParam; overload;
+    function CheckParam(Param: integer; NewType: TSqlDBFieldType;
+      IO: TSqlDBParamInOutType; ArrayCount: integer): POleDBStatementParam; overload;
     /// raise an exception if Col is incorrect or no IRowSet is available
     // - set Column to the corresponding fColumns[] item
     // - return a pointer to status-data[-length] in fRowSetData[], or
     // nil if status states this column is NULL
-    function GetCol(Col: integer; out Column: PSQLDBColumnProperty): pointer;
-    procedure GetCol64(Col: integer; DestType: TSQLDBFieldType; var Dest);
+    function GetCol(Col: integer; out Column: PSqlDBColumnProperty): pointer;
+    procedure GetCol64(Col: integer; DestType: TSqlDBFieldType; var Dest);
       {$ifdef HASINLINE}inline;{$endif}
     procedure FlushRowSetData;
     procedure ReleaseRowSetDataAndRows;
@@ -262,27 +268,27 @@ type
     // OleDB Bindings array and returns the row size (in bytes)
     function BindColumns(ColumnInfo: IColumnsInfo; var Column: TDynArrayHashed;
       out Bindings: TDBBindingDynArray): integer;
-    procedure LogStatusError(Status: integer; Column: PSQLDBColumnProperty);
+    procedure LogStatusError(Status: integer; Column: PSqlDBColumnProperty);
   public
     /// create an OleDB statement instance, from an OleDB connection
-    // - the Execute method can be called only once per TSQLDBOleDBStatement instance
-    // - if the supplied connection is not of TSQLDBOleDBConnection type, will raise
+    // - the Execute method can be called only once per TSqlDBOleDBStatement instance
+    // - if the supplied connection is not of TSqlDBOleDBConnection type, will raise
     // an exception
-    constructor Create(aConnection: TSQLDBConnection); override;
+    constructor Create(aConnection: TSqlDBConnection); override;
     /// release all associated memory and COM objects
     destructor Destroy; override;
     /// retrieve column information from a supplied IRowSet
-    // - is used e.g. by TSQLDBOleDBStatement.Execute or to retrieve metadata columns
+    // - is used e.g. by TSqlDBOleDBStatement.Execute or to retrieve metadata columns
     // - raise an exception on error
     procedure FromRowSet(RowSet: IRowSet);
 
     /// bind a NULL value to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - OleDB during MULTI INSERT statements expect BoundType to be set in
-    // TSQLDBOleDBStatementParam, and its VStatus set to ord(stIsNull)
+    // TSqlDBOleDBStatementParam, and its VStatus set to ord(stIsNull)
     // - raise an EOleDBException on any error
-    procedure BindNull(Param: Integer; IO: TSQLDBParamInOutType = paramIn;
-      BoundType: TSQLDBFieldType = ftNull); override;
+    procedure BindNull(Param: integer; IO: TSqlDBParamInOutType = paramIn;
+      BoundType: TSqlDBFieldType = ftNull); override;
     /// bind an array of Int64 values to a parameter
     // - using TABLE variable (MSSQl 2008 & UP). Must be created in the database as:
     // $ CREATE TYPE dbo.IDList AS TABLE(id bigint NULL)
@@ -290,71 +296,71 @@ type
     // $ declare @a dbo.IDList;
     // $ insert into @a (id) values (1), (2), (3);
     // $ SELECT usr.ID   FROM user usr WHERE usr.ID IN  (select id from @a)
-    procedure BindArray(Param: Integer;
+    procedure BindArray(Param: integer;
       const Values: array of Int64); overload; override;
-    /// bind a array of RawUTF8 (255 length max) values to a parameter
+    /// bind a array of RawUtf8 (255 length max) values to a parameter
     // - using TABLE variable (MSSQl 2008 & UP). Must be created in the database as:
     // $ CREATE TYPE dbo.StrList AS TABLE(id nvarchar(255) NULL)
     // - must be declareded in the database
-    procedure BindArray(Param: Integer;
-      const Values: array of RawUTF8); overload; override;
+    procedure BindArray(Param: integer;
+      const Values: array of RawUtf8); overload; override;
     /// bind an integer value to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - raise an EOleDBException on any error
-    procedure Bind(Param: Integer; Value: Int64;
-      IO: TSQLDBParamInOutType = paramIn); overload; override;
+    procedure Bind(Param: integer; Value: Int64;
+      IO: TSqlDBParamInOutType = paramIn); overload; override;
     /// bind a double value to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - raise an EOleDBException on any error
-    procedure Bind(Param: Integer; Value: double;
-      IO: TSQLDBParamInOutType = paramIn); overload; override;
+    procedure Bind(Param: integer; Value: double;
+      IO: TSqlDBParamInOutType = paramIn); overload; override;
     /// bind a TDateTime value to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - raise an EOleDBException on any error
-    procedure BindDateTime(Param: Integer; Value: TDateTime;
-      IO: TSQLDBParamInOutType = paramIn); overload; override;
+    procedure BindDateTime(Param: integer; Value: TDateTime;
+      IO: TSqlDBParamInOutType = paramIn); overload; override;
     /// bind a currency value to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - raise an EOleDBException on any error
-    procedure BindCurrency(Param: Integer; Value: currency;
-      IO: TSQLDBParamInOutType = paramIn); overload; override;
+    procedure BindCurrency(Param: integer; Value: currency;
+      IO: TSqlDBParamInOutType = paramIn); overload; override;
     /// bind a UTF-8 encoded string to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - raise an EOleDBException on any error
-    procedure BindTextU(Param: Integer; const Value: RawUTF8;
-      IO: TSQLDBParamInOutType = paramIn); overload; override;
+    procedure BindTextU(Param: integer; const Value: RawUtf8;
+      IO: TSqlDBParamInOutType = paramIn); overload; override;
     /// bind a UTF-8 encoded buffer text (#0 ended) to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - raise an EOleDBException on any error
-    procedure BindTextP(Param: Integer; Value: PUTF8Char;
-      IO: TSQLDBParamInOutType = paramIn); overload; override;
+    procedure BindTextP(Param: integer; Value: PUtf8Char;
+      IO: TSqlDBParamInOutType = paramIn); overload; override;
     /// bind a VCL string to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - raise an EOleDBException on any error
-    procedure BindTextS(Param: Integer; const Value: string;
-      IO: TSQLDBParamInOutType = paramIn); overload; override;
+    procedure BindTextS(Param: integer; const Value: string;
+      IO: TSqlDBParamInOutType = paramIn); overload; override;
     /// bind an OLE WideString to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - raise an EOleDBException on any error
-    procedure BindTextW(Param: Integer; const Value: WideString;
-      IO: TSQLDBParamInOutType = paramIn); overload; override;
+    procedure BindTextW(Param: integer; const Value: WideString;
+      IO: TSqlDBParamInOutType = paramIn); overload; override;
     /// bind a Blob buffer to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - raise an EOleDBException on any error
-    procedure BindBlob(Param: Integer; Data: pointer; Size: integer;
-      IO: TSQLDBParamInOutType = paramIn); overload; override;
+    procedure BindBlob(Param: integer; Data: pointer; Size: integer;
+      IO: TSqlDBParamInOutType = paramIn); overload; override;
     /// bind a Blob buffer to a parameter
     // - the leftmost SQL parameter has an index of 1
     // - raise an EOleDBException on any error
-    procedure BindBlob(Param: Integer; const Data: RawByteString;
-      IO: TSQLDBParamInOutType = paramIn); overload; override;
+    procedure BindBlob(Param: integer; const Data: RawByteString;
+      IO: TSqlDBParamInOutType = paramIn); overload; override;
 
     /// Prepare an UTF-8 encoded SQL statement
     // - parameters marked as ? will be bound later, before ExecutePrepared call
     // - if ExpectResults is TRUE, then Step() and Column*() methods are available
     // to retrieve the data rows
     // - raise an EOleDBException on any error
-    procedure Prepare(const aSQL: RawUTF8; ExpectResults: boolean = false); overload; override;
+    procedure Prepare(const aSql: RawUtf8; ExpectResults: boolean = false); overload; override;
     /// Execute an UTF-8 encoded SQL statement
     // - parameters marked as ? should have been already bound with Bind*()
     // functions above
@@ -371,9 +377,9 @@ type
     // - the leftmost SQL parameter has an index of 1
     // - to be used e.g. with stored procedures
     // - any TEXT parameter will be retrieved as WideString Variant (i.e. as
-    // stored in TSQLDBOleDBStatementParam)
-    function ParamToVariant(Param: Integer; var Value: Variant;
-      CheckIsOutParameter: boolean = true): TSQLDBFieldType; override;
+    // stored in TSqlDBOleDBStatementParam)
+    function ParamToVariant(Param: integer; var Value: Variant;
+      CheckIsOutParameter: boolean = true): TSqlDBFieldType; override;
 
     /// after a statement has been prepared via Prepare() + ExecutePrepared() or
     // Execute(), this method must be called one or more times to evaluate it
@@ -384,25 +390,25 @@ type
     // - access the first or next row of data from the SQL Statement result:
     // if SeekFirst is TRUE, will put the cursor on the first row of results,
     // otherwise, it will fetch one row of data, to be called within a loop
-    // - raise an ESQLEOleDBException on any error
+    // - raise an EOleDBException on any error
     function Step(SeekFirst: boolean = false): boolean; override;
-    /// clear result rowset when ISQLDBStatement is back in cache
+    /// clear result rowset when ISqlDBStatement is back in cache
     procedure ReleaseRows; override;
     /// retrieve a column name of the current Row
     // - Columns numeration (i.e. Col value) starts with 0
     // - it's up to the implementation to ensure than all column names are unique
-    function ColumnName(Col: integer): RawUTF8; override;
+    function ColumnName(Col: integer): RawUtf8; override;
     /// returns the Column index of a given Column name
     // - Columns numeration (i.e. Col value) starts with 0
     // - returns -1 if the Column name is not found (via case insensitive search)
-    function ColumnIndex(const aColumnName: RawUTF8): integer; override;
+    function ColumnIndex(const aColumnName: RawUtf8): integer; override;
     /// the Column type of the current Row
     // - ftCurrency type should be handled specificaly, for faster process and
     // avoid any rounding issue, since currency is a standard OleDB type
-    // - FieldSize can be set to store the size in chars of a ftUTF8 column
+    // - FieldSize can be set to store the size in chars of a ftUtf8 column
     // (0 means BLOB kind of TEXT column)
     function ColumnType(Col: integer;
-      FieldSize: PInteger = nil): TSQLDBFieldType; override;
+      FieldSize: PInteger = nil): TSqlDBFieldType; override;
     /// returns TRUE if the column contains NULL
     function ColumnNull(Col: integer): boolean; override;
     /// return a Column integer value of the current Row, first Col is 0
@@ -416,7 +422,7 @@ type
     // any rounding/conversion error from floating-point types
     function ColumnCurrency(Col: integer): currency; override;
     /// return a Column UTF-8 encoded text value of the current Row, first Col is 0
-    function ColumnUTF8(Col: integer): RawUTF8; override;
+    function ColumnUtf8(Col: integer): RawUtf8; override;
     /// return a Column text generic VCL string value of the current Row, first Col is 0
     function ColumnString(Col: integer): string; override;
     /// return a Column as a blob value of the current Row, first Col is 0
@@ -429,25 +435,28 @@ type
     // - fast overridden implementation with no temporary variable
     // - BLOB field value is saved as Base64, in the '"\uFFF0base64encodedbinary"
     // format and contains true BLOB data
-    procedure ColumnsToJSON(WR: TJSONWriter); override;
+    procedure ColumnsToJson(WR: TJsonWriter); override;
     /// return a Column as a variant
     // - this implementation will retrieve the data with no temporary variable
     // (since TQuery calls this method a lot, we tried to optimize it)
-    // - a ftUTF8 content will be mapped into a generic WideString variant
+    // - a ftUtf8 content will be mapped into a generic WideString variant
     // for pre-Unicode version of Delphi, and a generic UnicodeString (=string)
     // since Delphi 2009: you may not loose any data during charset conversion
     // - a ftBlob content will be mapped into a TBlobData AnsiString variant
-    function ColumnToVariant(Col: integer; var Value: Variant): TSQLDBFieldType; override;
-    /// just map the original Collection into a TSQLDBOleDBConnection class
-    property OleDBConnection: TSQLDBOleDBConnection read fOleDBConnection;
+    function ColumnToVariant(Col: integer; var Value: Variant): TSqlDBFieldType; override;
+    /// just map the original Collection into a TSqlDBOleDBConnection class
+    property OleDBConnection: TSqlDBOleDBConnection
+      read fOleDBConnection;
     /// if TRUE, the data will be 8 bytes aligned in OleDB internal buffers
     // - it's recommended by official OleDB documentation for faster process
     // - is enabled by default, and should not be modified in most cases
-    property AlignDataInternalBuffer: boolean read fAlignBuffer write fAlignBuffer;
+    property AlignDataInternalBuffer: boolean
+      read fAlignBuffer write fAlignBuffer;
     /// size in bytes of the internal OleDB buffer used to fetch rows
     // - several rows are retrieved at once into the internal buffer
     // - default value is 16384 bytes, minimal allowed size is 8192
-    property RowBufferSize: integer read fRowBufferSize write SetRowBufferSize;
+    property RowBufferSize: integer
+      read fRowBufferSize write SetRowBufferSize;
   end;
 
 
@@ -457,7 +466,7 @@ type
   /// OleDB connection properties to an Oracle database using Oracle's Provider
   // - this will use the native OleDB provider supplied by Oracle
   // see @http://download.oracle.com/docs/cd/E11882_01/win.112/e17726/toc.htm
-  TSQLDBOleDBOracleConnectionProperties = class(TSQLDBOleDBConnectionProperties)
+  TSqlDBOleDBOracleConnectionProperties = class(TSqlDBOleDBConnectionProperties)
   protected
     /// will set the appropriate provider name, i.e. 'OraOLEDB.Oracle.1'
     procedure SetInternalProperties; override;
@@ -470,7 +479,7 @@ type
   // using this feature in new development work, and plan to modify applications
   // that currently use this feature. Instead, use Oracle's OLE DB provider."
   // see http://msdn.microsoft.com/en-us/library/ms675851
-  TSQLDBOleDBMSOracleConnectionProperties = class(TSQLDBOleDBOracleConnectionProperties)
+  TSqlDBOleDBMSOracleConnectionProperties = class(TSqlDBOleDBOracleConnectionProperties)
   protected
     /// will set the appropriate provider name, i.e. 'MSDAORA'
     procedure SetInternalProperties; override;
@@ -484,16 +493,16 @@ type
   // for the connection
   // - will use the SQLNCLI10 provider, which will work on Windows XP;
   // if you want all features, especially under MS SQL 2012, use the
-  // inherited class TSQLDBOleDBMSSQL2012ConnectionProperties; if, on the other
+  // inherited class TSqlDBOleDBMSSQL2012ConnectionProperties; if, on the other
   // hand, you need to connect to a old MS SQL Server 2005, use
-  // TSQLDBOleDBMSSQL2005ConnectionProperties, or set your own provider string
-  TSQLDBOleDBMSSQLConnectionProperties = class(TSQLDBOleDBConnectionProperties)
+  // TSqlDBOleDBMSSQL2005ConnectionProperties, or set your own provider string
+  TSqlDBOleDBMSSQLConnectionProperties = class(TSqlDBOleDBConnectionProperties)
   protected
     /// will set the appropriate provider name, i.e. 'SQLNCLI10'
     procedure SetInternalProperties; override;
     /// custom Error handler for OleDB COM objects
     // - will handle Microsoft SQL Server error messages (if any)
-    function MSOnCustomError(Connection: TSQLDBOleDBConnection;
+    function MSOnCustomError(Connection: TSqlDBOleDBConnection;
       ErrorRecords: IErrorRecords; RecordNum: cardinal): boolean;
   public
   end;
@@ -504,23 +513,23 @@ type
   // deprecated but may be an alternative with MS SQL Server 2005
   // - is aUserID='' at Create, it will use Windows Integrated Security
   // for the connection
-  TSQLDBOleDBMSSQL2005ConnectionProperties = class(TSQLDBOleDBMSSQLConnectionProperties)
+  TSqlDBOleDBMSSQL2005ConnectionProperties = class(TSqlDBOleDBMSSQLConnectionProperties)
   protected
     /// will set the appropriate provider name, i.e. 'SQLNCLI'
     procedure SetInternalProperties; override;
   public
     /// initialize the connection properties
     // - this overridden version will disable the MultipleValuesInsert()
-    // optimization as defined in TSQLDBConnectionProperties.Create(),
+    // optimization as defined in TSqlDBConnectionProperties.Create(),
     // since INSERT with multiple VALUES (..),(..),(..) is available only
     // since SQL Server 2008
-    constructor Create(const aServerName, aDatabaseName, aUserID, aPassWord: RawUTF8); override;
+    constructor Create(const aServerName, aDatabaseName, aUserID, aPassWord: RawUtf8); override;
   end;
 
   /// OleDB connection properties to Microsoft SQL Server 2008, via
   // SQL Server Native Client 10.0 (SQL Server 2008)
-  // - just maps default TSQLDBOleDBMSSQLConnectionProperties type
-  TSQLDBOleDBMSSQL2008ConnectionProperties = TSQLDBOleDBMSSQLConnectionProperties;
+  // - just maps default TSqlDBOleDBMSSQLConnectionProperties type
+  TSqlDBOleDBMSSQL2008ConnectionProperties = TSqlDBOleDBMSSQLConnectionProperties;
 
   /// OleDB connection properties to Microsoft SQL Server 2008/2012, via
   // SQL Server Native Client 11.0 (Microsoft SQL Server 2012 Native Client)
@@ -533,49 +542,57 @@ type
   // - if aUserID='' at Create, it will use Windows Integrated Security
   // for the connection
   // - for SQL Express LocalDB edition, just use aServerName='(localdb)\v11.0'
-  TSQLDBOleDBMSSQL2012ConnectionProperties = class(TSQLDBOleDBMSSQLConnectionProperties)
+  TSqlDBOleDBMSSQL2012ConnectionProperties = class(TSqlDBOleDBMSSQLConnectionProperties)
   protected
     /// will set the appropriate provider name, i.e. 'SQLNCLI11'
     // - will leave older 'SQLNCLI10' on Windows XP
     procedure SetInternalProperties; override;
   end;
 
-  /// OleDB connection properties to MySQL Server
-  TSQLDBOleDBMySQLConnectionProperties = class(TSQLDBOleDBConnectionProperties)
+  /// OleDB connection properties to Microsoft SQL Server 2012 R2 and later, via
+  // SQL Server OLE DB driver (Microsoft OLE DB SQL / MSOLEDBSQL)
+  TSqlDBOleDBMSSQL2018ConnectionProperties = class(TSqlDBOleDBMSSQLConnectionProperties)
   protected
-    /// will set the appropriate provider name, i.e. 'MySQLProv'
+    /// will set the appropriate provider name, i.e. 'MSOLEDBSQL'
     procedure SetInternalProperties; override;
   end;
 
-{$ifndef CPU64} // Jet is not available on Win64
+  /// OleDB connection properties to MySQL Server
+  TSqlDBOleDBMySQLConnectionProperties = class(TSqlDBOleDBConnectionProperties)
+  protected
+    /// will set the appropriate provider name, i.e. 'MySqlProv'
+    procedure SetInternalProperties; override;
+  end;
+
+{$ifdef CPU32} // Jet is not available on Win64
 
   /// OleDB connection properties to Jet/MSAccess .mdb files
   // - the server name should be the .mdb file name
   // - note that the Jet OleDB driver is not available under Win64 platform
-  TSQLDBOleDBJetConnectionProperties = class(TSQLDBOleDBConnectionProperties)
+  TSqlDBOleDBJetConnectionProperties = class(TSqlDBOleDBConnectionProperties)
   protected
     /// will set the appropriate provider name, i.e. 'Microsoft.Jet.OLEDB.4.0'
     procedure SetInternalProperties; override;
   end;
 
-{$endif CPU64}
+{$endif CPU32}
 
   /// OleDB connection properties to Microsoft Access Database
-  TSQLDBOleDBACEConnectionProperties = class(TSQLDBOleDBConnectionProperties)
+  TSqlDBOleDBACEConnectionProperties = class(TSqlDBOleDBConnectionProperties)
   protected
     /// will set the appropriate provider name, i.e. 'Microsoft.ACE.OLEDB.12.0'
     procedure SetInternalProperties; override;
   end;
 
   /// OleDB connection properties to IBM AS/400
-  TSQLDBOleDBAS400ConnectionProperties = class(TSQLDBOleDBConnectionProperties)
+  TSqlDBOleDBAS400ConnectionProperties = class(TSqlDBOleDBConnectionProperties)
   protected
     /// will set the appropriate provider name, i.e. 'IBMDA400.DataSource.1'
     procedure SetInternalProperties; override;
   end;
 
   /// OleDB connection properties to Informix Server
-  TSQLDBOleDBInformixConnectionProperties = class(TSQLDBOleDBConnectionProperties)
+  TSqlDBOleDBInformixConnectionProperties = class(TSqlDBOleDBConnectionProperties)
   protected
     /// will set the appropriate provider name, i.e. 'Ifxoledbc'
     procedure SetInternalProperties; override;
@@ -586,11 +603,11 @@ type
   // see http://msdn.microsoft.com/en-us/library/ms675326(v=VS.85).aspx
   // - an ODBC Driver should be specified at creation
   // - you should better use direct connection classes, like
-  // TSQLDBOleDBMSSQLConnectionProperties or TSQLDBOleDBOracleConnectionProperties
-  // as defined in SynDBODBC.pas
-  TSQLDBOleDBODBCSQLConnectionProperties = class(TSQLDBOleDBConnectionProperties)
+  // TSqlDBOleDBMSSQLConnectionProperties or TSqlDBOleDBOracleConnectionProperties
+  // as defined in mormot.db.sql.odbc.pas
+  TSqlDBOleDBOdbcSQLConnectionProperties = class(TSqlDBOleDBConnectionProperties)
   protected
-    fDriver: RawUTF8;
+    fDriver: RawUtf8;
     /// will set the appropriate provider name, i.e. 'MSDASQL'
     procedure SetInternalProperties; override;
   public
@@ -599,10 +616,11 @@ type
     // - you may also set aDriver='' and modify the connection string directly,
     // e.g. adding '{ DSN=name | FileDSN=filename };'
     constructor Create(const aDriver, aServerName, aDatabaseName,
-      aUserID, aPassWord: RawUTF8); reintroduce;
+      aUserID, aPassWord: RawUtf8); reintroduce;
   published { to be logged as JSON }
     /// the associated ODBC Driver name, as specified at creation
-    property Driver: RawUTF8 read fDriver;
+    property Driver: RawUtf8
+      read fDriver;
   end;
 
 
@@ -610,89 +628,90 @@ type
 // backward compatibility types redirections
 
 type
-  TOleDBConnectionProperties = TSQLDBOleDBConnectionProperties;
-  TOleDBOracleConnectionProperties = TSQLDBOleDBOracleConnectionProperties;
-  TOleDBMSOracleConnectionProperties = TSQLDBOleDBMSOracleConnectionProperties;
-  TOleDBMSSQLConnectionProperties = TSQLDBOleDBMSSQLConnectionProperties;
-  TOleDBMSSQL2005ConnectionProperties = TSQLDBOleDBMSSQL2005ConnectionProperties;
-  TOleDBMSSQL2008ConnectionProperties = TSQLDBOleDBMSSQL2008ConnectionProperties;
-  TOleDBMSSQL2012ConnectionProperties = TSQLDBOleDBMSSQL2012ConnectionProperties;
-  TOleDBMySQLConnectionProperties = TSQLDBOleDBMySQLConnectionProperties;
-  {$ifndef CPU64} // Jet is not available on Win64
-  TOleDBJetConnectionProperties = TSQLDBOleDBJetConnectionProperties;
-  {$endif}
-  TOleDBACEConnectionProperties = TSQLDBOleDBACEConnectionProperties;
-  TOleDBAS400ConnectionProperties = TSQLDBOleDBAS400ConnectionProperties;
-  TOleDBODBCSQLConnectionProperties = TSQLDBOleDBODBCSQLConnectionProperties;
+  TOleDBConnectionProperties = TSqlDBOleDBConnectionProperties;
+  TOleDBOracleConnectionProperties = TSqlDBOleDBOracleConnectionProperties;
+  TOleDBMSOracleConnectionProperties = TSqlDBOleDBMSOracleConnectionProperties;
+  TOleDBMSSQLConnectionProperties = TSqlDBOleDBMSSQLConnectionProperties;
+  TOleDBMSSQL2005ConnectionProperties = TSqlDBOleDBMSSQL2005ConnectionProperties;
+  TOleDBMSSQL2008ConnectionProperties = TSqlDBOleDBMSSQL2008ConnectionProperties;
+  TOleDBMSSQL2012ConnectionProperties = TSqlDBOleDBMSSQL2012ConnectionProperties;
+  TOleDBMySQLConnectionProperties = TSqlDBOleDBMySQLConnectionProperties;
+  {$ifdef CPU32} // Jet is not available on Win64
+  TOleDBJetConnectionProperties = TSqlDBOleDBJetConnectionProperties;
+  {$endif CPU32}
+  TOleDBACEConnectionProperties = TSqlDBOleDBACEConnectionProperties;
+  TOleDBAS400ConnectionProperties = TSqlDBOleDBAS400ConnectionProperties;
+  TOleDBOdbcSQLConnectionProperties = TSqlDBOleDBOdbcSQLConnectionProperties;
 
 {$endif PUREMORMOT2}
 
 
 implementation
 
-{ ************ TSQLDBOleDBConnection* and TSQLDBOleDBStatement Classes }
 
-{ TSQLDBOleDBStatement }
+{ ************ TSqlDBOleDBConnection* and TSqlDBOleDBStatement Classes }
 
-procedure TSQLDBOleDBStatement.BindTextU(Param: Integer; const Value: RawUTF8;
-  IO: TSQLDBParamInOutType);
+{ TSqlDBOleDBStatement }
+
+procedure TSqlDBOleDBStatement.BindTextU(Param: integer; const Value: RawUtf8;
+  IO: TSqlDBParamInOutType);
 begin
   if (Value = '') and
      fConnection.Properties.StoreVoidStringAsNull then
     CheckParam(Param, ftNull, IO)
   else
-    UTF8ToWideString(Value, CheckParam(Param, ftUTF8, IO)^.VText);
+    Utf8ToWideString(Value, CheckParam(Param, ftUtf8, IO)^.VText);
 end;
 
-procedure TSQLDBOleDBStatement.BindTextP(Param: Integer; Value: PUTF8Char;
-  IO: TSQLDBParamInOutType);
+procedure TSqlDBOleDBStatement.BindTextP(Param: integer; Value: PUtf8Char;
+  IO: TSqlDBParamInOutType);
 begin
   if (Value = '') and
      fConnection.Properties.StoreVoidStringAsNull then
     CheckParam(Param, ftNull, IO)
   else
-    UTF8ToWideString(Value, StrLen(Value), CheckParam(Param, ftUTF8, IO)^.VText);
+    Utf8ToWideString(Value, StrLen(Value), CheckParam(Param, ftUtf8, IO)^.VText);
 end;
 
-procedure TSQLDBOleDBStatement.BindTextS(Param: Integer; const Value: string;
-  IO: TSQLDBParamInOutType);
+procedure TSqlDBOleDBStatement.BindTextS(Param: integer; const Value: string;
+  IO: TSqlDBParamInOutType);
 begin
   if (Value = '') and
      fConnection.Properties.StoreVoidStringAsNull then
     CheckParam(Param, ftNull, IO)
   else
-    CheckParam(Param, ftUTF8, IO)^.VText := StringToSynUnicode(Value);
+    CheckParam(Param, ftUtf8, IO)^.VText := StringToSynUnicode(Value);
 end;
 
-procedure TSQLDBOleDBStatement.BindTextW(Param: Integer; const Value: WideString;
-  IO: TSQLDBParamInOutType);
+procedure TSqlDBOleDBStatement.BindTextW(Param: integer; const Value: WideString;
+  IO: TSqlDBParamInOutType);
 begin
   if (Value = '') and
      fConnection.Properties.StoreVoidStringAsNull then
     CheckParam(Param, ftNull, IO)
   else
-    CheckParam(Param, ftUTF8, IO)^.VText := Value;
+    CheckParam(Param, ftUtf8, IO)^.VText := Value;
 end;
 
-procedure TSQLDBOleDBStatement.BindBlob(Param: Integer;
-  const Data: RawByteString; IO: TSQLDBParamInOutType);
+procedure TSqlDBOleDBStatement.BindBlob(Param: integer;
+  const Data: RawByteString; IO: TSqlDBParamInOutType);
 begin
   CheckParam(Param, ftBlob, IO)^.VBlob := Data;
 end;
 
-procedure TSQLDBOleDBStatement.BindBlob(Param: Integer; Data: pointer;
-  Size: integer; IO: TSQLDBParamInOutType);
+procedure TSqlDBOleDBStatement.BindBlob(Param: integer; Data: pointer;
+  Size: integer; IO: TSqlDBParamInOutType);
 begin
   SetString(CheckParam(Param, ftBlob, IO)^.VBlob, PAnsiChar(Data), Size);
 end;
 
-procedure TSQLDBOleDBStatement.Bind(Param: Integer; Value: double;
-  IO: TSQLDBParamInOutType);
+procedure TSqlDBOleDBStatement.Bind(Param: integer; Value: double;
+  IO: TSqlDBParamInOutType);
 begin
   CheckParam(Param, ftDouble, IO)^.VInt64 := PInt64(@Value)^;
 end;
 
-procedure TSQLDBOleDBStatement.BindArray(Param: Integer; const Values: array of Int64);
+procedure TSqlDBOleDBStatement.BindArray(Param: integer; const Values: array of Int64);
 var
   i: integer;
 begin
@@ -701,13 +720,13 @@ begin
       VArray[i] := Int64ToUtf8(Values[i]);
 end;
 
-procedure TSQLDBOleDBStatement.BindArray(Param: Integer; const Values: array of RawUTF8);
+procedure TSqlDBOleDBStatement.BindArray(Param: integer; const Values: array of RawUtf8);
 var
   i: integer;
   StoreVoidStringAsNull: boolean;
 begin
   StoreVoidStringAsNull := fConnection.Properties.StoreVoidStringAsNull;
-  with CheckParam(Param, ftUTF8, paramIn, length(Values))^ do
+  with CheckParam(Param, ftUtf8, paramIn, length(Values))^ do
     for i := 0 to high(Values) do
       if StoreVoidStringAsNull and
          (Values[i] = '') then
@@ -716,35 +735,35 @@ begin
         QuotedStr(Values[i], '''', VArray[i]);
 end;
 
-procedure TSQLDBOleDBStatement.Bind(Param: Integer; Value: Int64;
-  IO: TSQLDBParamInOutType);
+procedure TSqlDBOleDBStatement.Bind(Param: integer; Value: Int64;
+  IO: TSqlDBParamInOutType);
 begin
   CheckParam(Param, ftInt64, IO)^.VInt64 := Value;
 end;
 
-procedure TSQLDBOleDBStatement.BindCurrency(Param: Integer; Value: currency;
-  IO: TSQLDBParamInOutType);
+procedure TSqlDBOleDBStatement.BindCurrency(Param: integer; Value: currency;
+  IO: TSqlDBParamInOutType);
 begin
   CheckParam(Param, ftCurrency, IO)^.VInt64 := PInt64(@Value)^;
 end;
 
-procedure TSQLDBOleDBStatement.BindDateTime(Param: Integer; Value: TDateTime;
-  IO: TSQLDBParamInOutType);
+procedure TSqlDBOleDBStatement.BindDateTime(Param: integer; Value: TDateTime;
+  IO: TSqlDBParamInOutType);
 begin
   CheckParam(Param, ftDate, IO)^.VInt64 := PInt64(@Value)^;
 end;
 
-procedure TSQLDBOleDBStatement.BindNull(Param: Integer; IO: TSQLDBParamInOutType;
-  BoundType: TSQLDBFieldType);
+procedure TSqlDBOleDBStatement.BindNull(Param: integer; IO: TSqlDBParamInOutType;
+  BoundType: TSqlDBFieldType);
 begin
   CheckParam(Param, BoundType, IO)^.VStatus := ord(stIsNull);
 end;
 
-function TSQLDBOleDBStatement.CheckParam(Param: Integer;
-  NewType: TSQLDBFieldType; IO: TSQLDBParamInOutType): POleDBStatementParam;
+function TSqlDBOleDBStatement.CheckParam(Param: integer;
+  NewType: TSqlDBFieldType; IO: TSqlDBParamInOutType): POleDBStatementParam;
 begin
   if Param <= 0 then
-    raise EOleDBException.CreateUTF8('%.Bind*() called with Param=% should be >= 1',
+    raise EOleDBException.CreateUtf8('%.Bind*() called with Param=% should be >= 1',
       [self, Param]);
   if Param > fParamCount then
     fParam.Count := Param; // resize fParams[] dynamic array if necessary
@@ -754,30 +773,30 @@ begin
   result^.VStatus := 0;
 end;
 
-function TSQLDBOleDBStatement.CheckParam(Param: Integer; NewType: TSQLDBFieldType;
-  IO: TSQLDBParamInOutType; ArrayCount: integer): POleDBStatementParam;
+function TSqlDBOleDBStatement.CheckParam(Param: integer; NewType: TSqlDBFieldType;
+  IO: TSqlDBParamInOutType; ArrayCount: integer): POleDBStatementParam;
 begin
   result := CheckParam(Param, NewType, IO);
   if (NewType in [ftUnknown, ftNull]) or
      (fConnection.Properties.BatchSendingAbilities *
        [cCreate, cUpdate, cDelete] = []) then
-    raise ESQLDBException.CreateUTF8(
+    raise ESqlDBException.CreateUtf8(
       'Invalid call to %s.BindArray(Param=%d,Type=%s)',
-      [self, Param, TSQLDBFieldTypeToString(NewType)]);
+      [self, Param, TSqlDBFieldTypeToString(NewType)]);
   SetLength(result^.VArray, ArrayCount);
   result^.VInt64 := ArrayCount;
 end;
 
-constructor TSQLDBOleDBStatement.Create(aConnection: TSQLDBConnection);
+constructor TSqlDBOleDBStatement.Create(aConnection: TSqlDBConnection);
 begin
-  if not aConnection.InheritsFrom(TSQLDBOleDBConnection) then
-    raise EOleDBException.CreateUTF8('%.Create(%) expects a TSQLDBOleDBConnection',
+  if not aConnection.InheritsFrom(TSqlDBOleDBConnection) then
+    raise EOleDBException.CreateUtf8('%.Create(%) expects a TSqlDBOleDBConnection',
       [self, aConnection]);
   inherited Create(aConnection);
-  fOleDBConnection := TSQLDBOleDBConnection(aConnection);
-  fParam.Init(TypeInfo(TSQLDBOleDBStatementParamDynArray), fParams, @fParamCount);
-  fColumn.InitSpecific(TypeInfo(TSQLDBColumnPropertyDynArray), fColumns,
-    ptRawUTF8, @fColumnCount, True);
+  fOleDBConnection := TSqlDBOleDBConnection(aConnection);
+  fParam.Init(TypeInfo(TSqlDBOleDBStatementParamDynArray), fParams, @fParamCount);
+  fColumn.InitSpecific(TypeInfo(TSqlDBColumnPropertyDynArray), fColumns,
+    ptRawUtf8, @fColumnCount, {caseinsens=}true);
   fRowBufferSize := 16384;
   fAlignBuffer := true;
 end;
@@ -804,35 +823,35 @@ type
 
   PColumnValue = ^TColumnValue;
 
-procedure TSQLDBOleDBStatement.LogStatusError(Status: integer;
-  Column: PSQLDBColumnProperty);
+procedure TSqlDBOleDBStatement.LogStatusError(Status: integer;
+  Column: PSqlDBColumnProperty);
 var
-  msg: RawUTF8;
+  msg: RawUtf8;
 begin
   {$ifndef PUREPASCAL}
-  if cardinal(Status) <= cardinal(ord(high(TSQLDBOleDBStatus))) then
+  if cardinal(Status) <= cardinal(ord(high(TSqlDBOleDBStatus))) then
     msg := UnCamelCase(TrimLeftLowerCaseShort(
-     GetEnumName(TypeInfo(TSQLDBOleDBStatus), Status)))
+     GetEnumName(TypeInfo(TSqlDBOleDBStatus), Status)))
   else
   {$else}
     Int32ToUtf8(Status, msg);
   {$endif}
   SynDBLog.Add.Log(sllError, 'Invalid [%] status for column [%] at row % for %',
-    [{%H-}msg, Column^.ColumnName, fCurrentRow, fSQL], self);
+    [{%H-}msg, Column^.ColumnName, fCurrentRow, fSql], self);
 end;
 
-function TSQLDBOleDBStatement.GetCol(Col: integer;
-  out Column: PSQLDBColumnProperty): pointer;
+function TSqlDBOleDBStatement.GetCol(Col: integer;
+  out Column: PSqlDBColumnProperty): pointer;
 begin
   CheckCol(Col); // check Col value
   if not Assigned(fRowSet) or
      (fColumnCount = 0) then
-    raise EOleDBException.CreateUTF8('%.Column*() with no prior Execute', [self]);
+    raise EOleDBException.CreateUtf8('%.Column*() with no prior Execute', [self]);
   if CurrentRow <= 0 then
-    raise EOleDBException.CreateUTF8('%.Column*() with no prior Step', [self]);
+    raise EOleDBException.CreateUtf8('%.Column*() with no prior Step', [self]);
   Column := @fColumns[Col];
   result := @fRowSetData[Column^.ColumnAttr];
-  case TSQLDBOleDBStatus(PColumnValue(result)^.Status) of
+  case TSqlDBOleDBStatus(PColumnValue(result)^.Status) of
     stOk:
       exit; // valid content
     stIsNull:
@@ -844,10 +863,10 @@ begin
   end;
 end;
 
-procedure TSQLDBOleDBStatement.GetCol64(Col: integer; DestType: TSQLDBFieldType;
+procedure TSqlDBOleDBStatement.GetCol64(Col: integer; DestType: TSqlDBFieldType;
   var Dest);
 var
-  C: PSQLDBColumnProperty;
+  C: PSqlDBColumnProperty;
   V: PColumnValue;
 begin
   V := GetCol(Col, C);
@@ -862,10 +881,10 @@ begin
     ColumnToTypedValue(Col, DestType, Dest);
 end;
 
-function TSQLDBOleDBStatement.ColumnBlob(Col: integer): RawByteString;
+function TSqlDBOleDBStatement.ColumnBlob(Col: integer): RawByteString;
 // ColumnBlob will return the binary content of the field
 var
-  C: PSQLDBColumnProperty;
+  C: PSqlDBColumnProperty;
   V: PColumnValue;
   P: PAnsiChar;
 begin
@@ -882,7 +901,7 @@ begin
             P := V^.VAnsiChar;
           SetString(result, P, V^.Length);
         end;
-      ftUTF8:
+      ftUtf8:
         if V^.Length = 0 then
           result := ''
         else
@@ -899,46 +918,46 @@ begin
     end;
 end;
 
-function TSQLDBOleDBStatement.ColumnCurrency(Col: integer): currency;
+function TSqlDBOleDBStatement.ColumnCurrency(Col: integer): currency;
 begin
   GetCol64(Col, ftCurrency, result);
 end;
 
-function TSQLDBOleDBStatement.ColumnDateTime(Col: integer): TDateTime;
+function TSqlDBOleDBStatement.ColumnDateTime(Col: integer): TDateTime;
 begin
   GetCol64(Col, ftDate, result);
 end;
 
-function TSQLDBOleDBStatement.ColumnDouble(Col: integer): double;
+function TSqlDBOleDBStatement.ColumnDouble(Col: integer): double;
 begin
   GetCol64(Col, ftDouble, result);
 end;
 
-function TSQLDBOleDBStatement.ColumnIndex(const aColumnName: RawUTF8): integer;
+function TSqlDBOleDBStatement.ColumnIndex(const aColumnName: RawUtf8): integer;
 begin
   result := fColumn.FindHashed(aColumnName);
 end;
 
-function TSQLDBOleDBStatement.ColumnNull(Col: integer): boolean;
+function TSqlDBOleDBStatement.ColumnNull(Col: integer): boolean;
 var
-  C: PSQLDBColumnProperty;
+  C: PSqlDBColumnProperty;
 begin
   result := GetCol(Col, C) = nil;
 end;
 
-function TSQLDBOleDBStatement.ColumnInt(Col: integer): Int64;
+function TSqlDBOleDBStatement.ColumnInt(Col: integer): Int64;
 begin
   GetCol64(Col, ftInt64, result);
 end;
 
-function TSQLDBOleDBStatement.ColumnName(Col: integer): RawUTF8;
+function TSqlDBOleDBStatement.ColumnName(Col: integer): RawUtf8;
 begin
   CheckCol(Col);
   result := fColumns[Col].ColumnName;
 end;
 
-function TSQLDBOleDBStatement.ColumnType(Col: integer;
-  FieldSize: PInteger): TSQLDBFieldType;
+function TSqlDBOleDBStatement.ColumnType(Col: integer;
+  FieldSize: PInteger): TSqlDBFieldType;
 begin
   CheckCol(Col);
   with fColumns[Col] do
@@ -952,9 +971,9 @@ begin
   end;
 end;
 
-function TSQLDBOleDBStatement.ColumnUTF8(Col: integer): RawUTF8;
+function TSqlDBOleDBStatement.ColumnUtf8(Col: integer): RawUtf8;
 var
-  C: PSQLDBColumnProperty;
+  C: PSqlDBColumnProperty;
   V: PColumnValue;
   P: pointer;
 begin
@@ -967,7 +986,7 @@ begin
         Int64ToUtf8(V^.Int64, result);
       ftDate:
         result := DateTimeToIso8601Text(V^.Double);
-      ftUTF8:
+      ftUtf8:
         begin
           if C^.ColumnValueInlined then
             P := @V^.VData
@@ -987,15 +1006,15 @@ begin
         Curr64ToStr(V^.Int64, result);
       ftDouble:
         if V^.Int64 = 0 then
-          result := SmallUInt32UTF8[0]
+          result := SmallUInt32Utf8[0]
         else
           DoubleToStr(V^.Double, result);
     end;
 end;
 
-function TSQLDBOleDBStatement.ColumnString(Col: integer): string;
+function TSqlDBOleDBStatement.ColumnString(Col: integer): string;
 var
-  C: PSQLDBColumnProperty;
+  C: PSqlDBColumnProperty;
   V: PColumnValue;
   P: pointer;
 begin
@@ -1015,7 +1034,7 @@ begin
         result := Curr64ToString(V^.Int64);
       ftDate:
         result := Ansi7ToString(DateTimeToIso8601Text(V^.Double));
-      ftUTF8:
+      ftUtf8:
         begin
           if C^.ColumnValueInlined then
             P := @V^.VData
@@ -1034,13 +1053,14 @@ begin
     end;
 end;
 
-function TSQLDBOleDBStatement.ColumnToVariant(Col: integer; var Value: Variant):
-  TSQLDBFieldType;
+function TSqlDBOleDBStatement.ColumnToVariant(Col: integer; var Value: Variant):
+  TSqlDBFieldType;
 var
-  C: PSQLDBColumnProperty;
+  C: PSqlDBColumnProperty;
   V: PColumnValue;
   P: pointer;
-begin // dedicated version to avoid as much memory allocation than possible
+begin
+  // dedicated version to avoid as much memory allocation than possible
   V := GetCol(Col, C);
   if V = nil then
     result := ftNull
@@ -1053,7 +1073,7 @@ begin // dedicated version to avoid as much memory allocation than possible
     case result of
       ftInt64, ftDouble, ftCurrency, ftDate:
         VInt64 := V^.Int64; // copy 64 bit content
-      ftUTF8:
+      ftUtf8:
         begin
           VAny := nil;
           if C^.ColumnValueInlined then
@@ -1086,16 +1106,17 @@ begin // dedicated version to avoid as much memory allocation than possible
   end;
 end;
 
-procedure TSQLDBOleDBStatement.ColumnsToJSON(WR: TJSONWriter);
+procedure TSqlDBOleDBStatement.ColumnsToJson(WR: TJsonWriter);
 var
   col: integer;
   V: PColumnValue;
   P: Pointer;
 label
   Write;
-begin // dedicated version to avoid as much memory allocation than possible
+begin
+  // dedicated version to avoid as much memory allocation than possible
   if CurrentRow <= 0 then
-    raise EOleDBException.CreateUTF8('%.ColumnsToJSON() with no prior Step', [self]);
+    raise EOleDBException.CreateUtf8('%.ColumnsToJson() with no prior Step', [self]);
   if WR.Expand then
     WR.Add('{');
   for col := 0 to fColumnCount - 1 do // fast direct conversion from OleDB buffer
@@ -1104,7 +1125,7 @@ begin // dedicated version to avoid as much memory allocation than possible
       if WR.Expand then
         WR.AddFieldName(ColumnName); // add '"ColumnName":'
       V := @fRowSetData[ColumnAttr];
-      case TSQLDBOleDBStatus(V^.Status) of
+      case TSqlDBOleDBStatus(V^.Status) of
         stOK:
 Write:    case ColumnType of
             ftInt64:
@@ -1112,26 +1133,26 @@ Write:    case ColumnType of
             ftDouble:
               WR.AddDouble(V^.Double);
             ftCurrency:
-              WR.AddCurr64(V^.Int64);
+              WR.AddCurr64(@V^.Int64);
             ftDate:
               begin
                 WR.Add('"');
                 WR.AddDateTime(@V^.Double, 'T', #0, fForceDateWithMS);
                 WR.Add('"');
               end;
-            ftUTF8:
+            ftUtf8:
               begin
                 WR.Add('"');
                 if ColumnValueInlined then
                   P := @V^.VData
                 else
                   P := V^.VWideChar;
-                WR.AddJSONEscapeW(P, V^.Length shr 1);
+                WR.AddJsonEscapeW(P, V^.Length shr 1);
                 WR.Add('"');
               end;
             ftBlob:
               if fForceBlobAsNull then
-                WR.AddShort('null')
+                WR.AddNull
               else
               begin
                 if ColumnValueInlined then
@@ -1141,10 +1162,10 @@ Write:    case ColumnType of
                 WR.WrBase64(P, V^.Length, true); // withMagic=true
               end;
           else
-            WR.AddShort('null');
+            WR.AddNull;
           end;
         stIsNull:
-          WR.AddShort('null');
+          WR.AddNull;
         stTruncated:
           begin
             LogTruncatedColumn(fColumns[col]);
@@ -1152,25 +1173,25 @@ Write:    case ColumnType of
           end;
       else
         begin
-          WR.AddShort('null');
+          WR.AddNull;
           LogStatusError(V^.Status, @fColumns[col]);
         end;
       end;
-      WR.Add(',');
+      WR.AddComma;
     end;
   WR.CancelLastComma; // cancel last ','
   if WR.Expand then
     WR.Add('}');
 end;
 
-function TSQLDBOleDBStatement.ParamToVariant(Param: Integer; var Value: Variant;
-  CheckIsOutParameter: boolean): TSQLDBFieldType;
+function TSqlDBOleDBStatement.ParamToVariant(Param: integer; var Value: Variant;
+  CheckIsOutParameter: boolean): TSqlDBFieldType;
 begin
   inherited ParamToVariant(Param, Value); // raise exception if Param incorrect
   dec(Param); // start at #1
   if CheckIsOutParameter and
      (fParams[Param].VInOut = paramIn) then
-    raise EOleDBException.CreateUTF8('%.ParamToVariant expects an [In]Out parameter',
+    raise EOleDBException.CreateUtf8('%.ParamToVariant expects an [In]Out parameter',
       [self]);
   // OleDB provider should have already modified the parameter in-place, i.e.
   // in our fParams[] buffer, especialy for TEXT parameters (OleStr/WideString)
@@ -1187,7 +1208,7 @@ begin
         Value := PCurrency(@VInt64)^;
       ftDate:
         Value := PDateTime(@VInt64)^;
-      ftUTF8:
+      ftUtf8:
         Value := VText; // returned as WideString/OleStr variant
       ftBlob:
         RawByteStringToVariant(VBlob, Value);
@@ -1198,32 +1219,32 @@ begin
 end;
 
 const
-  PARAMTYPE2OLEDB: array[TSQLDBParamInOutType] of DBPARAMIO = (
+  PARAMTYPE2OLEDB: array[TSqlDBParamInOutType] of DBPARAMIO = (
     DBPARAMIO_INPUT, DBPARAMIO_OUTPUT, DBPARAMIO_INPUT or DBPARAMIO_OUTPUT);
 
-  FIELDTYPE2OLEDB: array[TSQLDBFieldType] of DBTYPE = (
+  FIELDTYPE2OLEDB: array[TSqlDBFieldType] of DBTYPE = (
     DBTYPE_EMPTY, DBTYPE_I4, DBTYPE_I8, DBTYPE_R8, DBTYPE_CY, DBTYPE_DATE,
     DBTYPE_WSTR or DBTYPE_BYREF, DBTYPE_BYTES or DBTYPE_BYREF);
 
-  FIELDTYPE2OLEDBTYPE_NAME: array[TSQLDBFieldType] of WideString = (
+  FIELDTYPE2OLEDBTYPE_NAME: array[TSqlDBFieldType] of WideString = (
      '', 'DBTYPE_I4', 'DBTYPE_I8', 'DBTYPE_R8', 'DBTYPE_CY', 'DBTYPE_DATE',
     'DBTYPE_WVARCHAR', 'DBTYPE_BINARY');
-// ftUnknown, ftNull, ftInt64, ftDouble, ftCurrency, ftDate, ftUTF8, ftBlob
+// ftUnknown, ftNull, ftInt64, ftDouble, ftCurrency, ftDate, ftUtf8, ftBlob
 
   TABLE_PARAM_DATASOURCE: WideString = 'table';
 
-procedure TSQLDBOleDBStatement.Prepare(const aSQL: RawUTF8; ExpectResults: boolean);
+procedure TSqlDBOleDBStatement.Prepare(const aSql: RawUtf8; ExpectResults: boolean);
 var
   L: integer;
   SQLW: RawUnicode;
 begin
-  SQLLogBegin(sllDB);
+  SqlLogBegin(sllDB);
   if Assigned(fCommand) or
      Assigned(fRowSet) or
      (fColumnCount > 0) or
      (fColumnBindings <> nil) or
      (fParamBindings <> nil) then
-    raise EOleDBException.CreateUTF8('%.Prepare should be called once', [self]);
+    raise EOleDBException.CreateUtf8('%.Prepare should be called once', [self]);
   inherited;
   with OleDBConnection do
   begin
@@ -1232,18 +1253,18 @@ begin
     OleDBCheck(self, (fSession as IDBCreateCommand).CreateCommand(nil,
       IID_ICommandText, ICommand(fCommand)));
   end;
-  L := Length(fSQL);
+  L := Length(fSql);
   if StripSemicolon then
     while (L > 0) and
-          (fSQL[L] in [#1..' ', ';']) do
+          (fSql[L] in [#1..' ', ';']) do
       dec(L); // trim ' ' or ';' right (last ';' could be found incorrect)
   SetLength(SQLW, L * 2 + 1);
-  UTF8ToWideChar(pointer(SQLW), pointer(fSQL), L);
+  Utf8ToWideChar(pointer(SQLW), pointer(fSql), L);
   fCommand.SetCommandText(DBGUID_DEFAULT, pointer(SQLW));
-  SQLLogEnd;
+  SqlLogEnd;
 end;
 
-procedure TSQLDBOleDBStatement.ExecutePrepared;
+procedure TSqlDBOleDBStatement.ExecutePrepared;
 var
   i: integer;
   P: POleDBStatementParam;
@@ -1265,15 +1286,15 @@ var
   ssParamPropsCount: integer;
   IDLists: array of TIDListRowset;
 begin
-  SQLLogBegin(sllSQL);
+  SqlLogBegin(sllSQL);
   // 1. check execution context
   if not Assigned(fCommand) then
-    raise EOleDBException.CreateUTF8('%s.Prepare should have been called', [self]);
+    raise EOleDBException.CreateUtf8('%s.Prepare should have been called', [self]);
   if Assigned(fRowSet) or
      (fColumnCount > 0) or
      (fColumnBindings <> nil) or
      (fParamBindings <> nil) then
-    raise EOleDBException.CreateUTF8('Missing call to %.Reset', [self]);
+    raise EOleDBException.CreateUtf8('Missing call to %.Reset', [self]);
   inherited ExecutePrepared; // set fConnection.fLastAccessTicks
   // 2. bind parameters
   SetLength(IDLists, fParamCount);
@@ -1287,8 +1308,8 @@ begin
       for i := 0 to fParamCount - 1 do
         case fParams[i].VType of
           ftUnknown:
-            raise EOleDBException.CreateUTF8('%.Execute: missing #% bound parameter for [%]',
-              [self, i + 1, fSQL]);
+            raise EOleDBException.CreateUtf8('%.Execute: missing #% bound parameter for [%]',
+              [self, i + 1, fSql]);
         end;
       P := pointer(fParams);
       SetLength(fParamBindings, fParamCount);
@@ -1337,7 +1358,7 @@ begin
           case P^.VType of
             ftInt64:
               ssParamProps[ssParamPropsCount].rgPropertySets := @ssPropsetParamIDList;
-            ftUTF8:
+            ftUtf8:
               ssParamProps[ssParamPropsCount].rgPropertySets := @ssPropsetParamStrList;
           else
             raise EOleDBException.Create('Unsupported array parameter type');
@@ -1370,7 +1391,7 @@ begin
                 P^.VInt64 := length(P^.VBlob); // store length in unused VInt64 property
                 B^.obLength := PAnsiChar(@P^.VInt64) - pointer(fParams);
               end;
-            ftUTF8:
+            ftUtf8:
               begin
                 B^.obValue := PAnsiChar(@P^.VText) - pointer(fParams);
                 if P^.VText = '' then
@@ -1452,13 +1473,13 @@ begin
         IDLists[i].Free;
       end;
   end;
-  SQLLogEnd;
+  SqlLogEnd;
 end;
 
-procedure TSQLDBOleDBStatement.FromRowSet(RowSet: IRowSet);
+procedure TSqlDBOleDBStatement.FromRowSet(RowSet: IRowSet);
 begin
   if fRowSet <> nil then
-    EOleDBException.Create('TSQLDBOleDBStatement.FromRowSet twice');
+    EOleDBException.CreateUtf8('%.FromRowSet twice', [self]);
   if not Assigned(RowSet) then
     exit; // no row returned
   fRowSet := RowSet;
@@ -1469,9 +1490,9 @@ begin
   SetLength(fRowStepHandles, RowBufferSize div fRowSize);
 end;
 
-procedure TSQLDBOleDBStatement.FlushRowSetData;
+procedure TSqlDBOleDBStatement.FlushRowSetData;
 var
-  c: integer;
+  c: PtrInt;
 begin
   if fHasColumnValueInlined then
     for c := 0 to fColumnCount - 1 do
@@ -1483,13 +1504,13 @@ begin
   FillcharFast(fRowSetData[0], fRowSize, 0);
 end;
 
-function TSQLDBOleDBStatement.Step(SeekFirst: boolean): boolean;
+function TSqlDBOleDBStatement.Step(SeekFirst: boolean): boolean;
 var
   Status: TCardinalDynArray;
   sav: integer;
 begin
 {  if not Assigned(fCommand) then
-    raise EOleDBException.CreateUTF8('%.Execute should be called before Step',[self]); }
+    raise EOleDBException.CreateUtf8('%.Execute should be called before Step',[self]); }
   result := false;
   sav := fCurrentRow;
   fCurrentRow := 0;
@@ -1537,7 +1558,7 @@ begin
   result := true; // mark data available in fRowSetData
 end;
 
-destructor TSQLDBOleDBStatement.Destroy;
+destructor TSqlDBOleDBStatement.Destroy;
 begin
   try
     CloseRowSet;
@@ -1547,14 +1568,14 @@ begin
   end;
 end;
 
-procedure TSQLDBOleDBStatement.SetRowBufferSize(Value: integer);
+procedure TSqlDBOleDBStatement.SetRowBufferSize(Value: integer);
 begin
   if Value < 4096 then
     Value := 4096;
   fRowBufferSize := Value;
 end;
 
-procedure TSQLDBOleDBStatement.ReleaseRowSetDataAndRows;
+procedure TSqlDBOleDBStatement.ReleaseRowSetDataAndRows;
 begin
   FlushRowSetData;
   if fRowStepHandleRetrieved <> 0 then
@@ -1565,7 +1586,7 @@ begin
   fCurrentRow := 0;
 end;
 
-procedure TSQLDBOleDBStatement.CloseRowSet;
+procedure TSqlDBOleDBStatement.CloseRowSet;
 begin
   if not Assigned(fRowSet) then
     exit;
@@ -1578,7 +1599,7 @@ begin
   fRowSet := nil;
 end;
 
-procedure TSQLDBOleDBStatement.Reset;
+procedure TSqlDBOleDBStatement.Reset;
 begin
   ReleaseRows;
   if fColumnCount > 0 then
@@ -1587,13 +1608,13 @@ begin
     fColumn.ReHash;
     // faster if full command is re-prepared!
     fCommand := nil;
-    Prepare(fSQL, fExpectResults);
+    Prepare(fSql, fExpectResults);
   end;
   fUpdateCount := 0;
   inherited Reset;
 end;
 
-procedure TSQLDBOleDBStatement.ReleaseRows;
+procedure TSqlDBOleDBStatement.ReleaseRows;
 begin
   if fParamCount > 0 then
     fParam.Clear;
@@ -1603,7 +1624,7 @@ begin
   inherited ReleaseRows;
 end;
 
-function TSQLDBOleDBStatement.UpdateCount: integer;
+function TSqlDBOleDBStatement.UpdateCount: integer;
 begin
   if not fExpectResults then
     result := fUpdateCount
@@ -1611,7 +1632,7 @@ begin
     result := 0;
 end;
 
-function TSQLDBOleDBStatement.BindColumns(ColumnInfo: IColumnsInfo;
+function TSqlDBOleDBStatement.BindColumns(ColumnInfo: IColumnsInfo;
   var Column: TDynArrayHashed; out Bindings: TDBBindingDynArray): integer;
 const
   // column content is inlined up to 4 KB, otherwise will be stored as DBTYPE_BYREF
@@ -1620,10 +1641,10 @@ var
   i, len: integer;
   B: PDBBinding;
   Cols, nfo: PDBColumnInfo;
-  Col: PSQLDBColumnProperty;
+  Col: PSqlDBColumnProperty;
   nCols: PtrUInt;
   ColsNames: PWideChar;
-  aName: RawUTF8;
+  aName: RawUtf8;
 begin
   nCols := 0;
   Cols := nil;
@@ -1639,7 +1660,7 @@ begin
     begin
       if (nfo^.pwszName = nil) or
          (nfo^.pwszName^ = #0) then
-        aName := 'col_' + Int32ToUTF8(i)
+        aName := 'col_' + Int32ToUtf8(i)
       else
         aName := RawUnicodeToUtf8(nfo^.pwszName, StrLenW(nfo^.pwszName));
       Col := fColumn.AddAndMakeUniqueName(aName); // set ColumnName := aName
@@ -1661,18 +1682,19 @@ begin
             B^.cbMaxLen := sizeof(Int64);
             inc(result, sizeof(Int64));
           end;
-        ftUTF8, ftBlob:
+        ftUtf8, ftBlob:
           begin
             B^.dwPart := DBPART_STATUS or DBPART_VALUE or DBPART_LENGTH;
             B^.obLength := result; // need length field in fRowSetData[]
             inc(result, sizeof(PtrUInt)); // TColumnValue.Length
             B^.obValue := result;
             if nfo^.ulColumnSize < MAXCOLUMNSIZE then
-            begin // inline up to 4 KB
+            begin
+              // inline up to 4 KB
               B^.wType := B^.wType and not DBTYPE_BYREF;
               len := nfo^.ulColumnSize;
               Col^.ColumnValueDBSize := len;
-              if Col^.ColumnType = ftUTF8 then
+              if Col^.ColumnType = ftUtf8 then
               begin
                 case nfo^.wType of
                   DBTYPE_STR, DBTYPE_BSTR, DBTYPE_WSTR:
@@ -1690,7 +1712,8 @@ begin
               B^.cbMaxLen := len;
             end
             else
-            begin // get huge content by pointer (includes DBTYPE_BYREF)
+            begin
+              // get huge content by pointer (includes DBTYPE_BYREF)
               fHasColumnValueInlined := true;
               Col^.ColumnValueInlined := false;
               B^.cbMaxLen := sizeof(Pointer); // value=pointer in fRowSetData[]
@@ -1701,9 +1724,9 @@ begin
             end;
           end;
       else
-        raise EOleDBException.CreateUTF8(
+        raise EOleDBException.CreateUtf8(
           '%.Execute: wrong column [%] (%) for [%]', [self, aName,
-           GetEnumName(TypeInfo(TSQLDBFieldType), ord(Col^.ColumnType))^, fSQL]);
+           GetEnumName(TypeInfo(TSqlDBFieldType), ord(Col^.ColumnType))^, fSql]);
       end;
       inc(nfo);
       inc(B);
@@ -1719,20 +1742,20 @@ begin
 end;
 
 
-{ TSQLDBOleDBConnection }
+{ TSqlDBOleDBConnection }
 
-procedure TSQLDBOleDBConnection.Connect;
+procedure TSqlDBOleDBConnection.Connect;
 var
   DataInitialize: IDataInitialize;
   unknown: IUnknown;
-  Log: ISynLog;
+  {%H-}log: ISynLog;
 begin
   Log := SynDBLog.Enter(self, 'Connect');
   // check context
   if Connected then
     Disconnect;
   if OleDBProperties.ConnectionString = '' then
-    raise EOleDBException.CreateUTF8('%.Connect excepts a ConnectionString', [self]);
+    raise EOleDBException.CreateUtf8('%.Connect excepts a ConnectionString', [self]);
   try
     // retrieve initialization parameters from connection string
     OleCheck(CoCreateInstance(CLSID_MSDAINITIALIZE, nil, CLSCTX_INPROC_SERVER,
@@ -1762,22 +1785,22 @@ begin
   end;
 end;
 
-constructor TSQLDBOleDBConnection.Create(aProperties: TSQLDBConnectionProperties);
+constructor TSqlDBOleDBConnection.Create(aProperties: TSqlDBConnectionProperties);
 var
-  Log: ISynLog;
+  {%H-}log: ISynLog;
 begin
   Log := SynDBLog.Enter(self, 'Create');
-  if not aProperties.InheritsFrom(TSQLDBOleDBConnectionProperties) then
-    raise EOleDBException.CreateUTF8('Invalid %.Create(%)', [self, aProperties]);
-  fOleDBProperties := TSQLDBOleDBConnectionProperties(aProperties);
+  if not aProperties.InheritsFrom(TSqlDBOleDBConnectionProperties) then
+    raise EOleDBException.CreateUtf8('Invalid %.Create(%)', [self, aProperties]);
+  fOleDBProperties := TSqlDBOleDBConnectionProperties(aProperties);
   inherited;
   CoInit;
   OleCheck(CoGetMalloc(1, fMalloc));
 end;
 
-destructor TSQLDBOleDBConnection.Destroy;
+destructor TSqlDBOleDBConnection.Destroy;
 var
-  Log: ISynLog;
+  log: ISynLog;
 begin
   Log := SynDBLog.Enter(self, 'Destroy');
   try
@@ -1791,9 +1814,9 @@ begin
   end;
 end;
 
-procedure TSQLDBOleDBConnection.Disconnect;
+procedure TSqlDBOleDBConnection.Disconnect;
 var
-  Log: ISynLog;
+  {%H-}log: ISynLog;
 begin
   Log := SynDBLog.Enter(self, 'Disconnect');
   try
@@ -1809,17 +1832,17 @@ begin
   end;
 end;
 
-function TSQLDBOleDBConnection.IsConnected: boolean;
+function TSqlDBOleDBConnection.IsConnected: boolean;
 begin
   result := fSession <> nil;
 end;
 
-function TSQLDBOleDBConnection.NewStatement: TSQLDBStatement;
+function TSqlDBOleDBConnection.NewStatement: TSqlDBStatement;
 begin
-  result := TSQLDBOleDBStatement.Create(self);
+  result := TSqlDBOleDBStatement.Create(self);
 end;
 
-procedure TSQLDBOleDBConnection.OleDBCheck(aStmt: TSQLDBStatement; aResult:
+procedure TSqlDBOleDBConnection.OleDBCheck(aStmt: TSqlDBStatement; aResult:
   HRESULT; const aStatus: TCardinalDynArray);
 
   procedure EnhancedTest;
@@ -1866,23 +1889,23 @@ procedure TSQLDBOleDBConnection.OleDBCheck(aStmt: TSQLDBStatement; aResult:
     // retrieve binding information from Status[]
     s := '';
     for i := 0 to high(aStatus) do
-      if TSQLDBOleDBBindStatus(aStatus[i]) <> bsOK then
+      if TSqlDBOleDBBindStatus(aStatus[i]) <> bsOK then
       begin
-        if aStatus[i] <= cardinal(high(TSQLDBOleDBBindStatus)) then
-          s := FormatString('% Status[%]="%"', [s, i, GetCaptionFromEnum(TypeInfo
-            (TSQLDBOleDBBindStatus), aStatus[i])])
+        if aStatus[i] <= cardinal(high(TSqlDBOleDBBindStatus)) then
+          s := FormatString('% Status[%]="%"', [s, i,
+            GetCaptionFromEnum(TypeInfo(TSqlDBOleDBBindStatus), aStatus[i])])
         else
           s := FormatString('% Status[%]=%', [s, i, aStatus[i]]);
 
       end;
     if s <> '' then
       fOleDBErrorMessage := fOleDBErrorMessage + s;
-    StringToUTF8(fOleDBErrorMessage, fErrorMessage);
+    StringToUtf8(fOleDBErrorMessage, fErrorMessage);
     // raise exception
     if aStmt = nil then
       E := EOleDBException.Create(fOleDBErrorMessage)
     else
-      E := EOleDBException.CreateUTF8('%: %', [self, StringToUTF8(fOleDBErrorMessage)]);
+      E := EOleDBException.CreateUtf8('%: %', [self, StringToUtf8(fOleDBErrorMessage)]);
     SynDBLog.Add.Log(sllError, E);
     raise E;
   end;
@@ -1894,13 +1917,14 @@ begin
     EnhancedTest;
 end;
 
-procedure TSQLDBOleDBConnection.OnDBInitialized;
-begin // do nothing by default
+procedure TSqlDBOleDBConnection.OnDBInitialized;
+begin
+  // do nothing by default
 end;
 
-procedure TSQLDBOleDBConnection.Commit;
+procedure TSqlDBOleDBConnection.Commit;
 var
-  Log: ISynLog;
+  {%H-}log: ISynLog;
 begin
   Log := SynDBLog.Enter(self, 'Commit');
   if assigned(fTransaction) then
@@ -1915,9 +1939,9 @@ begin
   end;
 end;
 
-procedure TSQLDBOleDBConnection.Rollback;
+procedure TSqlDBOleDBConnection.Rollback;
 var
-  Log: ISynLog;
+  {%H-}log: ISynLog;
 begin
   Log := SynDBLog.Enter(self, 'Rollback');
   if assigned(fTransaction) then
@@ -1927,9 +1951,9 @@ begin
   end;
 end;
 
-procedure TSQLDBOleDBConnection.StartTransaction;
+procedure TSqlDBOleDBConnection.StartTransaction;
 var
-  Log: ISynLog;
+  {%H-}log: ISynLog;
 begin
   Log := SynDBLog.Enter(self, 'StartTransaction');
   if assigned(fTransaction) then
@@ -1941,9 +1965,9 @@ begin
 end;
 
 
-{ TSQLDBOleDBConnectionProperties }
+{ TSqlDBOleDBConnectionProperties }
 
-function TSQLDBOleDBConnectionProperties.ConnectionStringDialogExecute(
+function TSqlDBOleDBConnectionProperties.ConnectionStringDialogExecute(
   Parent: HWND): boolean;
 var
   DataInitialize: IDataInitialize;
@@ -1951,7 +1975,7 @@ var
   DBInitialize: IUnknown;
   res: HRESULT;
   tmp: PWideChar;
-  Log: ISynLog;
+  log: ISynLog;
 begin
   Log := SynDBLog.Enter(self, 'ConnectionStringDialog');
   result := false;
@@ -1964,8 +1988,8 @@ begin
       OleCheck(CoCreateInstance(CLSID_MSDAINITIALIZE, nil, CLSCTX_INPROC_SERVER,
         IID_IDataInitialize, DataInitialize));
       if fConnectionString <> '' then
-        DataInitialize.GetDataSource(nil, CLSCTX_INPROC_SERVER, Pointer(fConnectionString),
-          IID_IDBInitialize, DBInitialize)
+        DataInitialize.GetDataSource(nil, CLSCTX_INPROC_SERVER,
+          Pointer(fConnectionString), IID_IDBInitialize, DBInitialize)
       else
         DBInitialize := nil;
       res := DBPromptInitialize.PromptDataSource(nil, Parent,
@@ -1995,10 +2019,10 @@ begin
   end;
 end;
 
-function TSQLDBOleDBConnectionProperties.CreateDatabase: boolean;
+function TSqlDBOleDBConnectionProperties.CreateDatabase: boolean;
 var
   Catalog: _Catalog;
-  DB: OleVariant;
+  {%H-}DB: OleVariant;
 begin
   result := false;
   if ConnectionString <> '' then
@@ -2021,11 +2045,11 @@ begin
   end;
 end;
 
-procedure TSQLDBOleDBConnectionProperties.GetTableNames(out Tables: TRawUTF8DynArray);
+procedure TSqlDBOleDBConnectionProperties.GetTableNames(out Tables: TRawUtf8DynArray);
 var
   Rows: IRowset;
   count, schemaCol, nameCol: integer;
-  schema, tablename: RawUTF8;
+  schema, tablename: RawUtf8;
 begin
   inherited; // first try from SQL, if any (faster)
   if Tables <> nil then
@@ -2034,7 +2058,7 @@ begin
     // see http://msdn.microsoft.com/en-us/library/ms716980(v=VS.85).aspx
     // Restriction columns: TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
     if GetSchema(DBSCHEMA_TABLES, ['', '', '', 'TABLE'], Rows) then
-      with TSQLDBOleDBStatement.Create(MainConnection) do
+      with TSqlDBOleDBStatement.Create(MainConnection) do
       try
         FromRowSet(Rows);
         count := 0;
@@ -2044,11 +2068,11 @@ begin
            (nameCol >= 0) then
           while Step do
           begin
-            schema := Trim(ColumnUTF8(schemaCol));
-            tablename := Trim(ColumnUTF8(nameCol));
+            schema := TrimU(ColumnUtf8(schemaCol));
+            tablename := TrimU(ColumnUtf8(nameCol));
             if schema <> '' then
               tablename := schema + '.' + tablename;
-            AddSortedRawUTF8(Tables, count, tablename);
+            AddSortedRawUtf8(Tables, count, tablename);
           end;
         SetLength(Tables, count);
       finally
@@ -2060,16 +2084,16 @@ begin
   end;
 end;
 
-procedure TSQLDBOleDBConnectionProperties.GetFields(const aTableName: RawUTF8;
-  out Fields: TSQLDBColumnDefineDynArray);
+procedure TSqlDBOleDBConnectionProperties.GetFields(const aTableName: RawUtf8;
+  out Fields: TSqlDBColumnDefineDynArray);
 var
-  Owner, Table, Column: RawUTF8;
+  Owner, Table, Column: RawUtf8;
   Rows: IRowset;
   n, i: integer;
-  F: TSQLDBColumnDefine;
+  F: TSqlDBColumnDefine;
   FA: TDynArray;
 const
-  DBTYPE_DISPLAY: array[TSQLDBFieldType] of RawUTF8 = ('???', 'null', 'int',
+  DBTYPE_DISPLAY: array[TSqlDBFieldType] of RawUtf8 = ('???', 'null', 'int',
     'double', 'currency', 'date', 'nvarchar', 'blob');
 begin
   inherited; // first try from SQL, if any (faster)
@@ -2085,13 +2109,13 @@ begin
     // see http://msdn.microsoft.com/en-us/library/ms723052(v=VS.85).aspx
     if GetSchema(DBSCHEMA_COLUMNS, ['', Owner, Table, ''], Rows) then
       // Restriction columns: TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME
-      with TSQLDBOleDBStatement.Create(MainConnection) do
+      with TSqlDBOleDBStatement.Create(MainConnection) do
       try
         FromRowSet(Rows);
-        FA.Init(TypeInfo(TSQLDBColumnDefineDynArray), Fields, @n);
+        FA.Init(TypeInfo(TSqlDBColumnDefineDynArray), Fields, @n);
         while Step do
         begin
-          F.ColumnName := Trim(ColumnUTF8('COLUMN_NAME'));
+          F.ColumnName := TrimU(ColumnUtf8('COLUMN_NAME'));
           F.ColumnLength := ColumnInt('CHARACTER_MAXIMUM_LENGTH');
           F.ColumnPrecision := ColumnInt('NUMERIC_PRECISION');
           F.ColumnScale := ColumnInt('NUMERIC_SCALE');
@@ -2106,12 +2130,12 @@ begin
     // now we have Fields[] with the column information -> get indexes and foreign keys
     if GetSchema(DBSCHEMA_INDEXES, ['', Owner, '', '', Table], Rows) then
       // Restriction columns: TABLE_CATALOG,TABLE_SCHEMA,INDEX_NAME,TYPE,TABLE_NAME
-      with TSQLDBOleDBStatement.Create(MainConnection) do
+      with TSqlDBOleDBStatement.Create(MainConnection) do
       try
         FromRowSet(Rows);
         while Step do
         begin
-          Column := Trim(ColumnUTF8('COLUMN_NAME'));
+          Column := TrimU(ColumnUtf8('COLUMN_NAME'));
           for i := 0 to high(Fields) do
             with Fields[i] do
               if IdemPropNameU(ColumnName, Column) then
@@ -2129,7 +2153,7 @@ begin
   end;
 end;
 
-procedure TSQLDBOleDBConnectionProperties.GetForeignKeys;
+procedure TSqlDBOleDBConnectionProperties.GetForeignKeys;
 var
   Rows: IRowset;
 begin
@@ -2137,16 +2161,16 @@ begin
   try
     if GetSchema(DBSCHEMA_FOREIGN_KEYS, ['', '', '', '', '', ''], Rows) then
     // PK_TABLE_CATALOG,PK_TABLE_SCHEMA,PK_TABLE_NAME,FK_TABLE_CATALOG,FK_TABLE_SCHEMA,FK_TABLE_NAME
-      with TSQLDBOleDBStatement.Create(MainConnection) do
+      with TSqlDBOleDBStatement.Create(MainConnection) do
       try
         FromRowSet(Rows);
         while Step do
-          fForeignKeys.Add(Trim(ColumnUTF8('FK_TABLE_SCHEMA')) + '.' +
-            Trim(ColumnUTF8('FK_TABLE_NAME')) + '.' +
-              Trim(ColumnUTF8('FK_COLUMN_NAME')),
-            Trim(ColumnUTF8('PK_TABLE_SCHEMA')) + '.' +
-              Trim(ColumnUTF8('PK_TABLE_NAME')) + '.' +
-              Trim(ColumnUTF8('PK_COLUMN_NAME')));
+          fForeignKeys.Add(TrimU(ColumnUtf8('FK_TABLE_SCHEMA')) + '.' +
+            TrimU(ColumnUtf8('FK_TABLE_NAME')) + '.' +
+              TrimU(ColumnUtf8('FK_COLUMN_NAME')),
+            TrimU(ColumnUtf8('PK_TABLE_SCHEMA')) + '.' +
+              TrimU(ColumnUtf8('PK_TABLE_NAME')) + '.' +
+              TrimU(ColumnUtf8('PK_COLUMN_NAME')));
       finally
         Free;
       end;
@@ -2156,11 +2180,11 @@ begin
   end;
 end;
 
-function TSQLDBOleDBConnectionProperties.GetSchema(const aUID: TGUID;
-  const Fields: array of RawUTF8; var aResult: IRowset): boolean;
+function TSqlDBOleDBConnectionProperties.GetSchema(const aUID: TGUID;
+  const Fields: array of RawUtf8; var aResult: IRowset): boolean;
 var
   i, res, n: integer;
-  C: TSQLDBOleDBConnection;
+  C: TSqlDBOleDBConnection;
   SRS: IDBSchemaRowset;
   PG, OG: PGUID;
   PI, OI: PInteger;
@@ -2170,7 +2194,7 @@ begin
   if (self = nil) or
      (high(Fields) < 0) then
     exit;
-  C := MainConnection as TSQLDBOleDBConnection;
+  C := MainConnection as TSqlDBOleDBConnection;
   if C.fSession = nil then
     C.Connect;
   C.fSession.QueryInterface(IDBSchemaRowset, SRS);
@@ -2211,7 +2235,7 @@ begin
     if ((res and (1 shl i)) <> 0) and
        (Fields[i] <> '') then
         // '' will leave VT_EMPTY parameter = no restriction
-        Args[i] := UTF8ToWideString(Fields[i]); // expect parameter as BSTR
+        Args[i] := Utf8ToWideString(Fields[i]); // expect parameter as BSTR
   aResult := nil;
   try
     C.OleDBCheck(nil,
@@ -2222,14 +2246,14 @@ begin
   end;
 end;
 
-function TSQLDBOleDBConnectionProperties.NewConnection: TSQLDBConnection;
+function TSqlDBOleDBConnectionProperties.NewConnection: TSqlDBConnection;
 begin
-  result := TSQLDBOleDBConnection.Create(self);
+  result := TSqlDBOleDBConnection.Create(self);
 end;
 
-procedure TSQLDBOleDBConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBConnectionProperties.SetInternalProperties;
 var
-  tmp: RawUTF8;
+  tmp: RawUtf8;
 begin
   if fProviderName <> '' then
     tmp := 'Provider=' + fProviderName + ';';
@@ -2237,12 +2261,12 @@ begin
     tmp := {%H-}tmp + 'Data Source=' + fServerName + ';';
   if fDatabaseName <> '' then
     tmp := tmp + 'Initial Catalog=' + fDatabaseName + ';';
-  fConnectionString := UTF8ToSynUnicode(tmp + 'User Id=' + fUserID +
-    ';Password=' + fPassWord + ';');
+  Utf8ToSynUnicode(tmp + 'User Id=' + fUserID + ';Password=' + fPassWord + ';',
+    fConnectionString);
 end;
 
-function TSQLDBOleDBConnectionProperties.ColumnTypeNativeToDB(
-  const aNativeType: RawUTF8; aScale: integer): TSQLDBFieldType;
+function TSqlDBOleDBConnectionProperties.ColumnTypeNativeToDB(
+  const aNativeType: RawUtf8; aScale: integer): TSqlDBFieldType;
 var
   native, err: integer;
 begin
@@ -2258,38 +2282,38 @@ end;
 
 { ************ Database Engine Specific OleDB Connection Classes }
 
-{ TSQLDBOleDBOracleConnectionProperties }
+{ TSqlDBOleDBOracleConnectionProperties }
 
-procedure TSQLDBOleDBOracleConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBOracleConnectionProperties.SetInternalProperties;
 begin
   if fProviderName = '' then
     fProviderName := 'OraOLEDB.Oracle.1';
-  fDBMS := dOracle;
+  fDbms := dOracle;
   inherited SetInternalProperties;
 end;
 
 
-{ TSQLDBOleDBMSOracleConnectionProperties }
+{ TSqlDBOleDBMSOracleConnectionProperties }
 
-procedure TSQLDBOleDBMSOracleConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBMSOracleConnectionProperties.SetInternalProperties;
 begin
   fProviderName := 'MSDAORA';
-  fDBMS := dOracle;
+  fDbms := dOracle;
   inherited SetInternalProperties;
 end;
 
 
-{ TSQLDBOleDBMSSQLConnectionProperties }
+{ TSqlDBOleDBMSSQLConnectionProperties }
 
-function TSQLDBOleDBMSSQLConnectionProperties.MSOnCustomError(
-  Connection: TSQLDBOleDBConnection; ErrorRecords: IErrorRecords;
+function TSqlDBOleDBMSSQLConnectionProperties.MSOnCustomError(
+  Connection: TSqlDBOleDBConnection; ErrorRecords: IErrorRecords;
   RecordNum: cardinal): boolean;
 var
   SQLServerErrorInfo: ISQLServerErrorInfo;
   SSErrorInfo: PSSERRORINFO;
   SSErrorMsg: PWideChar;
   msg, tmp: string;
-  utf8: RawUTF8;
+  u: RawUtf8;
 begin
   result := False;
   if (self = nil) or
@@ -2307,11 +2331,11 @@ begin
         if bClass <= 10 then
         begin
           Connection.fOleDBInfoMessage := Connection.fOleDBInfoMessage + msg;
-          RawUnicodeToUtf8(pwszMessage, StrLenW(pwszMessage), utf8);
-          SynDBLog.Add.Log(sllDB, utf8, self);
+          RawUnicodeToUtf8(pwszMessage, StrLenW(pwszMessage), u);
+          SynDBLog.Add.Log(sllDB, u, self);
           with Connection.Properties do
             if Assigned(OnStatementInfo) then
-              OnStatementInfo(nil, utf8);
+              OnStatementInfo(nil, u);
         end
         else
         begin
@@ -2332,12 +2356,12 @@ begin
   end;
 end;
 
-procedure TSQLDBOleDBMSSQLConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBMSSQLConnectionProperties.SetInternalProperties;
 begin
   OnCustomError := MSOnCustomError;
   if fProviderName = '' then
     fProviderName := 'SQLNCLI10';
-  fDBMS := dMSSQL;
+  fDbms := dMSSQL;
   inherited SetInternalProperties;
   if fUserID = '' then
     fConnectionString := fConnectionString +
@@ -2345,16 +2369,16 @@ begin
 end;
 
 
-{ TSQLDBOleDBMSSQL2005ConnectionProperties }
+{ TSqlDBOleDBMSSQL2005ConnectionProperties }
 
-procedure TSQLDBOleDBMSSQL2005ConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBMSSQL2005ConnectionProperties.SetInternalProperties;
 begin
   fProviderName := 'SQLNCLI';
   inherited SetInternalProperties;
 end;
 
-constructor TSQLDBOleDBMSSQL2005ConnectionProperties.Create(const aServerName,
-  aDatabaseName, aUserID, aPassWord: RawUTF8);
+constructor TSqlDBOleDBMSSQL2005ConnectionProperties.Create(const aServerName,
+  aDatabaseName, aUserID, aPassWord: RawUtf8);
 begin
   inherited;
   fBatchSendingAbilities := [];
@@ -2362,9 +2386,9 @@ begin
 end;
 
 
-{ TSQLDBOleDBMSSQL2012ConnectionProperties }
+{ TSqlDBOleDBMSSQL2012ConnectionProperties }
 
-procedure TSQLDBOleDBMSSQL2012ConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBMSSQL2012ConnectionProperties.SetInternalProperties;
 begin
   if OSVersion > wVista then
     fProviderName := 'SQLNCLI11';
@@ -2372,96 +2396,105 @@ begin
 end;
 
 
-{ TSQLDBOleDBODBCSQLConnectionProperties }
+{ TSqlDBOleDBMSSQL2018ConnectionProperties }
 
-constructor TSQLDBOleDBODBCSQLConnectionProperties.Create(const aDriver,
-  aServerName, aDatabaseName, aUserID, aPassWord: RawUTF8);
+procedure TSqlDBOleDBMSSQL2018ConnectionProperties.SetInternalProperties;
+begin
+  inherited SetInternalProperties;
+  fProviderName := 'MSOLEDBSQL';
+end;
+
+
+{ TSqlDBOleDBOdbcSQLConnectionProperties }
+
+constructor TSqlDBOleDBOdbcSQLConnectionProperties.Create(const aDriver,
+  aServerName, aDatabaseName, aUserID, aPassWord: RawUtf8);
 begin
   fDriver := aDriver;
   inherited Create(aServerName, aDatabaseName, aUserID, aPassWord);
 end;
 
-procedure TSQLDBOleDBODBCSQLConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBOdbcSQLConnectionProperties.SetInternalProperties;
 begin
   fProviderName := 'MSDASQL'; // we could have left it void - never mind
   inherited SetInternalProperties;
   if fDriver <> '' then
-    fConnectionString := UTF8ToSynUnicode('Driver=' + fDriver + ';') + fConnectionString;
+    fConnectionString := Utf8ToSynUnicode('Driver=' + fDriver + ';') + fConnectionString;
 end;
 
 
-{ TSQLDBOleDBMySQLConnectionProperties }
+{ TSqlDBOleDBMySQLConnectionProperties }
 
-procedure TSQLDBOleDBMySQLConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBMySQLConnectionProperties.SetInternalProperties;
 begin
   fProviderName := 'MYSQLPROV';
-  fDBMS := dMySQL;
+  fDbms := dMySQL;
   inherited;
 end;
 
 
-{ TSQLDBOleDBAS400ConnectionProperties }
+{ TSqlDBOleDBAS400ConnectionProperties }
 
-procedure TSQLDBOleDBAS400ConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBAS400ConnectionProperties.SetInternalProperties;
 begin
   fProviderName := 'IBMDA400.DataSource.1';
   inherited SetInternalProperties;
 end;
 
 
-{ TSQLDBOleDBInformixConnectionProperties }
+{ TSqlDBOleDBInformixConnectionProperties }
 
-procedure TSQLDBOleDBInformixConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBInformixConnectionProperties.SetInternalProperties;
 begin
   fProviderName := 'Ifxoledbc';
-  fDBMS := dInformix;
+  fDbms := dInformix;
   inherited SetInternalProperties;
 end;
 
-{$ifndef CPU64}
+{$ifdef CPU32}
 
-{ TSQLDBOleDBJetConnectionProperties }
+{ TSqlDBOleDBJetConnectionProperties }
 
-procedure TSQLDBOleDBJetConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBJetConnectionProperties.SetInternalProperties;
 begin
   fProviderName := 'Microsoft.Jet.OLEDB.4.0';
-  fDBMS := dJet;
+  fDbms := dJet;
   inherited SetInternalProperties;
-  if not FileExists(UTF8ToString(ServerName)) then
+  if not FileExists(Utf8ToString(ServerName)) then
     CreateDatabase;
 end;
 
 {$endif CPU64}
 
 
-{ TSQLDBOleDBACEConnectionProperties }
+{ TSqlDBOleDBACEConnectionProperties }
 
-procedure TSQLDBOleDBACEConnectionProperties.SetInternalProperties;
+procedure TSqlDBOleDBACEConnectionProperties.SetInternalProperties;
 begin
   fProviderName := 'Microsoft.ACE.OLEDB.12.0';
-  fDBMS := dJet;
+  fDbms := dJet;
   inherited SetInternalProperties;
-  if not FileExists(UTF8ToString(ServerName)) then
+  if not FileExists(Utf8ToString(ServerName)) then
     CreateDatabase;
 end;
 
 
 initialization
-  TSQLDBOleDBConnectionProperties.RegisterClassNameForDefinition;
-  TSQLDBOleDBConnectionProperties.RegisterClassNameForDefinition;
-  TSQLDBOleDBOracleConnectionProperties.RegisterClassNameForDefinition;
-  TSQLDBOleDBMSOracleConnectionProperties.RegisterClassNameForDefinition;
-  TSQLDBOleDBMSSQLConnectionProperties.RegisterClassNameForDefinition;
-  TSQLDBOleDBMSSQL2005ConnectionProperties.RegisterClassNameForDefinition;
-  TSQLDBOleDBMSSQL2008ConnectionProperties.RegisterClassNameForDefinition;
-  TSQLDBOleDBMSSQL2012ConnectionProperties.RegisterClassNameForDefinition;
-  TSQLDBOleDBMySQLConnectionProperties.RegisterClassNameForDefinition;
-  {$ifndef CPU64} // Jet is not available on Win64
-  TSQLDBOleDBJetConnectionProperties.RegisterClassNameForDefinition;
-  {$endif}
-  TSQLDBOleDBACEConnectionProperties.RegisterClassNameForDefinition;
-  TSQLDBOleDBAS400ConnectionProperties.RegisterClassNameForDefinition;
-  TSQLDBOleDBODBCSQLConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBOracleConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBMSOracleConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBMSSQLConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBMSSQL2005ConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBMSSQL2008ConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBMSSQL2012ConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBMySQLConnectionProperties.RegisterClassNameForDefinition;
+  {$ifdef CPU32} // Jet is not available on Win64
+  TSqlDBOleDBJetConnectionProperties.RegisterClassNameForDefinition;
+  {$endif CPU32}
+  TSqlDBOleDBACEConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBAS400ConnectionProperties.RegisterClassNameForDefinition;
+  TSqlDBOleDBOdbcSQLConnectionProperties.RegisterClassNameForDefinition;
 
   {$ifndef PUREMORMOT2}
   // backward compatibility types registration
@@ -2473,12 +2506,12 @@ initialization
   TOleDBMSSQL2008ConnectionProperties.RegisterClassNameForDefinition;
   TOleDBMSSQL2012ConnectionProperties.RegisterClassNameForDefinition;
   TOleDBMySQLConnectionProperties.RegisterClassNameForDefinition;
-  {$ifndef CPU64} // Jet is not available on Win64
+  {$ifdef CPU32} // Jet is not available on Win64
   TOleDBJetConnectionProperties.RegisterClassNameForDefinition;
-  {$endif}
+  {$endif CPU32}
   TOleDBACEConnectionProperties.RegisterClassNameForDefinition;
   TOleDBAS400ConnectionProperties.RegisterClassNameForDefinition;
-  TOleDBODBCSQLConnectionProperties.RegisterClassNameForDefinition;
+  TOleDBOdbcSQLConnectionProperties.RegisterClassNameForDefinition;
   {$endif PUREMORMOT2}
 
 
@@ -2486,7 +2519,7 @@ initialization
 
 implementation
 
-{$endif MSWINDOWS} // compiles as void unit for non-Windows - allow Lazarus package
+{$endif OSWINDOWS} // compiles as void unit for non-Windows - allow Lazarus package
 
 end.
 
