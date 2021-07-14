@@ -208,9 +208,6 @@ function NexusEmbeddedEngine: TnxServerEngine;
 function DropNexusEmbeddedEngine: TnxServerEngine;
 
 
-implementation
-
-
 { ************ NexusDB Database Engine Connection }
 
 implementation
