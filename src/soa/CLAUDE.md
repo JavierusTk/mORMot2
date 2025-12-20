@@ -1,164 +1,104 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Overview
+## Scope
 
 The `mormot.soa.*` units implement Interface-based Service-Oriented Architecture (SOA) for mORMot 2. This allows defining services as Pascal interfaces that can be consumed remotely via JSON/REST, with automatic client stub generation and bidirectional WebSocket communication.
 
-## Architecture Layers
+**When to use**: Business logic layers, DDD services, remote API access, microservices architecture. For low-level endpoints or file uploads, consider method-based services (TRest.ServiceMethodRegister) instead.
 
-### Core Abstraction (`mormot.soa.core.pas`)
-Shared types and base classes used by both client and server:
+**Key advantage**: Type-safe, compiler-checked service contracts with automatic client code generation. Reduces boilerplate and eliminates JSON parsing errors.
 
-- **`TServiceFactory`** - Abstract service provider managing interface registration, contract validation, and execution context
-- **`TServiceContainer`** - Abstract holder for multiple service factories (accessible via `TRest.Services` property)
-- **`TOrmServiceLog`** - Database-backed execution statistics (method calls, timing, I/O)
-- **`TOrmServiceNotifications`** - Asynchronous notification tracking via database polling
+## Service Architecture
 
-### Client Side (`mormot.soa.client.pas`)
-Generates fake interface implementations that serialize calls to JSON/REST:
-
-- **`TServiceFactoryClient`** - Creates fake `TInterfacedObject` instances that marshal calls over HTTP
-- **`TServiceContainerClient`** - Client-side service registry
-- Registration: `Client.ServiceRegister([TypeInfo(ICalculator)], sicShared)`
-
-### Server Side (`mormot.soa.server.pas`)
-Manages real service implementation instances with lifecycle control:
-
-- **`TServiceFactoryServer`** - Instance creation, authorization, logging, lifecycle management
-- **`TInjectableObjectRest`** - Base class for service implementations with DI support
-- **`TServiceContainerServer`** - Server-side service registry
-- Registration: `Server.ServiceRegister(TServiceCalculator, [TypeInfo(ICalculator)], sicShared)`
-
-### Code Generation (`mormot.soa.codegen.pas`)
-Generate client code and documentation from server definitions:
-
-- **`WrapperFromModel()`** - Generate client code using Mustache templates
-- **`ContextFromModel()`** - Extract ORM/SOA metadata as JSON for code generation
-- **Async interface generation** - Convert synchronous interfaces to async versions
-
-## Service Instance Implementation Patterns
-
-The `TServiceInstanceImplementation` enum controls server-side instance lifecycle:
-
-| Pattern | Description | Thread Safety |
-|---------|-------------|---------------|
-| `sicSingle` | New instance per call (default) | Not required |
-| `sicShared` | One instance for all calls | **Required** |
-| `sicClientDriven` | Instance tied to client lifetime (stateful) | Not required |
-| `sicPerSession` | One instance per authenticated session | **Required** |
-| `sicPerUser` | One instance per user across sessions | **Required** |
-| `sicPerGroup` | One instance per user group | **Required** |
-| `sicPerThread` | One instance per calling thread | Not required |
-
-**Key Insight**: Choose based on state requirements and performance trade-offs. `sicSingle` is safest but slowest. `sicShared` is fastest but requires thread-safe implementation.
-
-## Contract Validation
-
-Services use **contract signatures** to ensure client/server compatibility:
-
-- **Default contract**: MD5 hash of interface methods + parameter types (automatic)
-- **Custom contract**: Version string or GUID for explicit compatibility control
-- **Validation**: Client/server contracts must match or connection is rejected
-
-Example with custom contract:
-```pascal
-// Server
-Server.ServiceRegister(TMyService, [TypeInfo(IMyService)], sicShared)
-  .ContractExpected := 'v2.5';
-
-// Client
-Client.ServiceRegister([TypeInfo(IMyService)], sicShared, 'v2.5');
+```
+IInvokable (interface - implement your service here)
+│
+├─ Client-side: TServiceFactoryClient
+│  └─ Generates fake implementation (JSON marshalling)
+│     └─ Calls over HTTP to server
+│
+└─ Server-side: TServiceFactoryServer
+   └─ Manages real instances
+      ├─ Lifecycle control (sicSingle, sicShared, etc.)
+      ├─ Authorization rules (Allow, Deny, DenyAll)
+      └─ Execution logging (TOrmServiceLog)
 ```
 
-## Authorization & Security
+## Service Instance Patterns (Lifecycle)
 
-Per-method authorization using `TAuthGroup` IDs:
+| Pattern | Instances | Thread Safe? | Use When |
+|---------|-----------|--------------|----------|
+| `sicSingle` | New per call | Not required | Stateless, safest |
+| `sicShared` | One for all calls | **REQUIRED** | High performance, shared cache |
+| `sicClientDriven` | Per client (stateful) | Not required | Client-specific state |
+| `sicPerSession` | Per authenticated session | **REQUIRED** | Session-bound data |
+| `sicPerUser` | Per user across sessions | **REQUIRED** | User-scoped data |
+| `sicPerThread` | Per calling thread | Not required | Thread-local state |
 
-```pascal
-Factory := Server.Services.Info(ICalculator) as TServiceFactoryServer;
-
-// Deny all by default
-Factory.DenyAll;
-
-// Allow specific groups
-Factory.Allow(ICalculator, [ADMIN_GROUP_ID, MANAGER_GROUP_ID]);
-
-// Deny specific methods
-Factory.Deny(ICalculator, 'DeleteAll', [MANAGER_GROUP_ID]);
-```
-
-Authorization states:
-- `idAllowAll` - All groups allowed (default)
-- `idDenyAll` - All groups denied
-- `idAllowed` - Only specified groups allowed
-- `idDenied` - Specified groups denied
-
-## Execution Logging
-
-Enable automatic call logging to database:
+**Dependency Injection Pattern** (CRITICAL for shared services):
 
 ```pascal
-// Server-side logging
-Factory.SetServiceLog(RestServer, TOrmServiceLog);
-
-// Logs capture:
-// - Method name (interface.method)
-// - Input/output parameters as JSON
-// - Execution time (microseconds)
-// - User/Session/IP context
-```
-
-`TOrmServiceLog` stores statistics for performance tuning and debugging. `TOrmServiceNotifications` extends this for async notification patterns.
-
-## Key Design Patterns
-
-### 1. Client Usage Pattern
-```pascal
-var
-  I: ICalculator;
-begin
-  if Client.Services.Resolve(ICalculator, I) then
-    Result := I.Add(10, 20); // Serialized to JSON, sent to server
-end;
-```
-
-### 2. Server Implementation Pattern
-```pascal
+// ✅ DO: Implement DI for thread-safe shared instances
 type
-  TServiceCalculator = class(TInjectableObjectRest, ICalculator)
+  TCacheService = class(TInjectableObjectRest, ICacheService)
+  private
+    fLock: TRTLCriticalSection;
+    fCache: TSynDictionary;
   public
-    function Add(A, B: Integer): Integer;
+    constructor Create; override;
+    function Get(const Key: RawUtf8): Variant;  // Thread-safe via lock
   end;
 
-function TServiceCalculator.Add(A, B: Integer): Integer;
-begin
-  // Direct access to ORM via inherited Server property
-  Result := A + B;
-  Server.InternalLog('Calculator.Add called', sllTrace);
-end;
-```
+// Register as sicShared (one instance, all threads)
+Server.ServiceRegister(TCacheService, [TypeInfo(ICacheService)], sicShared);
 
-### 3. Bidirectional Communication (WebSockets)
-Define callback interfaces as method parameters:
-
-```pascal
+// ❌ DON'T: Shared instance without thread safety
 type
-  IProgress = interface
-    procedure Update(Percent: Integer);
+  TBadService = class(TInjectableObjectRest, IBadService)
+  public
+    fData: TStringList;  // NOT thread-safe!
   end;
 
-  ILongTask = interface
-    procedure Execute(const Callback: IProgress);
-  end;
-
-// Server pushes progress updates to client via callback interface
+// This will crash under concurrent load
+Server.ServiceRegister(TBadService, [TypeInfo(IBadService)], sicShared);
 ```
 
-## Method-Based vs Interface-Based Services
+## SAD References
 
-mORMot supports two SOA approaches:
+**Main Documentation**: [Software Architecture Design - mORMot 2](/mnt/w/mORMot2/DOCS/README.md)
+
+| Task | SAD Chapter(s) | Notes |
+|------|----------------|-------|
+| Define service interfaces | [Chapter 14: Interface-Based Services](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-14.md) | Interface RTTI, contracts |
+| Client/Server registration | [Chapter 15: Client-Server Services](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-15.md) | TServiceFactory usage |
+| Authorization & logging | [Chapter 15: Client-Server Services](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-15.md) | Per-method security |
+| WebSocket callbacks | [Chapter 16: Advanced Service Features](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-16.md) | Bidirectional interfaces |
+| Code generation | [Chapter 16: Advanced Service Features](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-16.md) | Mustache templates |
+| Architecture overview | [Chapter 14: Interface-Based Services](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-14.md) | Core/Client/Server layers |
+
+## Quick Patterns
+
+> **Note**: Only unique content NOT covered in SAD belongs here.
+
+### Service Instance Implementation Patterns
+
+Choose based on state requirements and performance trade-offs:
+
+| Pattern | Description | Thread Safety | Use Case |
+|---------|-------------|---------------|----------|
+| `sicSingle` | New instance per call (default) | Not required | Stateless services, safest option |
+| `sicShared` | One instance for all calls | **Required** | Fastest, shared caches/resources |
+| `sicClientDriven` | Instance tied to client lifetime | Not required | Stateful client sessions |
+| `sicPerSession` | One instance per authenticated session | **Required** | User-specific state across calls |
+| `sicPerUser` | One instance per user across sessions | **Required** | Cross-session user resources |
+| `sicPerGroup` | One instance per user group | **Required** | Group-level shared state |
+| `sicPerThread` | One instance per calling thread | Not required | Thread-local resources |
+
+**Key Insight**: `sicSingle` is safest but slowest. `sicShared` is fastest but requires thread-safe implementation. See SAD Ch 14 for lifecycle details.
+
+### Method-Based vs Interface-Based Services
 
 | Aspect | Method-Based | Interface-Based (this folder) |
 |--------|--------------|-------------------------------|
@@ -169,100 +109,115 @@ mORMot supports two SOA approaches:
 | WebSockets | Not supported | Built-in bidirectional |
 | Best for | Low-level endpoints, file uploads | Business logic, DDD services |
 
-**Recommendation**: Use interface-based services from this folder for 95% of use cases. Only drop to method-based for performance-critical endpoints or non-standard HTTP operations.
+**Recommendation**: Use interface-based services for 95% of use cases. Only drop to method-based for performance-critical endpoints or non-standard HTTP operations.
 
-## Common Patterns
+### Contract Validation Pattern
 
-### Dependency Injection in Services
 ```pascal
-type
-  TMyService = class(TInjectableObjectRest, IMyService)
-  private
-    fRepository: ICustomerRepository; // Injected dependency
-  public
-    constructor Create(const aRepository: ICustomerRepository); override;
-  end;
+// Server - explicit version control
+Server.ServiceRegister(TMyService, [TypeInfo(IMyService)], sicShared)
+  .ContractExpected := 'v2.5';
 
-// Container auto-resolves dependencies
-Server.Services.Resolve(ICustomerRepository, RepositoryInstance);
-Server.ServiceRegister(TMyService, [TypeInfo(IMyService)], sicShared);
+// Client - must match server contract
+Client.ServiceRegister([TypeInfo(IMyService)], sicShared, 'v2.5');
 ```
 
-### Async Notifications via Database
+**Default contract**: MD5 hash of interface methods + parameter types (automatic). Custom contracts provide explicit compatibility control.
+
+### Authorization Pattern
+
 ```pascal
-// Client polls for notifications since last known ID
-var
-  Events: TDocVariantData;
-begin
-  if TOrmServiceNotifications.LastEventsAsObjects(
-       Rest, LastID, 100, Factory, Events) then
-    ProcessEvents(Events);
-end;
+Factory := Server.Services.Info(ICalculator) as TServiceFactoryServer;
+
+// Deny all by default (secure by default)
+Factory.DenyAll;
+
+// Whitelist specific groups
+Factory.Allow(ICalculator, [ADMIN_GROUP_ID, MANAGER_GROUP_ID]);
+
+// Blacklist specific methods for certain groups
+Factory.Deny(ICalculator, 'DeleteAll', [MANAGER_GROUP_ID]);
 ```
 
-### Thread-Safe Shared Services
-```pascal
-type
-  TCacheService = class(TInjectableObjectRest, ICacheService)
-  private
-    fLock: TRTLCriticalSection;
-    fCache: TSynDictionary;
-  public
-    constructor Create; override;
-    destructor Destroy; override;
-    function Get(const Key: RawUtf8): Variant; // Thread-safe
-  end;
+States: `idAllowAll` (default) → `idDenyAll` → `idAllowed` → `idDenied`. See SAD Ch 15 for TAuthGroup integration.
 
-// Register as sicShared for best performance
-Server.ServiceRegister(TCacheService, [TypeInfo(ICacheService)], sicShared);
+### Execution Logging Pattern
+
+```pascal
+// Enable automatic call logging to database
+Factory.SetServiceLog(RestServer, TOrmServiceLog);
+
+// Logs capture: method name, parameters (JSON), execution time, user/session/IP
 ```
 
-## Files Summary
+`TOrmServiceLog` stores statistics for performance tuning and debugging. `TOrmServiceNotifications` extends this for async notification patterns.
 
-| File | Purpose |
-|------|---------|
-| `mormot.soa.core.pas` | Base types, contracts, logging, authorization |
-| `mormot.soa.client.pas` | Fake interface stubs, JSON marshalling |
-| `mormot.soa.server.pas` | Instance management, execution, DI support |
-| `mormot.soa.codegen.pas` | Mustache-based code generation, async conversion |
+## AI Guidelines
+
+> **Critical rules for code generation/modification**
+
+- **Thread Safety**: `sicShared`, `sicPerSession`, `sicPerUser`, `sicPerGroup` require thread-safe implementations (use locks/immutable data)
+- **Contract Compatibility**: Client/server contracts must match or connection is rejected (validate after interface changes)
+- **Dependency Injection**: Use `TInjectableObjectRest` base class for automatic dependency resolution via Server property
+- **WebSockets**: Callback interfaces as method parameters enable bidirectional communication (see SAD Ch 16)
+- **Performance**: Prefer `sicShared` for read-heavy workloads, `sicSingle` for write-heavy (no contention)
+- **Authorization**: Always use `DenyAll` + `Allow` pattern for security-critical services (whitelist approach)
+- **Testing**: Use `TRestServerFullMemory` + `TRestClientUri` for in-memory unit testing (see Testing pattern below)
+
+## Files Organization
+
+```
+mormot.soa.core.pas      # Base types, contracts, TServiceFactory abstraction
+mormot.soa.client.pas    # Fake interface stubs, JSON marshalling
+mormot.soa.server.pas    # Instance management, authorization, logging
+mormot.soa.codegen.pas   # Mustache-based code generation, async conversion
+```
+
+**Project Files**: `/mnt/w/mORMot2/src/soa/` (4 core units)
+
+**Dependencies**: `mormot.core.interfaces` (RTTI), `mormot.core.json` (serialization), `mormot.orm.*` (logging), `mormot.rest.*` (transport)
 
 ## Testing Services
 
-No dedicated test infrastructure in this folder. See `/mnt/w/mORMot2/test/` for regression tests.
+Typical testing approach (no dedicated test infrastructure in this folder):
 
-Typical testing approach:
-1. Create in-memory server: `TRestServerFullMemory.Create(Model)`
-2. Register service: `Server.ServiceRegister(...)`
-3. Create client: `TRestClientUri.Create(Server)`
-4. Register client interface: `Client.ServiceRegister(...)`
-5. Resolve interface and call methods
-6. Validate results and database side effects
+```pascal
+// 1. Create in-memory server
+Server := TRestServerFullMemory.Create(Model);
 
-## Related Components
+// 2. Register service
+Server.ServiceRegister(TServiceCalculator, [TypeInfo(ICalculator)], sicShared);
 
-This folder depends on:
-- **`mormot.core.interfaces`** - Interface RTTI and fake object generation
-- **`mormot.core.json`** - JSON serialization of method calls
-- **`mormot.orm.*`** - Database logging via `TOrmServiceLog`
-- **`mormot.rest.*`** - HTTP transport and routing
+// 3. Create client
+Client := TRestClientUri.Create(Server);
 
-**📖 SAD Chapters**:
-- [Chapter 14: Interface-Based Services](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-14.md) - Service architecture
-- [Chapter 15: Client-Server Services](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-15.md) - Service implementation
-- [Chapter 16: Advanced Service Features](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-16.md) - Async, callbacks, code generation
+// 4. Register client interface
+Client.ServiceRegister([TypeInfo(ICalculator)], sicShared);
 
-See `/mnt/w/mORMot2/src/README.md` for overall framework structure.
+// 5. Resolve and call
+if Client.Services.Resolve(ICalculator, I) then
+  Result := I.Add(10, 20);
 
-## Key Takeaways
+// 6. Validate results and database side effects
+```
 
-1. **Contracts prevent version mismatches** - Always validate client/server compatibility
-2. **Instance patterns affect scalability** - Choose based on state requirements
-3. **Authorization is per-method** - Fine-grained security control
-4. **Logging is optional but valuable** - Enable for performance tuning
-5. **DI works out of the box** - Use `TInjectableObjectRest` base class
-6. **WebSockets enable callbacks** - Interface parameters become bidirectional channels
-7. **Code generation reduces boilerplate** - Mustache templates generate clients automatically
+See `/mnt/w/mORMot2/test/` for regression tests.
+
+## Notes
+
+**Key Takeaways**:
+1. Contracts prevent version mismatches - always validate client/server compatibility
+2. Instance patterns affect scalability - choose based on state requirements
+3. Authorization is per-method - fine-grained security control
+4. Logging is optional but valuable - enable for performance tuning
+5. DI works out of the box - use `TInjectableObjectRest` base class
+6. WebSockets enable callbacks - interface parameters become bidirectional channels
+7. Code generation reduces boilerplate - Mustache templates generate clients automatically
+
+**Version**: mORMot 2.3+ (trunk)
 
 ---
 
-**Last Updated**: 2025-10-10 (mORMot 2)
+**Last Updated**: 2025-12-20
+**mORMot Version**: 2.3+ (trunk)
+**Maintained By**: Synopse Informatique - Arnaud Bouchez

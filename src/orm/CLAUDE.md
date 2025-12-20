@@ -1,206 +1,82 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Overview
+## Scope
 
-This folder contains the **RESTful ORM (Object-Relational-Mapping)** layer of the mORMot 2 framework. It provides persistent-agnostic data access through a clean interface-based architecture that can work with SQLite3, external SQL databases, MongoDB (ODM), or in-memory storage.
+The `mORMot2/src/orm` folder implements the RESTful ORM (Object-Relational Mapping) layer - a persistence-agnostic data access framework that works with SQLite3, external SQL databases, MongoDB (ODM), or in-memory storage.
 
-**Key Design Principle**: The ORM layer is decoupled from REST transport (`mormot.rest.core`) and can be used as a pure persistence layer.
+**Key Design Principle**: The ORM is decoupled from REST transport (`mormot.rest.core`) and can be used as a pure persistence layer.
 
-## Architecture Layers
+**When to use**: Database-backed applications needing clean interface-based data access without tight coupling to specific storage backends.
 
-### Core Abstraction (Bottom → Top)
-
-```
-mormot.orm.base         → Low-level types, TOrmWriter, TOrmPropInfo
-         ↓
-mormot.orm.core         → TOrm, IRestOrm, TOrmModel, TOrmTable
-         ↓
-mormot.orm.rest         → TRestOrm (base implementation)
-         ↓
-   ┌────────────────────┴────────────────────┐
-   ↓                                         ↓
-mormot.orm.client                    mormot.orm.server
-TRestOrmClient                       TRestOrmServer
-TRestOrmClientUri                    + fStaticData[] (pure in-memory)
-                                     + fStaticVirtualTable[] (virtual tables)
-```
-
-### Storage Backends
+## Dependency Chain (TOrm Hierarchy)
 
 ```
-mormot.orm.storage      → TRestStorage, TRestStorageInMemory
-                          TOrmVirtualTable (JSON/Binary)
-         ↓
-   ┌────────────────┬────────────────┐
-   ↓                ↓                ↓
-mormot.orm.sqlite3  mormot.orm.sql  mormot.orm.mongodb
-TRestOrmServerDB    TRestStorageExternal  TRestStorageMongoDB
-(SQLite3 native)    (via mormot.db.sql)   (NoSQL/ODM)
+IRestOrm (interface - what to use)
+├─ TRestOrmClient (client-side)
+└─ TRestOrmServer (server-side)
+    ├─ TRestOrmServerDB (SQLite3)
+    └─ TRestStorageExternal (external SQL)
+
+TOrm (persistent class)
+├─ TOrmModel (schema definition - table order matters!)
+├─ TOrmTable (query results - read-only)
+└─ TRestBatch (bulk operations - high-performance)
 ```
 
-## Key Interfaces & Classes
+## ORM Quick Reference
 
-### Main Entry Point: `IRestOrm`
+| Class | Purpose | Use When |
+|-------|---------|----------|
+| `TOrm` | Base persistent class | Define your entities |
+| `TOrmModel` | Data model definition | Configure schema (table order CRITICAL) |
+| `IRestOrm` | Universal ORM interface | Code against this, not TRestOrm |
+| `TOrmTable` | Query results (read-only) | Iterate Orm.ExecuteList() results |
+| `TRestBatch` | High-perf bulk insert/update | >100 records, single roundtrip |
+| `TRecordReference` | Typed foreign key | Define relationships |
+| `TModTime` / `TCreateTime` | Auto-timestamps | Track creation/modification |
+| `TSessionUserID` | Auto-filled by server | Link records to users |
 
-**The SOLID interface for all ORM operations** - always code against this interface, not concrete classes.
+**Typed TID Pattern** (DO/DON'T):
 
 ```pascal
-// Defined in mormot.orm.core
-IRestOrm
-  ├─ IRestOrmClient  // Client-side extensions (BatchStart, UpdateFromServer)
-  └─ IRestOrmServer  // Server-side extensions (CreateMissingTables, AfterDeleteForceCoherency)
-```
-
-**Common usage pattern**:
-```pascal
-var
-  Orm: IRestOrm;  // ← Use interface, not TRestOrm
-begin
-  Orm := TRestOrmClient.Create(...);  // or TRestOrmServer
-  Orm.Retrieve(...);
-  Orm.Add(...);
-end;
-```
-
-### TOrm: The Base Persistent Class
-
-All persistent classes inherit from `TOrm` (defined in `mormot.orm.core`).
-
-**Special auto-computed field types** (set `oftXxx` in `TOrmPropInfo`):
-- `TModTime` / `TCreateTime` - Timestamps (auto-updated by server)
-- `TSessionUserID` - Current user ID (auto-filled from session)
-- `TRecordVersion` - Monotonic change counter (for conflict detection)
-- `TRecordReference` - Reference to any table (ON DELETE SET DEFAULT behavior)
-- `TRecordReferenceToBeDeleted` - Reference with cascade delete (ON DELETE CASCADE)
-- `TID` subtypes - Custom typed IDs (e.g., `TOrmClientID = type TID`)
-
-**Key methods**:
-- `OrmProps` - Access RTTI/field metadata (`TOrmProperties`)
-- `FillPrepare()` / `FillOne()` - Cursor-based result iteration
-- `GetAsVariant()` / `SetAsVariant()` - Dynamic field access
-
-### TOrmModel: Database Schema Definition
-
-Defines which `TOrm` classes form your database schema.
-
-```pascal
-Model := TOrmModel.Create([TOrmCustomer, TOrmOrder, TOrmProduct], 'root');
-// Table order matters for TRecordReference encoding (don't change after deployment)
-```
-
-**Critical**: `TRecordReference` encodes table index in high bits - changing table order breaks existing references.
-
-### TOrmTable: Query Results
-
-Read-only result set (like a `TDataSet` but JSON-native).
-
-```pascal
-Table := Orm.ExecuteList(TOrmOrder, 'Status=?', [1]);
-for i := 0 to Table.RowCount - 1 do
-  WriteLn(Table.Get(i, 'CustomerName'));
-```
-
-**Variant row access**: Use `TOrmTableRowVariant` for dynamic field access (slower but convenient).
-
-## Virtual Tables
-
-**Pattern**: Delphi-side implementation of SQLite virtual tables (or in-memory/external storage).
-
-### Base classes:
-- `TOrmVirtualTableForcedID` - Manual ID assignment
-- `TOrmVirtualTableAutoID` - Auto-generated ID
-
-### Built-in modules:
-- `TOrmVirtualTableJson` - JSON file storage
-- `TOrmVirtualTableBinary` - Binary file storage
-- `TOrmVirtualTableExternal` - SQL database redirection (via `mormot.orm.sql`)
-
-**Registration pattern**:
-```pascal
-Model.VirtualTableRegister(TOrmMyData, TOrmVirtualTableJson);
-// Must be called BEFORE TRestOrmServer.Create
-```
-
-## Batch Operations: TRestBatch
-
-High-performance bulk inserts/updates/deletes with a single server roundtrip.
-
-```pascal
-Batch := TRestBatch.Create(Orm, TOrmOrder, 1000);  // 1000 = auto-commit threshold
-try
-  for i := 1 to 10000 do
-  begin
-    Order := TOrmOrder.Create;
-    // ... populate Order
-    Batch.Add(Order, true);  // true = SendData owns Order
-  end;
-  Orm.BatchSend(Batch, Results);  // ← Single network call
-finally
-  Batch.Free;
-end;
-```
-
-**Encoding schemes** (`TRestBatchEncoding`):
-- `encPost` / `encPostHex` - INSERT operations
-- `encPut` / `encPutHex` - UPDATE operations
-- `encDelete` - DELETE operations
-
-## Important Patterns
-
-### 1. Static Tables (Server-Side)
-
-**Two types**:
-- `fStaticData[]` - Pure in-memory (NOT available in SQL joins)
-- `fStaticVirtualTable[]` - Virtual tables (available in SQL joins)
-
-Both use `TRestStorage` descendants but differ in SQLite3 visibility.
-
-### 2. Custom Property Types
-
-Define custom serialization via:
-```pascal
-class procedure InternalRegisterCustomProperties(Props: TOrmProperties); override;
-begin
-  Props.RegisterCustomFixedSizeRecordProperty(...);
-  Props.RegisterCustomRttiRecordProperty(...);
-end;
-```
-
-### 3. Validation & Filters
-
-Add at class level (not instance level):
-```pascal
-class procedure InternalDefineModel(Props: TOrmProperties); override;
-begin
-  inherited;
-  TOrmOrder.AddFilterNotVoidText(['CustomerName', 'Address']);
-  TOrmOrder.AddFilterOrValidate('Email', TSynValidateEmail.Create);
-end;
-```
-
-### 4. Typed TID Fields
-
-Pattern for referential integrity:
-```pascal
+// ✅ DO: Use typed IDs for referential integrity
 type
   TOrmClientID = type TID;  // Links to TOrmClient
   TOrmClientToBeDeletedID = type TID;  // CASCADE delete
 
-  TOrmOrder = class(TOrm)
-  published
-    property Client: TOrmClientID read fClient write fClient;
-    // ↑ Auto-reset to 0 when TOrmClient deleted
+TOrmOrder = class(TOrm)
+published
+  property Client: TOrmClientID;  // Auto-resets when TOrmClient deleted
+  property Owner: TOrmClientToBeDeletedID;  // Order deleted with owner
+end;
 
-    property Owner: TOrmClientToBeDeletedID read fOwner write fOwner;
-    // ↑ Order deleted when TOrmClient deleted
-  end;
+// ❌ DON'T: Use raw TID fields (no referential integrity)
+TOrmOrder = class(TOrm)
+published
+  property ClientID: TID;  // Just a number - no safety
+end;
 ```
 
-**Naming convention**: Type name must match `TOrm{ClassName}[ToBeDeleted]ID`.
+## SAD References
 
-## Storage Engine Selection Guide
+**📖 Main Documentation**: [Software Architecture Design - mORMot 2](/mnt/w/mORMot2/DOCS/README.md)
+
+| Task | SAD Chapter(s) | Notes |
+|------|----------------|-------|
+| Understanding TOrm classes | [Chapter 5: ORM](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-05.md) | Base class, field types |
+| Defining database schema | [Chapter 5.3: TOrmModel](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-05.md) | Model creation |
+| CRUD operations | [Chapter 5.2: IRestOrm](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-05.md) | Retrieve, Add, Update, Delete |
+| Batch operations | [Chapter 5.5: TRestBatch](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-05.md) | High-performance bulk ops |
+| Filtering and validation | [Chapter 6.1: Filtering](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-06.md) | WHERE clauses, validators |
+| Virtual tables | [Chapter 6.2: Virtual Tables](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-06.md) | JSON/Binary/External storage |
+| Choosing storage backend | [Chapter 6.3: Storage Backends](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-06.md) | SQLite3, External, MongoDB |
+| Caching strategies | [Chapter 6.4: Caching](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-06.md) | TOrmCache |
+
+## Quick Patterns
+
+### Storage Engine Selection Guide
 
 | Backend | Use When | Pros | Cons |
 |---------|----------|------|------|
@@ -209,81 +85,55 @@ type
 | **TRestStorageMongoDB** | Document store, sharding | Flexible schema, horizontal scaling | No SQL joins |
 | **TRestStorageInMemory** | Caching, temp data | Fastest, JSON/binary persistence | RAM-limited, no ACID |
 
-## Unit Dependencies
+### Static Tables (Server-Side)
 
-**Minimal ORM** (no REST transport):
+**Two distinct types** (commonly confused):
+
 ```pascal
-uses
-  mormot.orm.base,   // Low-level types
-  mormot.orm.core;   // TOrm, IRestOrm, TOrmModel
+// fStaticData[] - Pure in-memory (NOT visible in SQL joins)
+Server.StaticDataAdd(TOrmSettings, TRestStorageInMemory);
+
+// fStaticVirtualTable[] - Virtual tables (VISIBLE in SQL joins)
+Model.VirtualTableRegister(TOrmSettings, TOrmVirtualTableJson);
+Server.CreateMissingTables;
 ```
 
-**Client-side**:
-```pascal
-uses
-  mormot.orm.core,
-  mormot.orm.client;
+**Rule**: Use `fStaticVirtualTable[]` if you need SQL JOINs with other tables.
+
+## AI Guidelines
+
+- ⚠️ **TOrmModel table order**: Never reorder tables after deployment - `TRecordReference` encodes table index in high bits. Changing order breaks existing references.
+- ⚠️ **Virtual table registration timing**: Must call `Model.VirtualTableRegister()` BEFORE `TRestOrmServer.Create`. Registration after server creation silently fails.
+- ⚠️ **Batch ownership**: When using `Batch.Add(Obj, true)`, the batch owns the object. Do NOT free manually or you'll cause double-free.
+- ⚠️ **Static table limitations**: `fStaticData[]` tables are NOT visible in SQL joins. Use `fStaticVirtualTable[]` if you need joins.
+- ⚠️ **TModTime fields**: Only updated by server operations (`Add`, `Update`). Direct SQL updates won't trigger auto-update.
+- ✅ **IRestOrm interface**: Always declare variables as `IRestOrm` (interface), not `TRestOrm` (implementation class). Use interface-based design.
+- ✅ **Thread safety**: `TOrmModel` is read-only after creation (thread-safe). `TOrm` instances are NOT thread-safe (each thread needs own instances). `TRestBatch` is NOT thread-safe (use one per thread).
+
+## Files Organization
+
+```
+mormot.orm.base.pas        # Low-level types, TOrmWriter, TOrmPropInfo
+mormot.orm.core.pas        # TOrm, IRestOrm, TOrmModel, TOrmTable (195 KB)
+mormot.orm.rest.pas        # TRestOrm base implementation
+mormot.orm.client.pas      # TRestOrmClient, TRestOrmClientUri
+mormot.orm.server.pas      # TRestOrmServer, static tables
+mormot.orm.storage.pas     # TRestStorage, TRestStorageInMemory
+mormot.orm.sqlite3.pas     # TRestOrmServerDB (SQLite3 native)
+mormot.orm.sql.pas         # TRestStorageExternal (via mormot.db.sql)
+mormot.orm.mongodb.pas     # TRestStorageMongoDB (NoSQL/ODM)
 ```
 
-**Server-side with SQLite3**:
-```pascal
-uses
-  mormot.orm.core,
-  mormot.orm.server,
-  mormot.orm.sqlite3;
-```
+**Project Files**: `/mnt/w/mORMot2/test/test.orm.*.pas` (comprehensive test suite)
 
-**External SQL database**:
-```pascal
-uses
-  mormot.orm.core,
-  mormot.orm.server,
-  mormot.orm.sql,
-  mormot.db.sql.{provider};  // .postgres, .mssql, .oracle, etc.
-```
+## Notes
 
-## Common Pitfalls
-
-1. **TOrmModel table order**: Never reorder tables after deployment - breaks `TRecordReference`.
-
-2. **Virtual table registration timing**: Must call `Model.VirtualTableRegister()` BEFORE `TRestOrmServer.Create`.
-
-3. **Batch ownership**: When using `Batch.Add(Obj, true)`, the batch owns the object - don't free manually.
-
-4. **IRestOrm vs TRestOrm**: Always declare variables as `IRestOrm` (interface), not `TRestOrm` (implementation).
-
-5. **Static table limitations**: `fStaticData[]` tables are NOT visible in SQL joins - use `fStaticVirtualTable[]` if joins needed.
-
-6. **TModTime fields**: Only updated by server operations - direct SQL updates won't trigger auto-update.
-
-## Thread Safety
-
-- **TOrmModel**: Read-only after creation → thread-safe
-- **TOrm instances**: NOT thread-safe (each thread needs own instances)
-- **IRestOrm methods**: Thread-safe if underlying storage is (check provider docs)
-- **TOrmCache**: Thread-safe (uses locks internally)
-- **TRestBatch**: NOT thread-safe (use one per thread)
-
-## Testing & Debugging
-
-**Test suites**: See `/mnt/w/mORMot2/test/test.orm.*.pas` for comprehensive examples.
-
-**Logging**: Enable SQL logging via:
-```pascal
-Orm.LogFamily.Level := LOG_VERBOSE;  // Logs all SQL statements
-```
+**Logging**: Enable SQL statement logging via `Orm.LogFamily.Level := LOG_VERBOSE;` for debugging.
 
 **JSON inspection**: Use `TOrm.GetJSONValues()` to debug serialization issues.
 
-## Related Documentation
+---
 
-**📖 SAD Chapters**:
-- [Chapter 5: ORM](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-05.md) - TOrm, TOrmModel, field types
-- [Chapter 6: ORM Advanced](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-06.md) - Filtering, virtual tables, caching
-
-**Framework References**:
-- **Main README**: `/mnt/w/mORMot2/src/orm/README.md`
-- **Official Docs**: https://synopse.info/files/doc/mORMot2.html
-- **Core RTTI**: `/mnt/w/mORMot2/src/core/mormot.core.rtti.pas`
-- **Database layer**: `/mnt/w/mORMot2/src/db/`
-- **REST transport**: `/mnt/w/mORMot2/src/rest/`
+**Last Updated**: 2025-12-20
+**mORMot Version**: 2.3+ (trunk)
+**Maintained By**: Synopse Informatique - Arnaud Bouchez

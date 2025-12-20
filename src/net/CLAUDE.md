@@ -1,10 +1,12 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Overview
 
 The `mormot.net.*` units provide the complete network communication layer for the mORMot 2 framework, implementing high-performance client/server protocols with cross-platform support (Windows/Linux/BSD/MacOS).
+
+**Note**: This is the **network layer** (sockets, protocols, TLS). For **application-level** HTTP/REST servers, see [SAD Chapter 11: Client-Server Architecture](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-11.md).
 
 ## Architecture Layers
 
@@ -40,8 +42,8 @@ The `mormot.net.*` units provide the complete network communication layer for th
   - `TCurlHttp` - libcurl-based (cross-platform)
 - `TSimpleHttpClient` - High-level wrapper with `IHttpClient` interface
 - `THttpMultiPartStream` - RFC 2488 multipart/formdata POST
-- SMTP client for email sending
-- DNS resolution cache
+- **SMTP client** for email sending
+- **DNS resolution cache**
 
 **mormot.net.server** - HTTP/UDP servers
 - `THttpServer` - Multi-threaded HTTP/1.1 server over sockets
@@ -80,7 +82,7 @@ The `mormot.net.*` units provide the complete network communication layer for th
 - `TWebSocketAsyncServer` - Event-driven WS server
 - `TWebSocketAsyncServerRest` - Async bidirectional REST
 
-### Specialized Protocols
+### Specialized Protocols (Unique to mORMot)
 
 **mormot.net.relay** - Secured tunneling over WebSockets
 - Firewall traversal solution: clients connect to public relay, which tunnels to private server
@@ -264,7 +266,7 @@ See `/mnt/w/mORMot2/test/` for comprehensive regression tests covering:
 ## Related Documentation
 
 **📖 SAD Chapters**:
-- [Chapter 11: Client-Server Architecture](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-11.md) - HTTP transport modes
+- [Chapter 11: Client-Server Architecture](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-11.md) - Application-level HTTP/REST servers
 - [Chapter 20: Application Servers](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-20.md) - Daemon/service deployment
 
 **External Resources**:
@@ -277,6 +279,6 @@ See `/mnt/w/mORMot2/test/` for comprehensive regression tests covering:
 
 ---
 
-**Last Updated**: 2025-10-10 (Based on mORMot 2 commit from 2025-10-09)
-**Framework Version**: mORMot 2 (replaces mORMot 1.18)
+**Last Updated**: 2025-12-20
+**Framework Version**: mORMot 2
 **License**: MPL/GPL/LGPL three-license

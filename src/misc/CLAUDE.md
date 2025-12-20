@@ -1,10 +1,14 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Purpose
+## Scope
 
 The `mORMot2/src/misc` folder contains specialized binary file format parsers that are too specific for the core framework but not tied to ORM/SOA/MVC features. These are standalone utilities for reading and analyzing file structures.
+
+**Key Characteristic**: Zero dependencies on database, ORM, or networking layers. These are pure binary format parsers.
+
+**When to use**: Cross-platform analysis of Windows executables (PE/COFF), extracting version info, parsing binary file formats. Not for ISO 9660 (incomplete).
 
 ## Units Overview
 
@@ -19,49 +23,36 @@ The `mORMot2/src/misc` folder contains specialized binary file format parsers th
 - Digital signature stuffing (hide arbitrary data in executable signatures)
 - Cross-platform (works on Linux/macOS to analyze Windows executables)
 
-**Main Classes**:
-```pascal
-TSynPELoader = class
-  // High-level PE file parser
-  function LoadFromFile(const Filename: TFileName): boolean;
-  function ParseResources: boolean;
-  function ParseStringFileInfoEntries: boolean;
+### mormot.misc.iso (Early Draft - NOT FUNCTIONAL)
 
-  // Navigation
-  function GetSectionByName(const AName: RawUtf8): PImageSectionHeader;
-  function GetSectionByRVA(RVA: cardinal): PImageSectionHeader;
-  function OffsetFrom(RVA: cardinal): cardinal;
+**Purpose**: ISO 9660 CD/DVD file system reader (optical disc media format).
 
-  // Properties
-  property Architecture: TCoffArch;      // caI386, caAmd64, caArm64, etc.
-  property IsPE64: boolean;
-  property CoffHeader: PImageFileHeader;
-  property PE32/PE64: PImageNtHeaders32/64;
-  property StringFileInfoEntries: TDocVariantData;
-  function FileVersionStr: RawUtf8;      // '[major].[minor].[patch].[build]'
-end;
-```
+**Status**: This unit is just in early draft state - nothing works yet.
 
-**Key Functions**:
-```pascal
-// Extract version info as TDocVariant document
-function GetPEFileVersion(const aFileName: TFileName): TDocVariantData;
+**Note**: Do NOT use this unit in production. It only contains type definitions without implementation.
 
-// Hide arbitrary text in executable digital signature
-procedure StuffExeCertificate(const MainFile, NewFile: TFileName;
-  const Stuff: RawUtf8; UseInternalCertificate: boolean = false);
+## Quick Patterns
 
-// Retrieve stuffed text from signature
-function FindStuffExeCertificate(const FileName: TFileName): RawUtf8;
-```
+### Extract Version Info
 
-**Usage Example**:
 ```pascal
 uses mormot.misc.pecoff;
 
 var
-  pe: TSynPELoader;
   info: TDocVariantData;
+begin
+  info := GetPEFileVersion('C:\Windows\System32\notepad.exe');
+  WriteLn(info.ToJSON('', '', jsonHumanReadable));
+  WriteLn('Company: ', info.S['CompanyName']);
+  WriteLn('Product: ', info.S['ProductName']);
+end;
+```
+
+### Parse PE Structure
+
+```pascal
+var
+  pe: TSynPELoader;
 begin
   pe := TSynPELoader.Create;
   try
@@ -69,13 +60,11 @@ begin
     begin
       pe.ParseStringFileInfoEntries;
       WriteLn('Architecture: ', pe.ArchitectureName);
-      WriteLn('Version: ', pe.FileVersionStr);
+      WriteLn('Version: ', pe.FileVersionStr);  // '[major].[minor].[patch].[build]'
       WriteLn('64-bit: ', pe.IsPE64);
 
       // Get all version info as variant document
-      info := pe.StringFileInfoEntries;
-      WriteLn('Company: ', info.S['CompanyName']);
-      WriteLn('Product: ', info.S['ProductName']);
+      WriteLn('Company: ', pe.StringFileInfoEntries.S['CompanyName']);
     end;
   finally
     pe.Free;
@@ -83,56 +72,87 @@ begin
 end;
 ```
 
-**Low-Level Structures**: Complete PE/COFF format definitions with all headers, sections, and resource structures following Microsoft PE format specification.
+### Digital Signature Stuffing
 
-**Common Use Cases**:
-- Extract version info from executables programmatically
-- Analyze PE structure (sections, imports, exports, resources)
-- Validate executable signatures
-- Hide metadata/licensing info in signatures without breaking code signing
-- Cross-platform analysis of Windows executables
+```pascal
+// Hide arbitrary text in executable digital signature
+procedure StuffExeCertificate(const MainFile, NewFile: TFileName;
+  const Stuff: RawUtf8; UseInternalCertificate: boolean = false);
 
----
+// Retrieve stuffed text from signature
+function FindStuffExeCertificate(const FileName: TFileName): RawUtf8;
 
-### mormot.misc.iso (Early Draft - NOT FUNCTIONAL)
+// Usage:
+StuffExeCertificate('myapp.exe', 'myapp_stuffed.exe', 'License key: ABC123');
+WriteLn(FindStuffExeCertificate('myapp_stuffed.exe')); // 'License key: ABC123'
+```
 
-**Purpose**: ISO 9660 CD/DVD file system reader (optical disc media format).
+### Navigation Methods
 
-**Status**: This unit is just in early draft state - nothing works yet.
+```pascal
+// TSynPELoader navigation
+function GetSectionByName(const AName: RawUtf8): PImageSectionHeader;
+function GetSectionByRVA(RVA: cardinal): PImageSectionHeader;
+function OffsetFrom(RVA: cardinal): cardinal;
 
-**Structure Definitions**:
-- Low-level ISO 9660 encoding structures (volume descriptors, directory records, path tables)
-- Low-level UDF (Universal Disk Format) encoding structures
-- Placeholder types for high-level .iso file reader
+// Properties
+property Architecture: TCoffArch;      // caI386, caAmd64, caArm64, etc.
+property IsPE64: boolean;
+property CoffHeader: PImageFileHeader;
+property PE32/PE64: PImageNtHeaders32/64;
+property StringFileInfoEntries: TDocVariantData;
+```
 
-**Note**: Do NOT use this unit in production. It only contains type definitions without implementation.
+## AI Guidelines
 
----
+- ⚠️ **Lifetime management**: Pointers are only valid while `TSynPELoader` is alive. Copy data if persistence is needed.
+  ```pascal
+  // WRONG - pointer becomes invalid
+  function GetVersion: RawUtf8;
+  var pe: TSynPELoader;
+  begin
+    pe := TSynPELoader.Create;
+    pe.LoadFromFile('app.exe');
+    Result := pe.FileVersionStr; // OK - returns copy
+    pe.Free; // Now pe.StringFileInfo is invalid!
+  end;
+  ```
+- ⚠️ **Architecture detection**: Always check `Architecture` property, not just `IsPE64`.
+  ```pascal
+  case pe.Architecture of
+    caI386:   WriteLn('32-bit x86');
+    caAmd64:  WriteLn('64-bit x64');
+    caArm64:  WriteLn('64-bit ARM');
+  end;
+  ```
+- ⚠️ **Resource parsing**: Must call `ParseResources` before accessing version info.
+  ```pascal
+  pe.LoadFromFile('app.exe');
+  pe.ParseResources; // Required!
+  WriteLn(pe.FileVersionStr);
+  ```
+- ⚠️ **Digital signature stuffing**: Only works with executables that have valid signatures.
+  - Use `UseInternalCertificate := true` if OpenSSL not available
+  - Stuffed data is hidden in signature, doesn't affect code execution
+  - Maximum size depends on certificate structure (typically several KB)
+- ⚠️ **Do NOT use mormot.misc.iso**: It's incomplete and non-functional.
+- ✅ **Memory management**: Files are memory-mapped via `TMemoryMap` for efficiency. Pointers returned are valid only while the loader object is alive. No automatic memory copies.
+- ✅ **Cross-platform**: Parsers work on any platform (Windows/Linux/macOS/FreeBSD) since they only read binary file formats without OS-specific APIs.
+- ✅ **Common use cases**:
+  - Extract version info from executables programmatically
+  - Analyze PE structure (sections, imports, exports, resources)
+  - Validate executable signatures
+  - Hide metadata/licensing info in signatures without breaking code signing
+  - Cross-platform analysis of Windows executables
 
-## Architecture Notes
+## Files Organization
 
-### Design Philosophy
+```
+mormot.misc.pecoff.pas     # PE/COFF parser (production ready)
+mormot.misc.iso.pas        # ISO 9660 parser (early draft - NOT functional)
+```
 
-Both units follow mORMot's standard pattern:
-1. **Low-level structures** - Packed records matching binary format specs
-2. **High-level reader classes** - Memory-mapped file access with lazy parsing
-3. **Zero-copy approach** - Return pointers to mapped memory instead of copying data
-
-### Memory Management
-
-- Files are memory-mapped via `TMemoryMap` for efficiency
-- Pointers returned are valid only while the loader object is alive
-- No automatic memory copies - caller must copy if persistence is needed
-
-### Cross-Platform
-
-These parsers work on any platform (Windows/Linux/macOS/FreeBSD) since they only read binary file formats without OS-specific APIs.
-
----
-
-## Dependencies
-
-Minimal dependencies from mORMot core:
+**Dependencies**: Minimal dependencies from mORMot core:
 - `mormot.core.base` - Basic types, UTF-8, memory mapping
 - `mormot.core.os` - File system access
 - `mormot.core.unicode` - String conversions (pecoff only)
@@ -140,85 +160,12 @@ Minimal dependencies from mORMot core:
 - `mormot.core.rtti` - Runtime type info (pecoff only)
 - `mormot.core.variants` - TDocVariant (pecoff only)
 
----
-
-## Testing
-
-The PE COFF parser is production-tested. To verify:
-```pascal
-// Test with your own executables
-var
-  info: TDocVariantData;
-begin
-  info := GetPEFileVersion('C:\Windows\System32\notepad.exe');
-  WriteLn(info.ToJSON('', '', jsonHumanReadable));
-end;
-```
+**References**:
+- PE/COFF Format: https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
+- ISO 9660: ECMA-119 specification
 
 ---
 
-## References
-
-**PE/COFF Format**:
-- https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
-- https://0xrick.github.io/win-internals/pe2
-
-**ISO 9660**:
-- ECMA-119 specification (ISO 9660 standard)
-
----
-
-## Common Pitfalls
-
-### PE Parser
-
-1. **Lifetime management**: Pointers are only valid while `TSynPELoader` is alive
-   ```pascal
-   // WRONG - pointer becomes invalid
-   function GetVersion: RawUtf8;
-   var pe: TSynPELoader;
-   begin
-     pe := TSynPELoader.Create;
-     pe.LoadFromFile('app.exe');
-     Result := pe.FileVersionStr; // OK - returns copy
-     pe.Free; // Now pe.StringFileInfo is invalid!
-   end;
-   ```
-
-2. **Architecture detection**: Always check `Architecture` property, not just `IsPE64`
-   ```pascal
-   case pe.Architecture of
-     caI386:   WriteLn('32-bit x86');
-     caAmd64:  WriteLn('64-bit x64');
-     caArm64:  WriteLn('64-bit ARM');
-   end;
-   ```
-
-3. **Resource parsing**: Must call `ParseResources` before accessing version info
-   ```pascal
-   pe.LoadFromFile('app.exe');
-   pe.ParseResources; // Required!
-   WriteLn(pe.FileVersionStr);
-   ```
-
-4. **Digital signature stuffing**: Only works with executables that have valid signatures
-   - Use `UseInternalCertificate := true` if OpenSSL not available
-   - Stuffed data is hidden in signature, doesn't affect code execution
-   - Maximum size depends on certificate structure (typically several KB)
-
----
-
-## When to Use These Units
-
-**Use `mormot.misc.pecoff` when**:
-- Extracting version/metadata from executables at runtime
-- Building deployment tools that analyze binaries
-- Implementing software inventory/cataloging
-- Adding licensing/metadata without modifying code sections
-- Cross-platform analysis of Windows executables
-
-**Do NOT use `mormot.misc.iso`** - it's incomplete and non-functional
-
----
-
-Last updated: 2025-10-10
+**Last Updated**: 2025-12-20
+**mORMot Version**: 2.3+ (trunk)
+**Maintained By**: Synopse Informatique - Arnaud Bouchez

@@ -1,169 +1,158 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Overview
+## Scope
 
-The mORMot2 cryptographic units (`/mnt/w/mORMot2/src/crypt`) provide a comprehensive, high-performance cryptographic library for Delphi and FPC. The implementation emphasizes **stand-alone performance** and **cross-platform compatibility** with optional OpenSSL acceleration.
+The mORMot2 cryptographic units provide a **high-performance, stand-alone cryptographic library** with optional OpenSSL acceleration. The implementation philosophy prioritizes **native Pascal/assembly performance** over external dependencies.
 
-### Key Characteristics
-
-- **Stand-alone by default**: Pure Pascal with optimized assembly (x86_64/x86/ARM)
-- **Faster than OpenSSL**: Native implementation outperforms OpenSSL for most algorithms on x86_64 (except AES-GCM)
-- **OpenSSL optional**: Can delegate to OpenSSL 1.1/3.x for algorithms like RSA/ECC where OpenSSL is faster
-- **Factory-based architecture**: High-level `Rnd()`/`Hash()`/`Sign()`/`Cipher()`/`Asym()`/`Cert()`/`Store()` factories hide complexity
+**Key Design Principles**:
+- **Stand-alone by default**: Pure Pascal with x86_64/x86/ARM assembly optimizations (AES-NI, SSE4, AVX2, CLMUL)
+- **Faster than OpenSSL**: Native AES-CTR/CFB/OFB/CBC outperforms OpenSSL on x86_64 (except AES-GCM: ~20% slower)
+- **OpenSSL optional**: Can delegate RSA/ECC/AES-GCM to OpenSSL 1.1/3.x where OpenSSL is faster
+- **Factory-based architecture**: High-level `Rnd()`/`Hash()`/`Sign()`/`Cipher()`/`Asym()`/`Cert()`/`Store()` hide complexity
 - **Validated against OpenSSL**: Correctness verified against OpenSSL reference implementation
 
-## Architecture Layers
+**When to use**: Default choice for mORMot applications. Only add OpenSSL dependency for RSA/ECC-intensive workloads or AES-GCM.
 
-### Layer 1: Low-Level Primitives (`mormot.crypt.core.pas`)
+## Cryptographic Algorithms Quick Ref
 
-**Purpose**: Optimized cryptographic primitives with assembly acceleration
+| Algorithm | Purpose | Performance | Security | When to Use |
+|-----------|---------|-------------|----------|------------|
+| **AES-256** | Symmetric encryption | Very fast | Excellent | Default choice for data |
+| **ChaCha20** | Symmetric (modern) | Fast | Excellent | Mobile/ARM platforms |
+| **SHA-256** | Hashing | Very fast | Excellent | Passwords, integrity checks |
+| **SHA-3** | Hashing (newest) | Fast | Excellent | New designs (FIPS standard) |
+| **HMAC** | Message authentication | Very fast | Excellent | Verify message integrity |
+| **ECC-256** | Asymmetric (modern) | Moderate | Excellent | **Preferred** key exchange |
+| **RSA-4096** | Asymmetric (legacy) | Slow | Good | Compatibility only |
 
-**Key Features**:
-- AES-256 with AES-NI/CLMUL support (x86_64/x86)
-- SHA-2 (SHA-256, SHA-512) and SHA-3 (Keccak) with SSE/AVX2
-- HMAC, PBKDF2 key derivation
-- AES-based CSPRNG (`TAesPrng`)
-- Deprecated: MD5, SHA-1
+**OpenSSL Integration** (Critical for production):
+
+```pascal
+// ✅ DO: Use OpenSSL for best performance
+{$define USE_OPENSSL}  // Set BEFORE including mormot.core.crypt
+
+uses mormot.core.crypt;
+
+// Automatically uses OpenSSL if available
+// Falls back to built-in if not available
+
+// ❌ DON'T: Ignore OpenSSL availability
+// Built-in implementation is safe but slower
+// On POSIX systems, OpenSSL is nearly mandatory for production
+```
+
+Note: Set `USE_OPENSSL` in project defines, not in source code.
+
+## SAD References
+
+**📖 Main Documentation**: [Software Architecture Design - mORMot 2](/mnt/w/mORMot2/DOCS/README.md)
+
+| Task | SAD Chapter(s) | Notes |
+|------|----------------|-------|
+| Hash/HMAC/PBKDF2 | [Chapter 21: Security](../DOCS/mORMot2-SAD-Chapter-21.md) | AES, SHA-2/SHA-3, factories |
+| Symmetric encryption | [Chapter 21: Security](../DOCS/mORMot2-SAD-Chapter-21.md) | AES modes, `Cipher()` factory |
+| ECC/RSA signatures | [Chapter 23: Asymmetric Encryption](../DOCS/mORMot2-SAD-Chapter-23.md) | `Asym()` factory, ES256/RS256 |
+| X.509 certificates | [Chapter 23: Asymmetric Encryption](../DOCS/mORMot2-SAD-Chapter-23.md) | `Cert()`/`Store()` factories |
+| JWT tokens | [Chapter 21: Security](../DOCS/mORMot2-SAD-Chapter-21.md) | TJwtCrypt class |
+| OpenSSL integration | [Chapter 21: Security](../DOCS/mORMot2-SAD-Chapter-21.md) | RegisterOpenSsl |
+| Architecture overview | [Chapter 21: Security](../DOCS/mORMot2-SAD-Chapter-21.md) | 3-layer design |
+
+## Quick Patterns
+
+### Performance Comparison (Stand-alone vs OpenSSL)
+
+| Algorithm | Stand-alone | OpenSSL | Recommendation |
+|-----------|-------------|---------|----------------|
+| AES-CTR/CFB/OFB/CBC | **Faster** | Slower | Use stand-alone (default) |
+| AES-GCM | ~20% slower | **Faster** | Use OpenSSL for GCM (`RegisterOpenSsl`) |
+| SHA-256/SHA-512 | Comparable | Comparable | Use stand-alone (no dependency) |
+| RSA/ECC | Slower | **Faster** | Use OpenSSL for production (`RegisterOpenSsl`) |
+
+**Note**: Stand-alone AES-GCM is still faster than OpenSSL 3.0 (which regressed from 1.1).
+
+### Optimization Strategy
+
+```pascal
+// Option 1: Default (no dependencies, fastest for most algorithms)
+uses mormot.crypt.secure;
+var cipher := Cipher('aes-256-ctr', @key[1], true);
+
+// Option 2: OpenSSL for RSA/ECC intensive workloads
+uses mormot.crypt.openssl, mormot.crypt.secure;
+initialization
+  RegisterOpenSsl; // Registers faster OpenSSL to factories
+
+// Option 3: OpenSSL for AES-GCM only
+var cipher := Cipher('aes-256-gcm-osl', @key[1], true);
+```
+
+### Cross-Platform Assembly Optimizations
+
+| Platform | Features | Conditionals | Validation |
+|----------|----------|--------------|------------|
+| **x86_64** | AES-NI, CLMUL, SSE4, AVX2 | `USEAESNI64`, `USECLMUL`, `USEGCMAVX` | Full |
+| **x86** | AES-NI (4x interleaved), SSE4 | `USEAESNI32`, `USECLMUL` | Full |
+| **ARM64** | ARMv8 Crypto Extensions | `USEARMCRYPTO` | Linux/Android only |
 
 **Assembly Files**:
 - `mormot.crypt.core.asmx64.inc` - x86_64 optimizations
 - `mormot.crypt.core.asmx86.inc` - x86 optimizations
 
-**Performance Notes**:
-- Stand-alone AES-CTR/CFB/OFB: **Faster than OpenSSL**
-- AES-GCM: ~20% slower than OpenSSL (but faster than OpenSSL 3.0)
-- SHA-256/SHA-512: Comparable to OpenSSL with SSE4
+**External Libraries** (platform-specific):
+- Windows/Linux x86_64: CRC32C, SHA-512 (`.o`/`.obj` files)
+- Windows/Linux x86: SHA-512 (`.o`/`.obj` files)
 
-### Layer 2: High-Level Abstractions (`mormot.crypt.secure.pas`)
+### Key Files Summary
 
-**Purpose**: Authentication, key management, and **factory functions**
+| File | Purpose | Performance |
+|------|---------|-------------|
+| `mormot.crypt.core.pas` | AES, SHA, HMAC primitives | Faster than OpenSSL (most) |
+| `mormot.crypt.secure.pas` | Factories, auth, key mgmt | N/A (abstraction layer) |
+| `mormot.crypt.ecc256r1.pas` | Native ECC secp256r1 | Slower than OpenSSL |
+| `mormot.crypt.ecc.pas` | High-level ECC | Uses ecc256r1 |
+| `mormot.crypt.rsa.pas` | Native RSA | Slower than OpenSSL |
+| `mormot.crypt.x509.pas` | X.509 certificates | N/A (data structures) |
+| `mormot.crypt.jwt.pas` | JSON Web Tokens | N/A (protocol layer) |
+| `mormot.crypt.openssl.pas` | OpenSSL 1.1/3.x bindings | Faster RSA/ECC/AES-GCM |
+| `mormot.crypt.pkcs11.pas` | HSM support (PKCS#11) | Hardware-dependent |
+| `mormot.crypt.other.pas` | Deprecated algorithms | Avoid in new code |
 
-**Critical Factories** (use these for simplicity):
-```pascal
-function Rnd(name: RawUtf8 = 'rnd-default'): TCryptRandom;
-function Hash(name: RawUtf8): ICryptHash;
-function Sign(key: pointer; keylen: PtrInt; name: RawUtf8): ICryptHash;
-function Cipher(name: RawUtf8; key: pointer; encrypt: boolean): ICryptCipher;
-function Asym(name: RawUtf8): TCryptAsym;
-function Cert(name: RawUtf8): ICryptCert;
-function Store(name: RawUtf8): ICryptStore;
+## AI Guidelines
+
+> **Critical rules for code generation/modification**
+
+- ⚠️ **Never instantiate low-level classes directly**: Use `Rnd()`/`Hash()`/`Sign()`/`Cipher()`/`Asym()`/`Cert()`/`Store()` factories instead of `TAes.Create()` or `TSha256.Create()`
+- ⚠️ **Never use deprecated algorithms for security**: MD5, SHA-1, RC4 only acceptable for legacy compatibility (e.g., digest auth)
+- ⚠️ **Never use native RSA/ECC in production without benchmarking**: Consider `RegisterOpenSsl` for performance-critical workloads
+- ⚠️ **Windows OpenSSL conditional**: Define `USE_OPENSSL` in project options (Conditional defines) or `mormot.crypt.openssl.pas` compiles as void unit (silent failure)
+- ✅ **Use factory pattern for all cryptographic operations**: Simplifies algorithm switching and OpenSSL integration
+- ✅ **Validate with OpenSSL**: Framework correctness verified against OpenSSL reference implementation (see `/test`)
+- ✅ **Check legal compliance**: Ensure compliance with cryptographic export restrictions in your country (see LICENSE.md)
+
+## Files Organization
+
+```
+mormot.crypt.core.pas          # Low-level primitives (AES, SHA, HMAC)
+mormot.crypt.core.asmx64.inc   # x86_64 assembly optimizations
+mormot.crypt.core.asmx86.inc   # x86 assembly optimizations
+mormot.crypt.secure.pas        # High-level factories and abstractions
+mormot.crypt.ecc256r1.pas      # Native ECC implementation
+mormot.crypt.ecc.pas           # High-level ECC wrapper
+mormot.crypt.rsa.pas           # Native RSA implementation
+mormot.crypt.x509.pas          # X.509 certificates (RFC 5280)
+mormot.crypt.jwt.pas           # JSON Web Tokens (RFC 7797)
+mormot.crypt.openssl.pas       # OpenSSL 1.1/3.x bindings
+mormot.crypt.pkcs11.pas        # HSM support (PKCS#11)
+mormot.crypt.other.pas         # Deprecated/legacy algorithms
 ```
 
-**Key Classes**:
-- `TObjectWithPassword` - Encrypted password storage
-- `TSynSigner`/`TSynHasher` - Multi-algorithm wrappers
-- `TSynUniqueIdentifier` - 64-bit unique ID generator
-- `IProtocol` - Safe communication with authentication
-- Digest authentication (client/server)
+**Project Files**: `/mnt/w/mORMot2/packages/` (compile via RAD Studio/Lazarus)
 
-### Layer 3: Algorithm-Specific Units
+## Notes
 
-#### `mormot.crypt.ecc256r1.pas` + `mormot.crypt.ecc.pas`
-- **Elliptic Curve Cryptography** (secp256r1/NISTP-256/prime256v1)
-- ECDSA signatures, ECDH key exchange
-- Certificate-based public key cryptography
-- Registers `caaES256` to `Asym()` factory
-
-#### `mormot.crypt.rsa.pas`
-- **RSA asymmetric cryptography** (default: 2048-bit keys)
-- RS256/RS384/RS512 and PS256/PS384/PS512 (PSS padding)
-- Registers `caaRS256`..`caaPS512` to `Asym()` factory
-- **Note**: Slower than OpenSSL, consider using OpenSSL for production
-
-#### `mormot.crypt.x509.pas`
-- **X.509 certificate** implementation (RFC 5280)
-- CSR (Certificate Signing Request), CRL (Revocation Lists)
-- PKI (Private Key Infrastructure)
-- Registers to `Cert()`/`Store()` factories
-
-#### `mormot.crypt.jwt.pas`
-- **JSON Web Tokens** (RFC 7797)
-- Symmetric: HS256, HS384, HS512, S3224, S3256, etc.
-- Asymmetric: ES256 (ECC), RS256/RS384/RS512 (RSA)
-- **`TJwtCrypt`** - Recommended high-level class using factories
-
-#### `mormot.crypt.openssl.pas`
-- **OpenSSL 1.1/3.x bindings** (optional)
-- **CRITICAL**: Define `USE_OPENSSL` in project options on Windows
-- Registers faster implementations to factories via `RegisterOpenSsl`
-- Classes: `TAesPrngOsl`, `TAesEcbOsl`, `TJwtOpenSsl`, etc.
-
-#### `mormot.crypt.pkcs11.pas`
-- **Hardware Security Module** (HSM) support via PKCS#11
-- Registers to `Asym()`/`Cert()` factories
-
-#### `mormot.crypt.other.pas`
-- **Deprecated/legacy** algorithms: MD4, RC4
-- BlowFish encryption
-- BCrypt, SCrypt password hashing
-
-## Common Patterns
-
-### Using High-Level Factories (Recommended)
-
-```pascal
-uses mormot.crypt.secure;
-
-// Random number generation
-var rnd := Rnd('rnd-default');
-var randomBytes := rnd.Random(16);
-
-// Hashing
-var hasher := Hash('sha256');
-var digest := hasher.Full(data, length);
-
-// Signing (HMAC)
-var signer := Sign(@secret[1], length(secret), 'hmac-sha256');
-var signature := signer.Full(data, length);
-
-// Encryption
-var cipher := Cipher('aes-256-ctr', @key[1], true); // encrypt=true
-cipher.Process(plaintext, ciphertext, '');
-
-// Asymmetric (ECC/RSA)
-var asym := Asym('es256'); // or 'rs256', 'ps256'
-asym.GeneratePem(publicKey, privateKey, '');
-asym.Sign(message, privateKey, signature);
-asym.Verify(message, publicKey, signature);
-
-// Certificates
-var cert := Cert('x509-es256'); // or 'x509-rs256'
-cert.Generate(...);
-
-// JWT
-uses mormot.crypt.jwt;
-var jwt := TJwtCrypt.Create;
-jwt.Compute(payload, privateKey);
-jwt.Verify(token, publicKey);
-```
-
-### Performance Optimization
-
-1. **Default choice**: Use stand-alone implementation (no dependencies)
-   - Faster for AES-CTR/CFB/OFB, comparable for hashing
-
-2. **For RSA/ECC intensive workloads**:
-   ```pascal
-   uses mormot.crypt.openssl; // Add to uses
-
-   initialization
-     RegisterOpenSsl; // Registers faster OpenSSL implementations
-   ```
-
-3. **For AES-GCM only**: OpenSSL is ~20% faster
-   ```pascal
-   var cipher := Cipher('aes-256-gcm-osl', @key[1], true);
-   ```
-
-## OpenSSL Integration
-
-### Conditional Compilation (Windows)
-- **CRITICAL**: Define `USE_OPENSSL` in project options (Project → Options → Delphi Compiler → Conditional defines)
-- Without this, `mormot.crypt.openssl.pas` compiles as a void unit
-
-### Registration Pattern
+**OpenSSL Registration Pattern**:
 ```pascal
 uses mormot.crypt.openssl, mormot.crypt.x509;
 
@@ -172,92 +161,17 @@ initialization
   RegisterX509;     // Extends X.509 support (after OpenSSL)
 ```
 
-### Effect of Registration
-- `Asym('es256')` → Uses OpenSSL ECC instead of native Pascal
-- `Asym('rs256')` → Uses OpenSSL RSA instead of native Pascal
-- `Cipher('aes-256-gcm')` → Uses OpenSSL AES-GCM
-- `Rnd()` → Can optionally use OpenSSL RAND_bytes
+**Effect**: `Asym('es256')` → OpenSSL ECC; `Asym('rs256')` → OpenSSL RSA; `Cipher('aes-256-gcm')` → OpenSSL AES-GCM
 
-## Testing
+**Version Compatibility**:
+- Delphi 7 to 12.2 Athenes (Windows only for crypto units)
+- FPC 3.2.2 fixes branch (3.2.2 stable has variant regression)
+- OpenSSL 1.1.x and 3.x supported
 
-### Regression Tests
-- Location: `/mnt/w/mORMot2/test/`
-- Policy: Framework validated against OpenSSL for correctness
-- Coverage: Unit tests for all cryptographic primitives
-
-### Performance Benchmarks
-- Built into test suite
-- Compare stand-alone vs OpenSSL implementations
-- Platform-specific results (x86_64 vs x86 vs ARM)
-
-## Cross-Platform Considerations
-
-### Assembly Optimizations
-- **x86_64**: AES-NI, CLMUL (pclmulqdq), SSE4, AVX2
-  - Conditionals: `USEAESNI64`, `USECLMUL`, `USEGCMAVX`
-- **x86**: AES-NI (4x interleaved), SSE4
-  - Conditionals: `USEAESNI32`, `USECLMUL`
-- **ARM64**: ARMv8 Crypto Extensions
-  - Conditional: `USEARMCRYPTO` (validated on Linux/Android only)
-
-### Platform-Specific External Libraries
-- **Windows/Linux x86_64**: External CRC32C, SHA-512 (`.o`/`.obj` files)
-- **Windows/Linux x86**: External SHA-512 (`.o`/`.obj` files)
-
-## Legal Notice
-
-As stated in LICENSE.md: **Ensure compliance with cryptographic software restrictions in your country.**
-
-## Key Files Summary
-
-| File | Purpose | Performance |
-|------|---------|-------------|
-| `mormot.crypt.core.pas` | Low-level AES, SHA, HMAC | Faster than OpenSSL (most) |
-| `mormot.crypt.secure.pas` | Factories, auth, key mgmt | N/A (abstraction) |
-| `mormot.crypt.ecc256r1.pas` | Native ECC secp256r1 | Slower than OpenSSL |
-| `mormot.crypt.ecc.pas` | High-level ECC | Uses ecc256r1 |
-| `mormot.crypt.rsa.pas` | Native RSA | Slower than OpenSSL |
-| `mormot.crypt.x509.pas` | X.509 certificates | N/A (data structures) |
-| `mormot.crypt.jwt.pas` | JSON Web Tokens | N/A (protocol) |
-| `mormot.crypt.openssl.pas` | OpenSSL bindings | Faster RSA/ECC |
-| `mormot.crypt.pkcs11.pas` | HSM support | Hardware-dependent |
-| `mormot.crypt.other.pas` | Deprecated algorithms | Avoid in new code |
-
-## Anti-Patterns to Avoid
-
-1. **Don't instantiate low-level classes directly** - Use factories instead
-   ```pascal
-   // BAD
-   var aes := TAes.Create(key, 256);
-
-   // GOOD
-   var cipher := Cipher('aes-256-ctr', @key[1], true);
-   ```
-
-2. **Don't use deprecated algorithms** (MD5, SHA-1, RC4) for security
-   - Only acceptable for legacy compatibility (e.g., digest auth)
-
-3. **Don't use native RSA/ECC for production** without benchmarking
-   - Consider `RegisterOpenSsl` for performance-critical workloads
-
-4. **Don't forget `USE_OPENSSL`** conditional on Windows
-   - Silent failure: code compiles but OpenSSL features unavailable
-
-## Documentation
-
-**📖 SAD Chapters**:
-- [Chapter 21: Security](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-21.md) - Authentication, hashing, encryption
-- [Chapter 23: Asymmetric Encryption](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-23.md) - ECC, RSA, X.509 certificates
-
-## Version Compatibility
-
-- **mORMot 2**: Current version (2025)
-- **Delphi**: 7 to 12.2 Athenes (Windows only for crypto units)
-- **FPC**: 3.2.2 fixes branch (3.2.2 stable has variant regression)
-- **OpenSSL**: 1.1.x and 3.x supported
+**Legal Notice**: **Ensure compliance with cryptographic software export restrictions in your country** (see LICENSE.md).
 
 ---
 
-**Last Updated**: 2025-10-10
-**Framework**: Synopse mORMot 2
-**License**: MPL 1.1 / GPL 2.0 / LGPL 2.1 (disjunctive three-license)
+**Last Updated**: 2025-12-20
+**mORMot Version**: 2.3+ (trunk)
+**Maintained By**: Synopse Informatique - Arnaud Bouchez

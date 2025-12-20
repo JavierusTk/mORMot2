@@ -1,174 +1,94 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Overview
+## Scope
 
-The `mORMot2/src/rest` directory contains the RESTful-oriented features of the mORMot framework. This implements a Client-Server architecture using JSON for data representation, with support for HTTP/HTTPS, WebSockets, and in-process calls.
+The `mORMot2/src/rest` directory implements the RESTful-oriented features of the mORMot framework. This is a Client-Server architecture using JSON for data representation, with support for HTTP/HTTPS, WebSockets, and in-process calls.
 
-**Key Concept**: mORMot is REST-oriented but not truly RESTful. It's designed for method-based and interface-based services (more RPC-oriented) rather than pure resource-based REST.
+**Key Philosophy**: mORMot is REST-oriented but not truly RESTful. It's designed for method-based and interface-based services (more RPC-oriented) rather than pure resource-based REST. The framework emphasizes composition over inheritance (TRest.Orm interface, TServiceContainer) following SOLID principles.
 
-## Architecture: Composition Over Inheritance
+**When to use this**:
+- Building client-server applications with JSON communication
+- Implementing interface-based services (SOA)
+- Creating HTTP/WebSocket servers with ORM integration
+- RESTful API development with authentication and sessions
 
-mORMot 2 follows SOLID principles with composition-based design:
+## REST Architecture (Composition Pattern)
 
 ```
-TRest (abstract parent)
-├── ORM: IRestOrm interface          → Object-Relational-Mapping
-├── Services: TServiceContainer      → Service-Oriented-Architecture
-├── Run: TRestRunThreads            → Threading abilities
-└── REST features                    → URI routing, auth, sessions
-    ├── TRestClient (client-side)
-    └── TRestServer (server-side)
+TRest (abstract base)
+├─ ORM: IRestOrm interface (object-relational-mapping)
+├─ Services: TServiceContainer (SOA functionality)
+├─ Run: TRestRunThreads (threading)
+└─ REST features (URI routing, auth, sessions)
+    ├─ TRestClient (client-side)
+    └─ TRestServer (server-side)
+        ├─ TRestServerDB (SQLite3 backend)
+        ├─ TRestServerFullMemory (in-memory)
+        └─ TRestHttpServer (HTTP wrapper)
 ```
 
-## Core Units
+## HTTP Server Modes Quick Reference
 
-### mormot.rest.core.pas (195KB)
-**Foundation layer** - Shared types and abstract REST process
+| Mode | Threading | Scaling | Best For |
+|------|-----------|---------|----------|
+| `useHttpApi` | Windows HTTP.SYS | Very High (kernel-mode) | Windows-only high-scale |
+| `useHttpAsync` | Event-driven | High (modern async) | **Recommended** for production |
+| `useHttpSocket` | Thread-per-connection | Medium (good behind proxy) | Behind reverse proxy |
+| `useBidirSocket` | Thread-per-client | Low-medium | WebSockets with fewer clients |
+| `useBidirAsync` | Event-driven WebSocket | High | WebSockets at scale |
 
-Key classes:
-- `TRest` - Abstract parent class (do NOT instantiate directly)
-- `TRestBackgroundTimer` - Multi-threaded periodic tasks and async operations
-- `TRestRunThreads` - Thread pool for REST operations
-- `TRestAcquireExecution` - Execution mode control (locked/unlocked/background)
-- `TOrmHistory`/`TOrmTableDeleted` - Modification tracking
+**Proper Shutdown Sequence** (prevent memory leaks):
 
-Key enums:
-- `TRestServerUriContextCommand` - execNone, execSoaByMethod, execSoaByInterface, execOrmGet, execOrmWrite
-- `TRestServerAcquireMode` - amUnlocked, amLocked, amBackgroundThread, amMainThread
-
-**Important**: Access ORM via `TRest.Orm` interface, not direct inheritance.
-
-### mormot.rest.server.pas (338KB)
-**Server-side implementation**
-
-Key classes:
-- `TRestServer` - Abstract REST server (inherit from this for actual servers)
-- `TRestServerUriContext` - Execution context for REST requests (virtual methods for custom routing)
-- `TRestRouter` - **Radix Tree-based URI multiplexer** (high performance routing)
-- `TAuthSession` - In-memory user sessions
-- `TRestServerAuthentication` - Authentication scheme implementation
-- `TRestServerMonitor` - Statistics and monitoring
-
-**Routing schemes**:
-- `TRestServerRoutingRest` - RESTful routing: `/Model/Interface.Method`
-- `TRestServerRoutingJsonRpc` - JSON-RPC routing: `/Model/Interface` with JSON body
-
-**Router nodes** (`TRestNode`):
-- `rnTable` - `/ModelRoot/TableName` (GET/POST/PUT/DELETE)
-- `rnTableID` - `/ModelRoot/TableName/<id>`
-- `rnTableIDBlob` - `/ModelRoot/TableName/<id>/Blob`
-- `rnTableMethod` - `/ModelRoot/TableName/<method>`
-- `rnInterface` - `/ModelRoot/InterfaceName[/.MethodName]`
-- `rnMethod` - `/ModelRoot/MethodName`
-
-### mormot.rest.client.pas (128KB)
-**Client-side implementation**
-
-Key classes:
-- `TRestClientUri` - Base class for all REST clients
-- `TRestClientAuthentication` - Client authentication base class
-  - `TRestClientAuthenticationUri` - Weak (session_signature in URL)
-  - `TRestClientAuthenticationSignedUri` - Strong (digital signature with timestamps)
-- `TRestClientLibraryRequest` - In-process client (via exported server library)
-
-**Routing schemes** (client-side):
-- `TRestClientRoutingRest` - Matches server RESTful routing
-- `TRestClientRoutingJsonRpc` - Matches server JSON-RPC routing
-
-**Authentication**:
-- Password kinds: `passClear`, `passHashed`, `passKerberosSpn`, `passModularCrypt`
-- Signature algorithms: `suaCRC32`, `suaMD5`, `suaSHA256`, `suaSHA512`, `suaSHA3`
-
-### mormot.rest.http.server.pas (72KB)
-**HTTP/WebSockets server transport**
-
-Key class:
-- `TRestHttpServer` - RESTful HTTP server wrapper
-
-**Server modes** (`TRestHttpServerUse`):
-- `useHttpApi` - Windows HTTP.SYS (kernel-mode, IIS-like)
-- `useHttpSocket` - Thread-per-connection (good behind reverse proxy)
-- `useHttpAsync` - Event-driven async (best scaling for many connections)
-- `useBidirSocket` - WebSockets with thread-per-client
-- `useBidirAsync` - WebSockets event-driven (best scaling)
-
-**Security** (`TRestHttpServerSecurity`):
-- `secNone` - Plain HTTP
-- `secTLS` - HTTPS with certificate
-- `secTLSSelfSigned` - HTTPS with self-signed cert
-
-**Best practices**:
-- Use `useHttpAsync` for modern production servers (scales well)
-- Use `useHttpSocket` behind reverse proxies configured for HTTP/1.0
-- Use `useBidirAsync` for WebSockets at scale
-- Always use `secTLS` in production (not `secSynShaAes` - deprecated)
-
-### mormot.rest.http.client.pas (47KB)
-**HTTP/WebSockets client transport**
-
-Key classes:
-- `TRestHttpClientGeneric` - Base HTTP client
-- `TRestHttpClientWinSock` - Socket-based client
-- `TRestHttpClientWebsockets` - WebSockets client
-- `TRestHttpClientWinINet`/`TRestHttpClientWinHTTP` - Windows clients
-- `TRestHttpClientCurl` - libcurl-based (cross-platform)
-
-### mormot.rest.memserver.pas (26KB)
-**In-memory standalone server**
-
-Key classes:
-- `TRestServerFullMemory` - Complete in-memory REST server (includes ORM engine)
-
-Use cases:
-- Testing without SQLite3 dependency
-- Simple CRUD + authentication scenarios
-- Services with minimal ORM needs
-- JSON or binary persistence to disk
-
-### mormot.rest.sqlite3.pas (16KB)
-**SQLite3 database integration**
-
-Key classes:
-- `TRestServerDB` - REST server with SQLite3 backend
-- `TRestClientDB` - Direct SQLite3 client access
-
-Use when you need a full SQL database with ORM.
-
-### mormot.rest.mvc.pas (20KB)
-**Model-View-Controller support**
-
-MVC/MVVM pattern over `TRestServer` with Mustache templating.
-
-## Common Patterns
-
-### Creating a REST Server
 ```pascal
-// 1. Define your ORM model
+// ✅ DO: Free in correct order
+FreeAndNil(HttpServer);  // Release HTTP wrapper first
+FreeAndNil(Server);      // Then REST server
+FreeAndNil(Model);       // Finally model
+
+// ❌ DON'T: Wrong order causes leaks/crashes
+FreeAndNil(Server);      // HttpServer becomes dangling pointer!
+FreeAndNil(HttpServer);  // Can't access HttpServer anymore
+```
+
+## SAD References
+
+**📖 Main Documentation**: [Software Architecture Design - mORMot 2](/mnt/w/mORMot2/DOCS/README.md)
+
+| Task | SAD Chapter(s) | Notes |
+|------|----------------|-------|
+| Understanding REST architecture | [Chapter 10: JSON and RESTful Fundamentals](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-10.md) | JSON serialization, REST concepts |
+| Creating servers/clients | [Chapter 11: Client-Server Architecture](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-11.md) | TRestServer, TRestClient, HTTP transport |
+| ORM CRUD operations | [Chapter 12: REST ORM Operations](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-12.md) | Retrieve, Add, Update, Delete, Batch |
+| User authentication | [Chapter 13: Authentication and Sessions](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-13.md) | Security, sessions, auth schemes |
+| Interface-based services | [Chapter 14: Interface-Based Services](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-14.md) | SOA integration with REST |
+| Threading models | [Chapter 11: Client-Server Architecture](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-11.md) | Section 11.6: TRestServerAcquireMode |
+| URI routing customization | [Chapter 11: Client-Server Architecture](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-11.md) | TRestRouter, custom routing |
+
+## Quick Patterns
+
+### Creating REST Server
+```pascal
+// 1. Define ORM model
 Model := TOrmModel.Create([TOrmUser, TOrmData]);
 
-// 2. Choose server type based on persistence needs
+// 2. Choose storage backend
 Server := TRestServerDB.Create(Model, 'data.db3');      // SQLite3
 // OR
 Server := TRestServerFullMemory.Create(Model);          // In-memory
 
-// 3. Wrap in HTTP server
-HttpServer := TRestHttpServer.Create(
-  '8080',           // Port
-  [Server],         // REST server instances
-  '+',              // Domain name
-  useHttpAsync      // Use async mode for scaling
-);
+// 3. Wrap in HTTP server (useHttpAsync for production scaling)
+HttpServer := TRestHttpServer.Create('8080', [Server], '+', useHttpAsync);
 
-// 4. Register services
+// 4. Register services (if needed)
 Server.ServiceDefine(TMyService, [IMyService], sicShared);
 
 // 5. Start
 HttpServer.Start;
 ```
 
-### Creating a REST Client
+### Creating REST Client
 ```pascal
 // 1. Choose transport
 Client := TRestHttpClientWebsockets.Create(
@@ -176,98 +96,57 @@ Client := TRestHttpClientWebsockets.Create(
 );
 
 // 2. Authenticate
-Client.SetUser('username', 'password');
+if not Client.SetUser('username', 'password') then
+  raise Exception.Create('Auth failed');
 
-// 3. Use ORM
+// 3. Use ORM via interface
 Client.Orm.Retrieve(ID, User);
 
 // 4. Use services
 Client.Services.Resolve(IMyService, MyService);
 ```
 
-### Custom Routing
+### HTTP Server Modes (TRestHttpServerUse)
+| Mode | Best For | Scaling | Notes |
+|------|----------|---------|-------|
+| `useHttpAsync` | Production | Excellent | Event-driven, many connections |
+| `useHttpSocket` | Behind proxy | Good | Thread-per-connection, HTTP/1.0 |
+| `useHttpApi` | Windows only | Excellent | Kernel-mode (HTTP.SYS) |
+| `useBidirAsync` | WebSockets | Excellent | Event-driven WS |
+| `useBidirSocket` | WebSockets | Good | Thread-per-client WS |
+
+### Threading Models Configuration
 ```pascal
-// Override UriComputeRoutes in TRestServerUriContext descendant
-class procedure TMyRoutingContext.UriComputeRoutes(
-  Router: TRestRouter; Server: TRestServer);
-begin
-  // Register custom routes using Router.Setup()
-  Router.Setup([mGET, mPOST], ['/api/custom'], rnMethod);
-end;
-
-// Set as ServicesRouting
-Server.ServicesRouting := TMyRoutingContext;
-```
-
-### Background Processing
-```pascal
-// Async interface method execution
-Server.BackgroundTimer.AsyncRedirect(
-  IMyService,
-  MyServiceInstance,
-  AsyncServiceProxy
-);
-
-// Async batch operations
-Server.BackgroundTimer.AsyncBatchStart(TOrmData, 10); // 10 sec or count threshold
-Server.BackgroundTimer.AsyncBatchAdd(TOrmData, Data);
-Server.BackgroundTimer.AsyncBatchStop(TOrmData);
-
-// Periodic tasks
-Server.TimerEnable(MyTimerCallback, 5000); // Every 5 seconds
-```
-
-## Threading Models
-
-**Execution modes** (`TRestServerAcquireMode`):
-- `amUnlocked` - No locking (read-only or thread-safe operations)
-- `amLocked` - Mutex-protected (default for writes)
-- `amBackgroundThread` - Queued to background thread
-- `amMainThread` - Queued to main thread (GUI apps)
-
-Configure via:
-```pascal
+// Configure execution modes (TRestServerAcquireMode)
 Server.AcquireWriteMode := amBackgroundOrmSharedThread; // ORM writes in background
-Server.AcquireExecutionMode[execSoaByInterface] := amLocked; // Interface calls locked
+Server.AcquireExecutionMode[execSoaByInterface] := amLocked; // Interface calls mutex-protected
+
+// amUnlocked        - No locking (read-only, thread-safe ops)
+// amLocked          - Mutex-protected (default for writes)
+// amBackgroundThread - Queued to background thread
+// amMainThread      - Queued to main thread (GUI apps)
 ```
 
-## Authentication
-
-**Server-side registration**:
+### Proper Shutdown Sequence
 ```pascal
-Server.AuthenticationRegister(TRestServerAuthenticationDefault);
-Server.AuthenticationRegister(TRestServerAuthenticationHttpBasic);
-Server.AuthenticationRegister(TRestServerAuthenticationSSPI); // Windows domain
+// CRITICAL: Free in this order to avoid memory leaks
+FreeAndNil(HttpServer);  // 1. HTTP wrapper first
+FreeAndNil(Server);      // 2. REST server
+FreeAndNil(Model);       // 3. Model last
 ```
 
-**Client-side**:
-```pascal
-// Default (strongest available)
-if not Client.SetUser('user', 'pass') then
-  raise Exception.Create('Auth failed');
+## AI Guidelines
 
-// Explicit authentication class
-TRestClientAuthenticationSignedUri.ClientSetUser(
-  Client, 'user', 'pass', passClear
-);
-```
+> **Critical rules for code generation/modification**
 
-## Monitoring & Statistics
-
-```pascal
-// Enable monitoring
-Server.CreateMissingTables; // Needed for monitoring tables
-
-// Access stats
-Stats := Server.Stats; // TRestServerMonitor
-Connections := Server.Sessions.Count;
-
-// Custom monitoring callback
-Server.OnUpdateEvent := procedure(Sender: TRest; const Event: RawUtf8)
-begin
-  LogEvent(Event);
-end;
-```
+- ⚠️ **Abstract classes**: Never instantiate `TRest` or `TRestServerUriContext` directly (use `TRestServer`/`TRestClient` descendants)
+- ⚠️ **ORM access**: Always use `TRest.Orm` interface, not direct inheritance
+- ⚠️ **Routing schemes**: Client and server must use matching routing classes (`TRestServerRoutingRest` ↔ `TRestClientRoutingRest`)
+- ⚠️ **Memory leaks**: Free `TRestHttpServer` before `TRestServer` before `TOrmModel` (reverse creation order)
+- ⚠️ **Authentication timing**: Call `ServiceDefine()` before `CreateMissingTables()`
+- ✅ **Production servers**: Use `useHttpAsync` for best scaling (not `useHttpSocket` unless behind proxy)
+- ✅ **Security**: Always use `secTLS` in production (not deprecated `secSynShaAes`)
+- ✅ **Interface methods**: Require `{$M+}` directive on interface declarations
 
 ## Common Issues
 
@@ -295,13 +174,6 @@ end;
 - Circular references via `IRestOrm` interface (use weak references)
 - Services with `sicClientDriven` not freed by client
 - Async redirect callbacks not freed before server destruction
-
-**Proper shutdown**:
-```pascal
-FreeAndNil(HttpServer);  // Free HTTP wrapper first
-FreeAndNil(Server);      // Then REST server
-FreeAndNil(Model);       // Finally model
-```
 
 ## Testing Strategies
 
@@ -332,43 +204,38 @@ ActualPort := HttpServer.Port; // Get assigned port
 - Use multiple client instances for concurrency
 - Check `ServiceRunningContext.RunningThread` for thread distribution
 
-## Dependencies
+## Files Organization
 
-**Required mORMot units**:
-- `mormot.core.*` - Base functionality (JSON, RTTI, threads, buffers)
-- `mormot.crypt.*` - Cryptography (secure, JWT)
-- `mormot.orm.*` - ORM layer (`IRestOrm` interface)
-- `mormot.soa.*` - Service-Oriented-Architecture
-- `mormot.db.core` - Database abstraction
-- `mormot.net.*` - Network layer (HTTP, WebSockets) for HTTP transport
+```
+mormot.rest.core.pas       # TRest foundation (195KB)
+mormot.rest.server.pas     # TRestServer, routing, auth (338KB)
+mormot.rest.client.pas     # TRestClientUri, auth schemes (128KB)
+mormot.rest.http.server.pas # HTTP/WebSocket server transport (72KB)
+mormot.rest.http.client.pas # HTTP/WebSocket client transport (47KB)
+mormot.rest.memserver.pas  # In-memory standalone server (26KB)
+mormot.rest.sqlite3.pas    # SQLite3 database integration (16KB)
+mormot.rest.mvc.pas        # Model-View-Controller support (20KB)
+```
 
-**Platform support**:
-- Windows: All features including HTTP.SYS (`useHttpApi`)
-- Linux/BSD: Socket and async modes only
-- macOS: Socket and async modes only
-- Mobile (Delphi): Client-side only
+**Project Files**: `/mnt/w/mORMot2/src/rest/`
 
-## Documentation
+## Notes
 
-**📖 SAD Chapters**:
-- [Chapter 10: JSON and RESTful Fundamentals](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-10.md) - JSON serialization, REST concepts
-- [Chapter 11: Client-Server Architecture](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-11.md) - TRestServer, TRestClient
-- [Chapter 12: REST ORM Operations](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-12.md) - CRUD, batch, caching
-- [Chapter 13: Authentication and Sessions](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-13.md) - Security, user management
-
-**External Resources**:
-- **Official docs**: https://synopse.info/files/doc/mORMot2.html
-- **Forum**: https://synopse.info/forum/viewforum.php?id=24
-- **Samples**: `/mnt/w/mORMot2/ex/` (especially Thomas Tutorials)
-- **Source**: Read inline comments - heavily documented
-
-## Version Notes
-
-This is **mORMot 2** (rewrite from 1.18):
+**mORMot 2 vs mORMot 1**:
 - Units renamed: `TSQLRest` → `TRest`, `TSQLRecord` → `TOrm`
 - Composition over inheritance: `TRest.Orm` vs. direct `TRestOrm` parent
-- Split large units into smaller scope-refined units
-- Enhanced async/event-driven servers
-- Modernized syntax (generics, enumerators)
+- Enhanced async/event-driven servers (`useHttpAsync`, `useBidirAsync`)
+- Not compatible with mORMot 1 - requires code refactoring
 
-**Migration from v1**: Not compatible. Requires code refactoring.
+**Platform Support**:
+- Windows: All features including HTTP.SYS (`useHttpApi`)
+- Linux/BSD/macOS: Socket and async modes only
+- Mobile (Delphi): Client-side only
+
+**Dependencies**: Requires `mormot.core.*`, `mormot.orm.*`, `mormot.soa.*`, `mormot.net.*` (for HTTP transport)
+
+---
+
+**Last Updated**: 2025-12-20
+**mORMot Version**: 2.3+ (trunk)
+**Maintained By**: Synopse Informatique - Arnaud Bouchez

@@ -1,10 +1,14 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Overview
+## Scope
 
-The `/mnt/w/mORMot2/src/tools` directory contains command-line utilities built on the mORMot 2 framework. Each tool is a standalone executable targeting specific use cases: cryptography, service management, HTTP downloads, debugging, and code generation.
+The `mORMot2/src/tools` folder contains command-line utilities built on the mORMot 2 framework. Each tool is a standalone executable targeting specific use cases: cryptography, service management, HTTP downloads, debugging, and code generation.
+
+**Key Characteristic**: These are end-user applications, not library code. Each tool follows a consistent architecture and build pattern.
+
+**When to use**: Reference these when building mORMot-based CLI tools, or use them directly for cryptography (ecc), service management (agl), HTTP downloads (mget), debugging symbols (mab), or OpenAPI code generation (mopenapi).
 
 ## Tool Architecture
 
@@ -20,13 +24,13 @@ All tools follow a consistent pattern:
 - **FPC**: Uses `.lpi` project files (Free Pascal Compiler)
 - **Compiler directives**: `{$I ..\..\mormot.defines.inc}` and `{$I ..\..\mormot.uses.inc}`
 
-## Tools Reference
+## Quick Patterns
 
-### ecc - Public Key Cryptography Tool
+### Tool Reference
+
+#### ecc - Public Key Cryptography Tool
 **Location**: `/mnt/w/mORMot2/src/tools/ecc/`
-**Implementation**: `mormot.tools.ecc.pas` (1,000+ lines of ECC functions)
-
-**Purpose**: Certificate-based public-key cryptography using ECC-secp256r1
+**Implementation**: `mormot.tools.ecc.pas` (1,000+ lines)
 
 **Key Operations**:
 - Key management: `new`, `rekey`, `source`, `infopriv`
@@ -36,17 +40,15 @@ All tools follow a consistent pattern:
 - Certificate chains: `chain`, `chainall`
 - Password manager: `cheatinit`, `cheat`
 
-**Architecture Notes**:
+**Architecture**:
 - Uses `TEccCertificate` for key pair management
 - Password-protected private keys with configurable PBKDF2 rounds
 - `.synecc` format for encrypted files with embedded metadata
 - Certificate chaining produces `.ca` JSON arrays
 
-### agl (Angelize) - Cross-Platform Services Manager
+#### agl (Angelize) - Cross-Platform Services Manager
 **Location**: `/mnt/w/mORMot2/src/tools/agl/`
 **Implementation**: Uses `mormot.app.agl.pas` and `mormot.app.daemon.pas`
-
-**Purpose**: Manage multiple executables as Windows Services or POSIX Daemons
 
 **Key Features**:
 - Main service (`TSynAngelize`) manages sub-processes
@@ -65,17 +67,15 @@ All tools follow a consistent pattern:
 - `/new` - Create new service config
 - `/settings` - Validate JSON configuration
 
-**Architecture Notes**:
+**Architecture**:
 - `TSynAngelize` extends `TSynDaemon` (base daemon class)
 - Thread-safe process monitoring with watchdog timers
 - Exit code handling (fatal vs. retryable errors)
 - Graceful shutdown (`WM_QUIT`/`SIGTERM`) with fallback kill
 
-### mget - HTTP/HTTPS Downloading Tool
+#### mget - HTTP/HTTPS Downloading Tool
 **Location**: `/mnt/w/mORMot2/src/tools/mget/`
 **Implementation**: `mormot.tools.mget.pas`
-
-**Purpose**: Retrieve files via HTTP/HTTPS with unique features
 
 **Key Features**:
 1. **Resume Downloads**: Uses `RANGE` headers, `.part` extension for incomplete files
@@ -95,13 +95,13 @@ mget --prompt                                             # Interactive mode
 mget --prompt --peer                                      # With PeerCache enabled
 ```
 
-**Architecture Notes**:
+**Architecture**:
 - Built on `THttpClientSocket.WGet()` from `mormot.net.client`
 - PeerCache uses `THttpPeerCache` from `mormot.net.server`
 - Secret-derived AES-GCM for UDP/HTTP authentication
 - IP banning for invalid requests (DOS protection)
 
-### mab - Debugging Symbol Converter
+#### mab - Debugging Symbol Converter
 **Location**: `/mnt/w/mORMot2/src/tools/mab/`
 **Implementation**: Inline in `mab.dpr`
 
@@ -119,12 +119,12 @@ mab myapp.exe          # Process myapp.map and embed into myapp.exe
 mab somefile.map       # Create somefile.mab
 ```
 
-**Architecture Notes**:
+**Architecture**:
 - Validates `.map` is newer than executable before processing
 - Embeds `.mab` as resource or appended data
 - Used by mORMot logging for stack trace symbolication
 
-### mopenapi - OpenAPI/Swagger Code Generator
+#### mopenapi - OpenAPI/Swagger Code Generator
 **Location**: `/mnt/w/mORMot2/src/tools/mopenapi/`
 **Implementation**: Uses `mormot.net.openapi.pas`
 
@@ -138,21 +138,13 @@ mopenapi OpenApiAuth.json /concise
 mopenapi test.json --options=DtoNoExample,DtoNoPattern
 ```
 
-**Architecture Notes**:
+**Architecture**:
 - RTTI-based command-line parsing (`TOptions` class)
 - `TOpenApiParserOptions` for generation customization
 - Outputs type-safe Pascal interfaces and DTOs
 
-## Development Patterns
-
-### Adding New Tools
-1. Create subdirectory: `/mnt/w/mORMot2/src/tools/<toolname>/`
-2. Create `<toolname>.dpr` with standard header and relative includes
-3. Implement in separate `.pas` file if complex (e.g., `mormot.tools.<toolname>.pas`)
-4. Update this `README.md` with tool description
-5. Add both Delphi (`.dproj`) and FPC (`.lpi`) project files if needed
-
 ### Common Includes Pattern
+
 ```pascal
 {$I ..\..\mormot.defines.inc}
 
@@ -170,122 +162,78 @@ uses
   // ... more units
 ```
 
-### Logging
-All tools use `mormot.core.log.pas` for structured logging:
-- Console output for user feedback
-- Optional log files for diagnostics
-- Cross-platform (Windows/Linux/macOS)
-
 ### Console Application Framework
+
 Built on `mormot.app.console.pas` (`TConsoleApplication` base class):
 - Command-line parsing with switches
 - Help text generation
 - Error handling and exit codes
 - RTTI-based option parsing
 
-## Key Architectural Components
+### Key Architectural Stacks
 
-### Cryptography Stack (ecc)
 ```
-mormot.crypt.ecc256r1.pas    # Low-level ECC primitives
-         ↓
-mormot.crypt.ecc.pas         # Certificate management
-         ↓
-mormot.tools.ecc.pas         # End-user commands
-         ↓
-ecc.dpr                      # CLI entry point
-```
+Cryptography Stack (ecc):
+mormot.crypt.ecc256r1.pas → mormot.crypt.ecc.pas → mormot.tools.ecc.pas → ecc.dpr
 
-### Service Management Stack (agl)
-```
-mormot.app.daemon.pas        # Base daemon/service (TSynDaemon)
-         ↓
-mormot.app.agl.pas           # Multi-process manager (TSynAngelize)
-         ↓
-agl.dpr                      # CLI entry point
+Service Management Stack (agl):
+mormot.app.daemon.pas → mormot.app.agl.pas → agl.dpr
+
+HTTP Stack (mget):
+mormot.net.client.pas + mormot.net.server.pas → mormot.tools.mget.pas → mget.dpr
 ```
 
-### HTTP Stack (mget)
+## AI Guidelines
+
+- ⚠️ **Adding new tools**:
+  1. Create subdirectory: `/mnt/w/mORMot2/src/tools/<toolname>/`
+  2. Create `<toolname>.dpr` with standard header and relative includes
+  3. Implement in separate `.pas` file if complex (e.g., `mormot.tools.<toolname>.pas`)
+  4. Update this `README.md` with tool description
+  5. Add both Delphi (`.dproj`) and FPC (`.lpi`) project files if needed
+- ⚠️ **Logging**: All tools use `mormot.core.log.pas` for structured logging (console output + optional log files).
+- ⚠️ **Security considerations**:
+  - **ecc**: Private keys encrypted with PBKDF2-derived passwords, configurable iteration rounds (default: 60,000), secure key deletion (memory wiping), certificate expiration validation
+  - **mget PeerCache**: Shared secret required, AES-GCM-128 encryption/authentication for UDP/HTTP, IP banning after invalid requests, optional HTTPS for local transfers, cache requires proper filesystem ACLs
+  - **agl**: Runs as SYSTEM/root by default, JSON config files should have restricted permissions, watchdog prevents runaway processes
+- ⚠️ **Performance notes**: Hash calculation uses SHA-NI hardware acceleration on modern x64 CPUs (mget, ecc), ECC operations use optimized secp256r1 curve implementation, HTTP transfers are streaming (no full file buffering), PeerCache local network transfers avoid WAN bottleneck
+- ✅ **Testing**: Each tool should be tested with `<tool> --help` or `/<tool> /help`, basic operations with sample files, error conditions (missing files, invalid input), cross-platform builds (Windows, Linux, macOS).
+- ✅ **Integration**: Tools can be tested via `mormot.test.*.pas` units in `/mnt/w/mORMot2/test/`
+- ✅ **Cross-platform**: All tools support Windows, Linux, macOS
+
+## Files Organization
+
 ```
-mormot.net.client.pas        # THttpClientSocket.WGet()
-mormot.net.server.pas        # THttpPeerCache
-         ↓
-mormot.tools.mget.pas        # CLI implementation
-         ↓
-mget.dpr                     # CLI entry point
+/mnt/w/mORMot2/src/tools/
+├── ecc/
+│   ├── ecc.dpr                  # Entry point
+│   ├── mormot.tools.ecc.pas     # Implementation (1,000+ lines)
+│   └── ecc.dproj / ecc.lpi      # Project files
+├── agl/
+│   ├── agl.dpr                  # Entry point
+│   └── agl.dproj / agl.lpi      # Project files
+├── mget/
+│   ├── mget.dpr                 # Entry point
+│   ├── mormot.tools.mget.pas    # Implementation
+│   └── mget.dproj / mget.lpi    # Project files
+├── mab/
+│   ├── mab.dpr                  # Entry point (inline implementation)
+│   └── mab.dproj / mab.lpi      # Project files
+└── mopenapi/
+    ├── mopenapi.dpr             # Entry point
+    └── mopenapi.dproj           # Project file
 ```
 
-## Testing Tools
+**Dependencies**:
+- mORMot 2 core framework (`mormot.core.*`)
+- Application framework (`mormot.app.console`, `mormot.app.daemon`)
+- Network layer (`mormot.net.client`, `mormot.net.server`)
+- Cryptography (`mormot.crypt.*`)
 
-### Manual Testing
-Each tool should be tested with:
-1. `<tool> --help` or `/<tool> /help` - Verify help output
-2. Basic operations with sample files
-3. Error conditions (missing files, invalid input)
-4. Cross-platform builds (Windows, Linux, macOS)
-
-### Integration with mORMot Test Suite
-Tools can be tested via `mormot.test.*.pas` units in `/mnt/w/mORMot2/test/`
-
-## Security Considerations
-
-### ecc Tool
-- Private keys encrypted with PBKDF2-derived passwords
-- Configurable iteration rounds (default: 60,000)
-- Secure key deletion (memory wiping)
-- Certificate expiration validation
-
-### mget PeerCache
-- Shared secret required for all peer communication
-- AES-GCM-128 encryption/authentication for UDP/HTTP
-- IP banning after invalid requests
-- Optional HTTPS for local transfers (`SelfSignedHttps`)
-- Local cache requires proper filesystem ACLs
-
-### agl Service Manager
-- Runs as SYSTEM/root by default
-- JSON config files should have restricted permissions
-- Sub-process impersonation (planned feature)
-- Watchdog prevents runaway processes
-
-## Performance Notes
-
-- **Hash calculation**: SHA-NI hardware acceleration on modern x64 CPUs (mget, ecc)
-- **ECC operations**: Optimized secp256r1 curve implementation
-- **HTTP transfers**: Streaming (no full file buffering)
-- **PeerCache**: Local network transfers avoid WAN bottleneck
-
-## Related Documentation
-
-**📖 SAD Documentation**: See [SAD Chapter 26: Source Code](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-26.md) for:
-- Repository structure and organization
-- Static libraries setup and deployment
-- Cross-platform compilation guidelines
-
-**Framework References**:
-- mORMot 2 main documentation: `/mnt/w/mORMot2/README.md`
-- Core framework: `/mnt/w/mORMot2/src/core/`
-- Network layer: `/mnt/w/mORMot2/src/net/`
-- Application framework: `/mnt/w/mORMot2/src/app/`
-- Cryptography: `/mnt/w/mORMot2/src/crypt/`
-
-## TODO Items
-
-### agl (from README.md)
-- Thread/CPU affinity per sub-process
-- User impersonation and POSIX chroot
-- Enhanced monitoring (CPU, RAM metrics)
-- `/restart` command shortcut
-- Improved "Watch" feature stability
-
-### General
-- Windows code signing for all tools
-- Homebrew formula for macOS installation
-- Snap/AppImage packages for Linux
-- Continuous integration builds
+**Related Documentation**: [SAD Chapter 26: Source Code](/mnt/w/mORMot2/DOCS/mORMot2-SAD-Chapter-26.md) - Repository structure, static libraries setup, cross-platform compilation guidelines
 
 ---
 
-**Last Updated**: 2025-10-10
-**mORMot Version**: 2.x
-**Maintained By**: Synopse mORMot Team
+**Last Updated**: 2025-12-20
+**mORMot Version**: 2.3+ (trunk)
+**Maintained By**: Synopse Informatique - Arnaud Bouchez
