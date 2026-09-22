@@ -31,7 +31,7 @@ const
   AES_MAXNR = 14;
   AES_BLOCK_SIZE = 16;
   
-  _I64_MAX = 9223372036854775807; 
+  _I64_MAX = MAX_INT64;
   OSSL_SSIZE_MAX = _I64_MAX;
   
   CRYPTO_F_CMAC_CTX_NEW = 120;
@@ -2191,7 +2191,6 @@ const
   NID_name_constraints = 666;
   SN_crl_distribution_points = 'crlDistributionPoints';
   LN_crl_distribution_points = 'X509v3 CRL Distribution Points';
-  NID_crl_distribution_points = 103;
   SN_certificate_policies = 'certificatePolicies';
   LN_certificate_policies = 'X509v3 Certificate Policies';
   NID_certificate_policies = 89;
@@ -6854,17 +6853,6 @@ const
   SSL_OP_PKCS1_CHECK_2 = $0;
   SSL_OP_NETSCAPE_CA_DN_BUG = $0;
   SSL_OP_NETSCAPE_DEMO_CIPHER_CHANGE_BUG = $0;
-  
-  SSL_MODE_ENABLE_PARTIAL_WRITE = $00000001;
-  SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER = $00000002;
-  SSL_MODE_AUTO_RETRY = $00000004;
-  SSL_MODE_NO_AUTO_CHAIN = $00000008;
-  SSL_MODE_RELEASE_BUFFERS = $00000010;
-  SSL_MODE_SEND_CLIENTHELLO_TIME = $00000020;
-  SSL_MODE_SEND_SERVERHELLO_TIME = $00000040;
-  SSL_MODE_SEND_FALLBACK_SCSV = $00000080;
-  SSL_MODE_ASYNC = $00000100;
-  SSL_MODE_DTLS_SCTP_LABEL_LENGTH_BUG = $00000400;
   
   SSL_CERT_FLAG_TLS_STRICT = $00000001;
   SSL_CERT_FLAG_SUITEB_128_LOS_ONLY = $10000;
@@ -12611,12 +12599,6 @@ function ASN1_GENERALIZEDTIME_set_string(s: PASN1_GENERALIZEDTIME; str: PUtf8Cha
 function ASN1_TIME_diff(pday: PInteger; psec: PInteger; from: PASN1_TIME; _to: PASN1_TIME): integer; cdecl;
   external LIB_CRYPTO name _PU + 'ASN1_TIME_diff';
 
-function ASN1_OCTET_STRING_new(): PASN1_OCTET_STRING; cdecl;
-  external LIB_CRYPTO name _PU + 'ASN1_OCTET_STRING_new';
-
-procedure ASN1_OCTET_STRING_free(a: PASN1_OCTET_STRING); cdecl;
-  external LIB_CRYPTO name _PU + 'ASN1_OCTET_STRING_free';
-
 function d2i_ASN1_OCTET_STRING(a: PPASN1_OCTET_STRING; _in: PPByte; len: integer): PASN1_OCTET_STRING; cdecl;
   external LIB_CRYPTO name _PU + 'd2i_ASN1_OCTET_STRING';
 
@@ -12631,9 +12613,6 @@ function ASN1_OCTET_STRING_dup(a: PASN1_OCTET_STRING): PASN1_OCTET_STRING; cdecl
 
 function ASN1_OCTET_STRING_cmp(a: PASN1_OCTET_STRING; b: PASN1_OCTET_STRING): integer; cdecl;
   external LIB_CRYPTO name _PU + 'ASN1_OCTET_STRING_cmp';
-
-function ASN1_OCTET_STRING_set(str: PASN1_OCTET_STRING; data: PByte; len: integer): integer; cdecl;
-  external LIB_CRYPTO name _PU + 'ASN1_OCTET_STRING_set';
 
 function ASN1_VISIBLESTRING_new(): PASN1_VISIBLESTRING; cdecl;
   external LIB_CRYPTO name _PU + 'ASN1_VISIBLESTRING_new';
@@ -13417,9 +13396,6 @@ function OBJ_nid2obj(n: integer): PASN1_OBJECT; cdecl;
 
 function OBJ_txt2obj(s: PUtf8Char; no_name: integer): PASN1_OBJECT; cdecl;
   external LIB_CRYPTO name _PU + 'OBJ_txt2obj';
-
-function OBJ_obj2txt(buf: PUtf8Char; buf_len: integer; a: PASN1_OBJECT; no_name: integer): integer; cdecl;
-  external LIB_CRYPTO name _PU + 'OBJ_obj2txt';
 
 function OBJ_ln2nid(s: PUtf8Char): integer; cdecl;
   external LIB_CRYPTO name _PU + 'OBJ_ln2nid';
@@ -18215,9 +18191,6 @@ function X509_REVOKED_delete_ext(x: PX509_REVOKED; loc: integer): PX509_EXTENSIO
 function X509_EXTENSION_create_by_NID(ex: PPX509_EXTENSION; nid: integer; crit: integer; data: PASN1_OCTET_STRING): PX509_EXTENSION; cdecl;
   external LIB_CRYPTO name _PU + 'X509_EXTENSION_create_by_NID';
 
-function X509_EXTENSION_create_by_OBJ(ex: PPX509_EXTENSION; obj: PASN1_OBJECT; crit: integer; data: PASN1_OCTET_STRING): PX509_EXTENSION; cdecl;
-  external LIB_CRYPTO name _PU + 'X509_EXTENSION_create_by_OBJ';
-
 function X509at_get_attr_count(x: Pstack_st_X509_ATTRIBUTE): integer; cdecl;
   external LIB_CRYPTO name _PU + 'X509at_get_attr_count';
 
@@ -20916,9 +20889,6 @@ function ERR_peek_last_error_line(_file: PPUtf8Char; line: PInteger): cardinal; 
 
 function ERR_peek_last_error_line_data(_file: PPUtf8Char; line: PInteger; data: PPUtf8Char; flags: PInteger): cardinal; cdecl;
   external LIB_CRYPTO name _PU + 'ERR_peek_last_error_line_data';
-
-procedure ERR_clear_error(); cdecl;
-  external LIB_CRYPTO name _PU + 'ERR_clear_error';
 
 function ERR_error_string(e: cardinal; buf: PUtf8Char): PUtf8Char; cdecl;
   external LIB_CRYPTO name _PU + 'ERR_error_string';

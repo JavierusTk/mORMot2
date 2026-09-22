@@ -43,7 +43,7 @@ HTTP Client Classes
 - `THttpClientSocket` Implementing HTTP client over plain sockets
 - Additional Client Protocols Support (e.g. 'file://')
 - `THttpRequest` Abstract HTTP client class
-- `TWinHttp` `TWinINet` `TCurlHTTP` classes
+- `TWinHttp` `TWinINet` `TCurlHTTP` `TDelphiNetHttp` classes
 - `TSimpleHttpClient` Wrapper Class
 - Cached HTTP Connection to a Remote Server
 - Send Email using the `SMTP` Protocol
@@ -171,4 +171,5 @@ OpenAPI Language-agnostic Interface to HTTP APIs
 - OpenAPI Document Wrappers
 - FPC/Delphi Pascal Client Code Generation
 
+The most complete OpenAPI client generator in object pascal.
 See https://blog.synopse.info/?post/2024/09/06/Swagger/OpenAPI-Client-Generator-for-Delphi-and-FPC

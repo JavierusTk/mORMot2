@@ -9,7 +9,6 @@ interface
 
 uses
   sysutils,
-  contnrs,
   classes,
   mormot.core.base,
   mormot.core.os,
@@ -168,7 +167,7 @@ type
     procedure FillPeople(var People: TOrmPeople);
     /// validate array of TOrm transmission
     procedure FillPeoples(n: integer; out People: TOrmPeopleObjArray);
-    {$ifndef CPUAARCH64} // FPC doesn't follow the AARCH64 ABI -> fixme
+    {$ifndef ABIA64} // FPC doesn't follow the AARCH64 ABI -> fixme
     {$ifndef HASNOSTATICRTTI}
     /// validate simple record transmission
     // - older Delphi versions (e.g. 6-7-2009) do not allow records without
@@ -177,7 +176,7 @@ type
     // returned as function result -> Echo is an "out" parameter here
     function EchoRecord(const Nav: TConsultaNav): TConsultaNav;
     {$endif HASNOSTATICRTTI}
-    {$endif CPUAARCH64}
+    {$endif ABIA64}
   end;
 
   /// a test interface, used by TTestServiceOrientedArchitecture
@@ -276,6 +275,13 @@ type
     ClientSide: TClientSide;
   end;
 
+  /// a simple ViewModel/Controller service, used by
+  // TTestServiceOrientedArchitecture.MvcViewsMustache
+  IMvcViewsService = interface(IInvokable)
+    ['{A0D9C7E5-7A3B-4E64-9D28-61C1B0F4C8A2}']
+    procedure Welcome(const name: RawUtf8);
+  end;
+
   /// a test case which will test the interface-based SOA implementation of
   // the mORMot framework
   TTestServiceOrientedArchitecture = class(TSynTestCase)
@@ -292,6 +298,7 @@ type
     procedure IntSubtractJson(Ctxt: TOnInterfaceStubExecuteParamsJson);
     procedure IntSubtractVariant(Ctxt: TOnInterfaceStubExecuteParamsVariant);
     procedure IntSubtractVariantVoid(Ctxt: TOnInterfaceStubExecuteParamsVariant);
+    procedure MustacheViewsTranslate(var English: string);
   public
     { all threaded callbacks for validating all client side modes }
     /// test the client-side in RESTful mode with values transmitted as Json objects
@@ -327,6 +334,8 @@ type
     procedure ClientSide;
     /// test interface stubbing / mocking
     procedure MocksAndStubs;
+    /// test TMvcViewsMustache rendering, including the OnTranslate property
+    procedure MvcViewsMustache;
   end;
 
 
@@ -1160,7 +1169,7 @@ end;
 procedure TTestServiceOrientedArchitecture.Test(
   const Inst: TTestServiceInstances; Iterations: cardinal);
 var
-  rnd: TLecuyer; // local thread-safe non blocking random generator
+  rnd: PLecuyer; // local thread-safe non blocking random generator
 
   procedure TestCalculator(const I: ICalculator);
   var
@@ -1315,7 +1324,7 @@ var
   Nav, Nav2: TConsultaNav;
   {$endif HASNOSTATICRTTI}
 begin
-  RandomLecuyer(rnd);
+  rnd := ThreadRandom; // use the TLecuyer instance of this thread
   CheckEqual(Inst.I.Add(1, 2), 3);
   Check(Inst.I.Multiply($1111333, $222266667) = $24693E8DB170B85, 'I.Mul');
   CheckEqual(Inst.I.StackIntMultiply(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), 3628800, 'sm1');
@@ -1348,9 +1357,9 @@ begin
   TestCalculator(Inst.CC); // test the fact that CC inherits from ICalculator
   n := 1000;
   s := Inst.CC.TestRawJson(n, 49, _TESTRAWJSON);
-  Check(length(s) = n + 2);
-  CheckEqual(Hash32(s), 4223609852); // n = 1000
-  //CheckEqual(Hash32(s), 2508875362); // n = 100000000
+  CheckEqual(length(s), n + 2, 'len TestRawJson');
+  CheckHash(s, 4223609852, 'TestRawJson'); // n = 1000
+  //CheckHash(s, 2508875362, 'TestRawJson'); // n = 100000000
   C3 := TComplexNumber.Create(0, 0);
   C1 := TComplexNumber.Create(2, 3);
   C2 := TComplexNumber.Create(20, 30);
@@ -1430,7 +1439,7 @@ begin
           CheckEqual(YearOfDeath, 1992 + j);
         end;
       ObjArrayClear(peoples);
-      {$ifndef CPUAARCH64} // FPC doesn't follow the AARCH64 ABI -> fixme
+      {$ifndef ABIA64} // FPC doesn't follow the AARCH64 ABI -> fixme
       {$ifndef HASNOSTATICRTTI} // need RTTI for static records
       Nav.MaxRows := c;
       Nav.Row0 := c * 2;
@@ -1444,7 +1453,7 @@ begin
       Check(Nav2.IsSQLUpdateBack = (c and 1 = 0));
       Check(Nav2.EOF = (c and 1 = 1));
       {$endif HASNOSTATICRTTI}
-      {$endif CPUAARCH64}
+      {$endif ABIA64}
       if c mod 10 = 1 then
       begin
         Item.Color := Item.Color + 1;
@@ -1452,8 +1461,8 @@ begin
         Item.Name := Int32ToUtf8(Item.Color);
         Inst.CC.Collections(Item, List, Copy);
       end;
-      if not CheckFailed(List.Count = Item.Color) or
-         not CheckFailed(Copy.Count = List.Count) then
+      if Check(List.Count = Item.Color) or
+         Check(Copy.Count = List.Count) then
         for j := 0 to List.Count - 1 do
         begin
           with TCollTest(List.Items[j]) do
@@ -1774,7 +1783,7 @@ begin
   GroupID := fMain.Server.Orm.MainFieldID(TAuthGroup, 'User');
   Check(GroupID <> 0);
   Check(fMain.Server.Orm.MainFieldIDs(TAuthGroup, ['User', 'Admin'], g));
-  if not CheckFailed(length(g) = 2) then
+  if Check(length(g) = 2) then
     Check((g[0] = GroupID) or (g[1] = GroupID));
   S := fMain.Server.Services['Calculator'] as TServiceFactoryServer;
   Test([1, 2, 3, 4, 5], 'by default, all methods are allowed');
@@ -1824,19 +1833,19 @@ end;
 
 procedure TTestServiceOrientedArchitecture.ClientSide;
 var
-  native: boolean;
+  threaded: boolean;
 
   procedure One(const Event: TNotifyEvent; cs: TClientSide);
   begin
     Run(Event, NewClient(cs), SmallUInt32Utf8[ord(cs)],
-      {native=}native, {notify=}false, {forcedThreaded=}native);
+      threaded, {notify=}false, {forcedThreaded=}threaded);
   end;
 
 begin
-  native := {$ifdef OSWINDOWS}not IsWow64Emulation{$else}true{$endif};
+  threaded := {$ifdef OSWINDOWS}not (wsFavorFewThreads in WindowsSpecs){$else}true{$endif};
   // most client test cases would be run in their own thread (if possible)
   {$ifndef OSANDROID} // no "main" thread on Android?
-  One(ClientSideRESTThread,           csMainThread); // should be native
+  One(ClientSideRESTThread,           csMainThread); // should be threaded
   {$endif OSANDROID}
   One(ClientSideRESTThread,           csBackground); // (slowest first)
   One(ClientSideRESTAsJsonObject,     csJsonObject);
@@ -1844,7 +1853,7 @@ begin
   One(ClientSideRESTThread,           csLocked);
   One(ClientSideRESTSign,             csCrc32);
   One(ClientSideRESTSign,             csCrc32c);
-  if native then // PRISM does not seem to properly handle so much at once
+  if threaded then // PRISM does not seem to properly handle so much at once
   begin
     One(ClientSideRESTSign,           csXxhash);
     One(ClientSideRESTSign,           csMd5);
@@ -2547,11 +2556,7 @@ begin
   {$endif FPC}
     exit; // avoid exceptions in IDE
   {$WARN SYMBOL_PLATFORM ON}
-  with TSynLog.Family.ExceptionIgnore do
-  begin
-    Add(EInterfaceFactory);
-    Add(ESynException);
-  end;
+  TSynLog.Family.ExceptionIgnore.Add(EInterfaceFactory);
   try
     I.Add(0, 0);
     Check(false, 'dead code EInterfaceFactory');
@@ -2560,6 +2565,8 @@ begin
       Check(Pos('TInterfaceStub returned error: expected exception',
         E.Message) > 0, E.Message);
   end;
+  Check(TSynLog.Family.ExceptionIgnore.Remove(EInterfaceFactory) >= 0);
+  TSynLog.Family.ExceptionIgnore.Add(ESynException);
   try
     I.Add(1, 2);
     Check(false, 'dead code ESynException');
@@ -2567,10 +2574,47 @@ begin
     on E: ESynException do
       Check(E.Message = 'expected exception', E.Message);
   end;
-  with TSynLog.Family.ExceptionIgnore do
-  begin
-    Delete(IndexOf(EInterfaceFactory));
-    Delete(IndexOf(ESynException));
+  Check(TSynLog.Family.ExceptionIgnore.Remove(ESynException) >= 0);
+end;
+
+type
+  TMvcViewsMustacheHack = class(TMvcViewsMustache); // to call protected Render
+
+procedure TTestServiceOrientedArchitecture.MustacheViewsTranslate(
+  var English: string);
+begin
+  if English = 'Hello' then
+    English := 'Bonjour';
+end;
+
+procedure TTestServiceOrientedArchitecture.MvcViewsMustache;
+var
+  folder: TFileName;
+  params: TMvcViewsMustacheParameters;
+  views: TMvcViewsMustache;
+  ndx: integer;
+  answer: TServiceCustomAnswer;
+begin
+  folder := WorkDir + 'mvcviews';
+  ForceDirectories(folder);
+  FileFromString('{{"Hello}} {{name}}!', MakePath([folder, 'Welcome.html']));
+  FillCharFast(params, SizeOf(params), 0);
+  params.Folder := folder;
+  views := TMvcViewsMustache.Create(TypeInfo(IMvcViewsService), params);
+  try
+    ndx := views.Factory.FindMethodIndex('Welcome');
+    Check(ndx >= 0);
+    TMvcViewsMustacheHack(views).Render(ndx, _ObjFast(['name', 'world']), answer);
+    CheckEqual(answer.Content, 'Hello world!');
+    Check(IdemPChar(pointer(answer.Header), 'CONTENT-TYPE: TEXT/HTML'));
+    // wire the translation callback of the {{"text}} tags
+    views.OnTranslate := MustacheViewsTranslate;
+    answer.Content := '';
+    TMvcViewsMustacheHack(views).Render(ndx, _ObjFast(['name', 'world']), answer);
+    CheckEqual(answer.Content, 'Bonjour world!');
+  finally
+    views.Free;
+    DirectoryDelete(folder);
   end;
 end;
 

@@ -91,7 +91,7 @@ type
     content: TWebSocketFramePayloads;
     /// equals GetTickSec, as used for TWebSocketFrameList timeout
     tix: cardinal;
-    /// the frame data itself
+    /// the frame data itself - last for efficient struct alignment
     // - is plain UTF-8 for focText kind of frame
     // - is raw binary for focBinary or any other frames
     payload: RawByteString;
@@ -106,12 +106,12 @@ type
 
 const
   FRAME_OPCODE_FIN = 128;
+
+  FRAME_LEN_2BYTES = 126;
+  FRAME_LEN_8BYTES = 127;
   // https://tools.ietf.org/html/rfc6455#section-10.3
   // client-to-server masking is mandatory (but not from server to client)
   FRAME_LEN_MASK = 128;
-  FRAME_LEN_2BYTES = 126;
-  FRAME_LEN_8BYTES = 127;
-
 
 /// used to return the text corresponding to a specified WebSockets frame type
 function ToText(opcode: TWebSocketFrameOpCode): PShortString; overload;
@@ -210,6 +210,8 @@ type
     /// notify the server to move any callbacks to the renewed connection
     // - default is FALSE
     ClientRestoreCallbacks: boolean;
+    /// call ProcessIncomingFrame method for all frames, e.g. focPing/focPong
+    NotifyAllFrames: boolean;
     /// by default, contains [] to minimize the logged information
     // - set logHeartbeat if you want the ping/pong frames to be logged
     // - set logTextFrameContent if you want the text frame content to be logged
@@ -217,13 +219,13 @@ type
     // - set logCallback for each TWebSocketAsyncServerRest callback notification
     // - used only if WebSocketLog global variable is set to a TSynLog class
     LogDetails: TWebSocketProcessSettingsLogDetails;
-    /// TWebSocketProtocol.SetEncryptKey PBKDF2-SHA-3 salt for TProtocolAes
-    // - default is some fixed value - you may customize it for a project
-    AesSalt: RawUtf8;
     /// TWebSocketProtocol.SetEncryptKey PBKDF2-SHA-3 rounds for TProtocolAes
     // - default is 1024 which takes around 0.5 ms to compute
     // - 0 would use Sha256Weak() derivation function, as mORMot 1.18
     AesRounds: integer;
+    /// TWebSocketProtocol.SetEncryptKey PBKDF2-SHA-3 salt for TProtocolAes
+    // - default is some fixed value - you may customize it for a project
+    AesSalt: RawUtf8;
     /// TWebSocketProtocol.SetEncryptKey AES class for TProtocolAes
     // - default is TAesFast[mCtr]
     AesCipher: TAesAbstractClass;
@@ -290,7 +292,7 @@ type
     fFramesInBytes: QWord;
     fFramesOutBytes: QWord;
     fOnBeforeIncomingFrame: TOnWebSocketProtocolIncomingFrame;
-    fRemoteLocalhost: boolean;
+    fRemoteLocalhost, fCustomDataOwned: boolean;
     fConnectionFlags: THttpServerRequestFlags;
     fConnectionOpaque: PHttpServerConnectionOpaque;
     fRemoteIP: RawUtf8;
@@ -300,7 +302,9 @@ type
     fUri: RawUtf8;
     fLastError: string;
     fEncryption: IProtocol;
+    fCustomData: TObject;
     procedure AfterUpgrade(aProcess: TWebSocketProcess); virtual;
+    procedure SetName(const aProtocolName: RawUtf8); virtual;
     // focText/focBinary or focContinuation/focConnectionClose from ProcessStart/Stop
     procedure ProcessIncomingFrame(Sender: TWebSocketProcess;
       var Request: TWebSocketFrame; const Info: RawUtf8); virtual; abstract;
@@ -321,6 +325,8 @@ type
     // - if aUri is '', any URI would potentially upgrade to this protocol; you can
     // specify an URI to limit the protocol upgrade to a single resource
     constructor Create(const aName, aUri: RawUtf8); reintroduce;
+    /// finalize this protocol instance
+    destructor Destroy; override;
     /// compute a new instance of the WebSockets protocol, with same parameters
     // - by default, will return nil, as expected for Client-side only
     function Clone(const aClientUri: RawUtf8): TWebSocketProtocol; virtual;
@@ -335,7 +341,8 @@ type
     /// recognize a supported sub-protocol (on both client and server sides)
     // - should return true on success, i.e. if aProtocolName has been recognized
     // - check against Name by default, but could be e.g. 'synopsebin, synopsebinary'
-    function SetSubprotocol(const aProtocolName: RawUtf8): boolean; virtual;
+    // - protocols with multiple name should set their Name onced cloned/created
+    function IsSubprotocol(const aProtocolName: RawUtf8): boolean; virtual;
     /// create the internal Encryption: IProtocol according to the supplied key
     // - any asymmetric algorithm needs to know its side, i.e. client or server
     // - use aKey='password#xxxxxx.private' for efAesCtr128 calling
@@ -343,8 +350,9 @@ type
     // called to set the global PKI
     // - use aKey='a=mutual;e=aesctc128;p=34a2;pw=password;ca=..' full
     // TEcdheProtocol.FromKey(aKey) format
-    // - or aKey will be derivated using aSettings to call
-    // SetEncryptKeyAes - default as 1024 PBKDF2-SHA-3 rounds into aes-128-ctr
+    // - or aKey will be derivated using aSettings to call SetEncryptKeyAes -
+    // default as 1024 PBKDF2-SHA-3 rounds into aes-128-ctr
+    // - if aSettings=nil, aKey could be a file or mORMot 1.18 Sha256Weak(aKey)
     // - you can disable encryption by setting aKey=''
     procedure SetEncryptKey(aServer: boolean; const aKey: RawUtf8;
       aSettings: PWebSocketProcessSettings);
@@ -363,6 +371,9 @@ type
       out ExtOut: RawUtf8; ErrorMsg: PRawUtf8): boolean; virtual;
     /// called e.g. for authentication during the WebSockets handshake
     function ProcessHandshakeUri(const aClientUri: RawUtf8): boolean; virtual;
+    /// assign the CustomData property to this instance, with optional ownership
+    // - you could call SetCustomData(nil) to reset (and perhaps free) CustomData
+    procedure SetCustomData(Data: TObject; Owned: boolean = false);
     /// allow low-level interception before ProcessIncomingFrame is done
     property OnBeforeIncomingFrame: TOnWebSocketProtocolIncomingFrame
       read fOnBeforeIncomingFrame write fOnBeforeIncomingFrame;
@@ -381,11 +392,15 @@ type
     /// quickly check if the known remote IP maps the local host
     property RemoteLocalhost: boolean
       read fRemoteLocalhost write fRemoteLocalhost;
+    /// optional custom class instance which could be used to customize
+    // - use SetCustomData() to assign a TObject to this instance
+    property CustomData: TObject
+      read fCustomData;
   published
     /// the Sec-WebSocket-Protocol application name currently involved
     // - e.g. 'synopsejson', 'synopsebin' or 'synopsebinary'
     property Name: RawUtf8
-      read fName write fName;
+      read fName write SetName;
     /// the optional URI on which this protocol would be enabled
     // - leave to '' if any URI should match
     property URI: RawUtf8
@@ -499,6 +514,7 @@ type
     fFramesInBytesSocket: QWord;
     fFramesOutBytesSocket: QWord;
     fOptions: TWebSocketProtocolBinaryOptions;
+    procedure SetName(const aProtocolName: RawUtf8); override;
     procedure FrameCompress(const Head: RawUtf8;
       const Values: array of const; const Content, ContentType: RawByteString;
       var frame: TWebSocketFrame); override;
@@ -552,7 +568,7 @@ type
     /// overriden to return 'synopsebin, synopsebinary' sub-protocols
     function GetSubprotocols: RawUtf8; override;
     /// recognize our 'synopsebin, synopsebinary' sub-protocols
-    function SetSubprotocol(const aProtocolName: RawUtf8): boolean; override;
+    function IsSubprotocol(const aProtocolName: RawUtf8): boolean; override;
   published
     /// how compression / encryption is implemented during the transmission
     // - is set to [pboSynLzCompress] by default
@@ -659,7 +675,7 @@ type
     // specified WebSockets protocl
     // - this method is thread-safe
     function Pop(protocol: TWebSocketProtocol; const head: RawUtf8;
-      out frame: TWebSocketFrame; currentSec: cardinal): boolean;
+      var frame: TWebSocketFrame; currentSec: cardinal): boolean;
     /// how many 'answer' frames are to be ignored
     // - incdec should be either 0, -1 or +1
     // - this method is thread-safe
@@ -750,7 +766,7 @@ type
     fOutgoing: TWebSocketFrameList;
     fOwnerThread: TSynThread;
     fState: TWebSocketProcessState;
-    fMaskSentFrames: byte;
+    fMaskSentFrames: byte; // 0 (from server) or 128 (from client)
     fProcessEnded: boolean;
     fConnectionCloseWasSent: boolean;
     fNoLastSocketTicks: boolean;
@@ -919,11 +935,13 @@ function ToText(st: TWebSocketProcessState): PShortString; overload;
 type
   /// define our work memory buffer for low-level WebSockets frame headers
   TFrameHeader = packed record
-    first: byte;
-    len8: byte;
-    len32: cardinal;
-    len64: cardinal;
-    mask: cardinal; // mask=0 indicates no payload masking
+    first: byte;          // opcode + FIN high bit
+    two: byte;            // payloadlen = two if < 126 + high bit if mask32 <> 0
+    len64: Int64;         // payloadlen = 16-bit if two=126, 64-bit if two=127
+    mask32: cardinal;     // 0 means no payload masking - should be after len64
+    lensize: byte;        // number of bytes in first+two+len64 (2/4/10)
+    masksize: byte;       // number of bytes of ending mask32 (0/4)
+    payloadlen: cardinal; // before encoding or after decoding
   end;
 
   /// states of the WebSockets parsing asynchronous machine
@@ -942,34 +960,29 @@ type
   TWebProcessInFrame = object
   {$endif USERECORDWITHMETHODS}
   public
-    hdr: TFrameHeader;
+    header: TFrameHeader;
+    pos: integer;
     opcode: TWebSocketFrameOpCode;
-    masked: boolean;
     state: TWebProcessInFrameState;
     process: TWebSocketProcess;
     outputframe: PWebSocketFrame;
-    len: integer;
     data: RawByteString; // will eventually be appended to outputframe.payload
     procedure Init(Owner: TWebSocketProcess; output: PWebSocketFrame);
     function HasBytes(P: PAnsiChar; count: integer): boolean;
       {$ifdef HASINLINE} inline; {$endif}
+    function HasHeader: boolean;
     function GetHeader: boolean;
     function GetData: boolean;
     function Step(ErrorWithoutException: PInteger): TWebProcessInFrameState;
   end;
 
-  /// reusable encoder for WebSockets outgoing frames
-  {$ifdef USERECORDWITHMETHODS}
-  TWebSocketFrameEncoder = record
-  {$else}
-  TWebSocketFrameEncoder = object
-  {$endif USERECORDWITHMETHODS}
-  public
-    hdr: TFrameHeader;
-    hdrlen, len: cardinal;
-    function Prepare(const Frame: TWebSocketFrame; MaskSentFrames: cardinal): integer;
-    function Encode(const Frame: TWebSocketFrame; Dest: PAnsiChar): integer;
-  end;
+/// reusable first encoder step for WebSockets outgoing frames
+function HeaderPrepare(var Header: TFrameHeader; const Frame: TWebSocketFrame;
+  MaskSentFrames: cardinal): integer;
+
+/// reusable second encoder step for WebSockets outgoing frames
+function HeaderEncode(var Header: TFrameHeader; const Frame: TWebSocketFrame;
+  Dest: PAnsiChar): integer;
 
 
 { ******************** TWebSocketProtocolChat Simple Protocol }
@@ -1029,7 +1042,7 @@ var
   WebSocketsBinarySynLzThreshold: integer = 450;
 
   /// the allowed maximum size, in MB, of a WebSockets frame
-  WebSocketsMaxFrameMB: cardinal = 256;
+  WebSocketsMaxFrameMB: PtrUInt = 256;
 
 
 { ****************** Socket.IO / Engine.IO Raw Protocols }
@@ -1105,7 +1118,7 @@ type
     function NameSpaceIs(const Name: RawUtf8): boolean;
     /// retrieve the NameSpace value as a new RawUtf8
     procedure NameSpaceGet(out Dest: RawUtf8);
-    /// retrieve the NameSpace value as a shortstring (used e.g. for RaiseESockIO)
+    /// retrieve the NameSpace value as a ShortString (e.g. for RaiseESockIO)
     function NameSpaceShort: ShortString;
       {$ifdef HASINLINE} inline; {$endif}
     /// parse the Data content JSON payload into a TDocVariant
@@ -1277,8 +1290,8 @@ type
   protected
     fSid, fHandshakeData: RawUtf8;
     fCallbackSafe: TLightLock;
-    fCallbacks: array of TSocketIOCallback;
     fAckIdCursor: TSocketIOAckID;
+    fCallbacks: array of TSocketIOCallback;
     /// Generate a new event acknowledgment ID, incrementing the internal cursor
     function GenerateAckId(const aOnAck: TOnSocketIOAck): TSocketIOAckID;
   public
@@ -1354,7 +1367,7 @@ type
     constructor Create(aOwner: TEngineIOAbstract;
       const aNamespace: RawUtf8 = '/'); reintroduce;
     /// register an event with an associated callback
-    // - returns self to be used as a fluid interface, e.g.
+    // - returns self to be used as a fluent interface, e.g.
     // from TSocketsIOClient.Local()
     function RegisterEvent(const aEventName: RawUtf8;
       const aCallback: TOnSocketIOEvent): TSocketIOLocalNamespace;
@@ -1397,7 +1410,7 @@ type
   public
     // overriden to return '' i.e. recognize by URI, not "Sec-WebSocket-Protocol:"
     function GetSubprotocols: RawUtf8; override;
-    function SetSubprotocol(const aProtocolName: RawUtf8): boolean; override;
+    function IsSubprotocol(const aProtocolName: RawUtf8): boolean; override;
     /// true when Engine.IO messages can be processed
     // - i.e. after OPEN (eioOpen) and before CLOSE (eioClose)
     property Opened: boolean
@@ -1499,7 +1512,7 @@ begin
   end;
   for i := 0 to (len and 3) - 1 do
   begin
-    PByteArray(data)^[i] := PByteArray(data)^[i] xor mask;
+    PByteArray(data)^[i] := PByteArray(data)^[i] xor byte(mask);
     mask := mask shr 8;
   end;
 end;
@@ -1520,64 +1533,68 @@ begin
     frame.content := [];
 end;
 
-{ TWebSocketFrameEncoder }
-
-function TWebSocketFrameEncoder.Prepare(const Frame: TWebSocketFrame;
+function HeaderPrepare(var Header: TFrameHeader; const Frame: TWebSocketFrame;
   MaskSentFrames: cardinal): integer;
 begin
-  len := Length(Frame.payload);
-  hdr.first := byte(Frame.opcode) or FRAME_OPCODE_FIN; // single frame
-  if len < FRAME_LEN_2BYTES then
+  // MaskSentFrames = 0 (from server) or 128 (from client)
+  Header.payloadlen := Length(Frame.payload);
+  Header.first := byte(Frame.opcode) or FRAME_OPCODE_FIN; // single frame
+  if Header.payloadlen < FRAME_LEN_2BYTES then
   begin
-    hdr.len8 := len or MaskSentFrames;
-    hdrlen := 2; // opcode+len8
+    Header.two := Header.payloadlen or MaskSentFrames;
+    Header.lensize:= 2; // opcode+two
   end
-  else if len < 65536 then
+  else if Header.payloadlen < 65536 then
   begin
-    hdr.len8 := FRAME_LEN_2BYTES or MaskSentFrames;
-    hdr.len32 := bswap16(len);
-    hdrlen := 4; // opcode+len8+len32.low
+    Header.two := FRAME_LEN_2BYTES or MaskSentFrames;
+    PWord(@Header.len64)^ := bswap16(Header.payloadlen);
+    Header.lensize := 4; // opcode+126+len.W[0]
   end
   else
   begin
-    hdr.len8 := FRAME_LEN_8BYTES or MaskSentFrames;
-    hdr.len64 := bswap32(len);
-    hdr.len32 := 0;
-    hdrlen := 10; // opcode+len8+len32+len64.low
+    Header.two := FRAME_LEN_8BYTES or MaskSentFrames;
+    Header.len64 := bswap64(Header.payloadlen);
+    Header.lensize := 10; // opcode+127+len.V
   end;
-  if MaskSentFrames <> 0 then
+  if MaskSentFrames <> 0 then // two and 128 <> 0
   begin
     // https://tools.ietf.org/html/rfc6455#section-10.3
     // client-to-server masking is mandatory (but not from server to client)
-    hdr.mask := Random32Not0;
-    inc(hdrlen, 4);
+    Header.mask32 := NetRandom32;
+    Header.masksize := 4;
   end
   else
-    hdr.mask := 0;
-  result := hdrlen + len;
+  begin
+    Header.mask32 := 0;
+    Header.masksize := 0;
+  end;
+  result := Header.payloadlen + Header.lensize + Header.masksize;
 end;
 
-function TWebSocketFrameEncoder.Encode(
-  const Frame: TWebSocketFrame; Dest: PAnsiChar): integer;
+function HeaderEncode(var Header: TFrameHeader; const Frame: TWebSocketFrame;
+  Dest: PAnsiChar): integer;
 begin
-  MoveByOne(@hdr, Dest, hdrlen);  // 2/4 bytes for small/common frames
-  inc(Dest, hdrlen);
-  if hdr.mask <> 0 then
-    // hdr.mask is not at the right position: append to actual end of header
-    PInteger(Dest - 4)^ := hdr.mask;
-  MoveFast(pointer(Frame.payload)^, Dest^, len);
-  if hdr.mask <> 0 then
-    ProcessMask(pointer(Dest), hdr.mask, len); // only on client side
-  result := hdrlen + len;
+  MoveByOne(@Header, Dest, Header.lensize); // 2/4/10 bytes
+  inc(Dest, Header.lensize);
+  if Header.masksize <> 0 then
+  begin
+    // Header.mask32 is not at the right position: append to actual end of header
+    PCardinal(Dest)^ := Header.mask32;
+    inc(PCardinal(Dest));
+  end;
+  MoveFast(pointer(Frame.payload)^, Dest^, Header.payloadlen);
+  if Header.masksize <> 0 then
+    ProcessMask(pointer(Dest), Header.mask32, Header.payloadlen);
+  result := Header.lensize + Header.masksize + Header.payloadlen;
 end;
 
 procedure FrameSendEncode(const Frame: TWebSocketFrame;
   MaskSentFrames: cardinal; var ToSend: TSynTempBuffer);
 var
-  encoder: TWebSocketFrameEncoder;
+  hdr: TFrameHeader;
 begin
-  ToSend.Init(encoder.Prepare(Frame, MaskSentFrames));
-  encoder.Encode(Frame, ToSend.buf);
+  ToSend.Init(HeaderPrepare(hdr, Frame, MaskSentFrames));
+  HeaderEncode(hdr, Frame, ToSend.buf);
 end;
 
 
@@ -1592,6 +1609,20 @@ begin
   fName := aName;
   fUri := aUri;
   fConnectionFlags := [hsrWebsockets];
+end;
+
+destructor TWebSocketProtocol.Destroy;
+begin
+  SetCustomData(nil); // free fCustomData if needed
+  inherited Destroy;
+end;
+
+procedure TWebSocketProtocol.SetCustomData(Data: TObject; Owned: boolean);
+begin
+  if fCustomDataOwned then
+    FreeAndNil(fCustomData);
+  fCustomData := Data;
+  fCustomDataOwned := Owned;
 end;
 
 procedure TWebSocketProtocol.Reset;
@@ -1616,14 +1647,16 @@ begin
   // always first disable any previous encryption
   fEncryption := nil;
   fConnectionFlags := [hsrWebsockets];
-  if (aKey = '') or
-     (aSettings = nil) then
+  if aKey = '' then
     exit;
   // 1. try asymmetric ES-256 ephemeral secret key and mutual authentication
   // check human-friendly format 'password#*.private' key file name
-  with aSettings^ do
-    fEncryption := TEcdheProtocol.FromPasswordSecureFile(
-      aKey, aServer, EcdheAuth, EcdheCipher, EcdheRounds);
+  if aSettings = nil then
+    fEncryption := TEcdheProtocol.FromPasswordSecureFile(aKey, aServer)
+  else
+    with aSettings^ do
+      fEncryption := TEcdheProtocol.FromPasswordSecureFile(
+        aKey, aServer, EcdheAuth, EcdheCipher, EcdheRounds);
   if fEncryption = nil then
     // check 'a=mutual;e=aesctc128;p=34a2;pw=password;ca=..' full format
     fEncryption := TEcdheProtocol.FromKey(aKey, aServer);
@@ -1632,14 +1665,18 @@ begin
   else
   begin
     // 2. aKey no 'a=...'/'pw#xx.private' layout -> use symmetric TProtocolAes
-    if aSettings^.AesRounds = 0 then
+    if (aSettings = nil) or
+       (aSettings^.AesRounds = 0) then
       // mORMot 1.18 deprecated password derivation
       Sha256Weak(aKey, key.b)
     else
       // new safer password derivation algorithm (rounds=1000 -> 1ms)
       Pbkdf2Sha3(SHA3_256, aKey, aSettings^.AesSalt, aSettings^.AesRounds,
         @key, SizeOf(key));
-    SetEncryptKeyAes(aSettings^.AesCipher, key, aSettings^.AesBits);
+    if aSettings = nil then
+      SetEncryptKeyAes(nil, key, 128) // default to AES-CTR-128
+    else
+      SetEncryptKeyAes(aSettings^.AesCipher, key, aSettings^.AesBits);
   end;
 end;
 
@@ -1776,7 +1813,12 @@ begin
   result := fName;
 end;
 
-function TWebSocketProtocol.SetSubprotocol(const aProtocolName: RawUtf8): boolean;
+procedure TWebSocketProtocol.SetName(const aProtocolName: RawUtf8);
+begin
+  fName := aProtocolName; // could be overriden to setup the instance by-name
+end;
+
+function TWebSocketProtocol.IsSubprotocol(const aProtocolName: RawUtf8): boolean;
 begin
   result := PropNameEquals(aProtocolName, fName);
 end;
@@ -1785,7 +1827,7 @@ function TWebSocketProtocol.GetRemoteIP: RawUtf8;
 begin
   if (self = nil) or
      fRemoteLocalhost then
-    result := ''
+    FastAssignNew(result)
   else
     result := fRemoteIP;
 end;
@@ -1809,7 +1851,7 @@ begin
 end;
 
 function TWebSocketFrameList.Pop(protocol: TWebSocketProtocol;
-  const head: RawUtf8; out frame: TWebSocketFrame; currentSec: cardinal): boolean;
+  const head: RawUtf8; var frame: TWebSocketFrame; currentSec: cardinal): boolean;
 var
   i: PtrInt;
   item: PWebSocketFrame;
@@ -2014,6 +2056,8 @@ var
   OutContentType: pointer; // weak RawUtf8
 begin
   OutContentType := nil;
+  if not Ctxt.OutContentStreamToBuffer then // frames are in-memory not TStream
+    Status := HTTP_SERVERERROR; // failed to read that stream: no body to send
   if (Ctxt.OutContent <> '') and
      not IsContentTypeJsonU(Ctxt.OutContentType) then
     OutContentType := pointer(Ctxt.OutContentType);
@@ -2150,7 +2194,7 @@ begin
   begin
     result := P + 1;
     if HeadFound <> nil then
-      FastSetString(HeadFound^, txt, P - txt);
+      FastSetString(HeadFound^, txt, P);
   end;
 end;
 
@@ -2207,7 +2251,7 @@ function TWebSocketProtocolJson.SendFrames(Owner: TWebSocketProcess;
   var Frames: TWebSocketFrameDynArray;
   var FramesCount: integer): boolean;
 var
-  enc: array of TWebSocketFrameEncoder;
+  enc: array of TFrameHeader;
   i, len: PtrInt;
   P: PAnsiChar;
   tmp: TSynTempBuffer; // to avoid most memory allocations
@@ -2231,11 +2275,11 @@ begin
       EWebSockets.RaiseUtf8('%.SendFrames: unexpected %',
         [self, ToText(Frames[i].opcode)])
     else
-      inc(len, enc[i].Prepare(Frames[i], Owner.fMaskSentFrames));
+      inc(len, HeaderPrepare(enc[i], Frames[i], Owner.fMaskSentFrames));
   P := tmp.Init(len);
   try
     for i := 0 to FramesCount - 1 do
-      inc(P, enc[i].Encode(Frames[i], P));
+      inc(P, HeaderEncode(enc[i], Frames[i], P));
     result := Owner.SendBytes(tmp.buf, len); // directly send at once
     if (WebSocketLog <> nil) and
        (logTextFrameContent in Owner.Settings.LogDetails) then
@@ -2341,7 +2385,7 @@ begin
   if PMax <> nil then
     PMax^ := pointer(P + PStrLen(P - _STRLEN)^);
   if HeadFound <> nil then
-    FastSetString(HeadFound^, P, PAnsiChar(result) - P);
+    FastSetString(HeadFound^, P, result);
   inc(PByte(result));
 end;
 
@@ -2563,18 +2607,16 @@ begin
   result := 'synopsebin, synopsebinary';
 end;
 
-function TWebSocketProtocolBinary.SetSubprotocol(const aProtocolName: RawUtf8): boolean;
+procedure TWebSocketProtocolBinary.SetName(const aProtocolName: RawUtf8);
 begin
-  result := false;
-  case FindPropName(['synopsebin', 'synopsebinary'], aProtocolName) of
-    0:
-      fSequencing := true;
-    1:
-      fSequencing := false;
-  else
-    exit;
-  end;
-  result := true;
+  inherited SetName(aProtocolName); // set fName
+  fSequencing := PropNameEquals(aProtocolName, 'synopsebin'); // setup protocol
+end;
+
+function TWebSocketProtocolBinary.IsSubprotocol(const aProtocolName: RawUtf8): boolean;
+begin
+  result := PropNameEquals(aProtocolName, 'synopsebin') or
+            PropNameEquals(aProtocolName, 'synopsebinary');
 end;
 
 
@@ -2669,10 +2711,10 @@ begin
       p := fProtocols[i];
       if ((p.fUri = '') or
           PropNameEquals(p.fUri, u)) and
-         p.SetSubprotocol(aProtocolName) then
+         p.IsSubprotocol(aProtocolName) then
       begin
         result := p.Clone(u);
-        result.fName := aProtocolName;
+        result.SetName(aProtocolName); // setup e.g. synopsebin/synopsebinary
         exit;
       end;
     end;
@@ -2920,6 +2962,7 @@ begin
   OnClientDisconnected := nil;
   ClientAutoUpgrade := true;
   ClientRestoreCallbacks := false;
+  NotifyAllFrames := false;
   AesSalt := 'E750ACCA-2C6F-4B0E-999B-D31C9A14EFAB';
   AesRounds := 1024;
   AesCipher := TAesFast[mCtr];
@@ -3047,10 +3090,10 @@ procedure TWebSocketProcess.ProcessStart;
 var
   frame: TWebSocketFrame; // notify e.g. TOnWebSocketProtocolChatIncomingFrame
 begin
-  if Assigned(fSettings.OnClientConnected) then
+  if Assigned(fSettings^.OnClientConnected) then
   try
     WebSocketLog.Add.Log(sllTrace, 'ProcessStart: OnClientConnected', self);
-    fSettings.OnClientConnected(Self);
+    fSettings^.OnClientConnected(Self);
   except
   end;
   //WebSocketLog.Add.Log(sllTrace, 'ProcessStart: callbacks', self);
@@ -3076,10 +3119,10 @@ begin
       if (not Assigned(fProtocol.fOnBeforeIncomingFrame)) or
          (not fProtocol.fOnBeforeIncomingFrame(self, frame)) then
         fProtocol.ProcessIncomingFrame(self, frame, '');
-    if Assigned(fSettings.OnClientDisconnected) then
+    if Assigned(fSettings^.OnClientDisconnected) then
     begin
       WebSocketLog.Add.Log(sllTrace, 'ProcessStop: OnClientDisconnected', self);
-      fSettings.OnClientDisconnected(Self);
+      fSettings^.OnClientDisconnected(Self);
     end;
   except // exceptions are just ignored at shutdown
   end;
@@ -3111,32 +3154,37 @@ begin
 end;
 
 procedure TWebSocketProcess.ProcessLoopReceived(var request: TWebSocketFrame);
+var
+  notify: boolean;
 begin
+  notify := fSettings^.NotifyAllFrames;
+  // some opcodes require a specific reponse (should be done first)
   case request.opcode of
     focPing:
       begin
         request.opcode := focPong;
         SendFrame(request); // immediate pong frame sending
+        request.opcode := focPing; // for notify below
       end;
-    focPong:
-      ; // nothing to do
     focText,
     focBinary:
-      if Assigned(fProtocol) then
-        if (not Assigned(fProtocol.fOnBeforeIncomingFrame)) or
-           (not fProtocol.fOnBeforeIncomingFrame(self, request)) then
-          fProtocol.ProcessIncomingFrame(self, request, '');
+      notify := true;
     focConnectionClose:
+      if (fState = wpsRun) and
+         not fConnectionCloseWasSent then
       begin
-        if (fState = wpsRun) and
-           not fConnectionCloseWasSent then
-        begin
-          fState := wpsClose; // will close the connection
-          SendFrame(request); // immediate send back the frame as ACK
-        end;
+        fState := wpsClose; // will close the connection
+        SendFrame(request); // immediate send back the frame as ACK
       end;
   end;
-  request.payload := ''; // release memory ASAP
+  // notify to ProcessIncomingFrame() method - callback may change request
+  if notify and
+     Assigned(fProtocol) then
+    if (not Assigned(fProtocol.fOnBeforeIncomingFrame)) or
+       (not fProtocol.fOnBeforeIncomingFrame(self, request)) then
+      fProtocol.ProcessIncomingFrame(self, request, '');
+  // release memory ASAP
+  request.payload := '';
 end;
 
 function TWebSocketProcess.ProcessLoopStepReceive(FrameProcessed: PBoolean): boolean;
@@ -3187,9 +3235,9 @@ begin
     request.content := [];
     request.tix := 0;
     if not SendFrame(request) then // immediate frame sending
-      if (fSettings.DisconnectAfterInvalidHeartbeatCount <> 0) and
+      if (fSettings^.DisconnectAfterInvalidHeartbeatCount <> 0) and
          (fInvalidPingSendCount >=
-           fSettings.DisconnectAfterInvalidHeartbeatCount) then
+           fSettings^.DisconnectAfterInvalidHeartbeatCount) then
         fState := wpsClose
       else
         MarkAsInvalid;
@@ -3207,12 +3255,12 @@ begin
     LockedInc32(@fProcessCount); // flag currently processing
     try
       elapsed := LastPingDelay;
-      if elapsed > fSettings.SendDelay then
+      if elapsed > fSettings^.SendDelay then
         if (fOutgoing.Count > 0) and
            (SendPendingOutgoingFrames < 0) then
           fState := wpsClose // SendFrames() failed
-        else if (fSettings.HeartbeatDelay <> 0) and
-                (elapsed > fSettings.HeartbeatDelay) then
+        else if (fSettings^.HeartbeatDelay <> 0) and
+                (elapsed > fSettings^.HeartbeatDelay) then
           SendPing;
     finally
       LockedDec32(@fProcessCount); // release flag
@@ -3263,9 +3311,9 @@ var
   delay: cardinal;
 begin
   delay := SleepStepTime(start, result); // efficient 0/1/5/50/120-250 ms steps
-  if (fSettings.LoopDelay <> 0) and
-     (delay > fSettings.LoopDelay) then
-    delay := fSettings.LoopDelay;
+  if (fSettings^.LoopDelay <> 0) and
+     (delay > fSettings^.LoopDelay) then
+    delay := fSettings^.LoopDelay;
   SleepHiRes(delay);
 end;
 
@@ -3282,7 +3330,7 @@ begin
   if (self = nil) or
      (fProtocol = nil) or
      fProtocol.fRemoteLocalhost then
-    result := ''
+    FastAssignNew(result)
   else
     result := fProtocol.fRemoteIP;
 end;
@@ -3318,7 +3366,7 @@ begin
     aMode in [wscBlockWithoutAnswer, wscNonBlockWithoutAnswer], request, head);
   case aMode of
     wscNonBlockWithoutAnswer:
-      if fSettings.SendDelay <> 0 then
+      if fSettings^.SendDelay <> 0 then
       begin
         // add to the internal sending list for asynchronous sending
         SendFrameAsync(request); // with potential jumboframes gathering
@@ -3372,7 +3420,7 @@ begin
     end;
     tix := GetTickCount64;
     start := tix;
-    max := fSettings.CallbackAnswerTimeOutMS;
+    max := fSettings^.CallbackAnswerTimeOutMS;
     if max = 0 then
       // never wait for ever: 30 seconds is the absolute maximum delay
       max := 30000
@@ -3427,10 +3475,11 @@ procedure TWebSocketProcess.Log(const frame: TWebSocketFrame;
     tmp: TLogEscape; // 512 bytes of temp buffer
     len: integer;
   begin
-    log.DisableRemoteLog(DisableRemoteLog);
+    if DisableRemoteLog then
+      log.DisableRemoteLog(true);
     try
       if (frame.opcode = focText) and
-         (logTextFrameContent in fSettings.LogDetails) then
+         (logTextFrameContent in fSettings^.LogDetails) then
         log.Log(aEvent, '% % % focText %',
           [aMethodName, fProtocol.GetRemoteIP,
            fProtocol.FrameType(frame), frame.PayLoad], self)
@@ -3441,10 +3490,11 @@ procedure TWebSocketProcess.Log(const frame: TWebSocketFrame;
          [aMethodName, fProtocol.GetRemoteIP, fProtocol.FrameType(frame),
           _TWebSocketFrameOpCode[frame.opcode]^, len,
           LogEscape(pointer(frame.PayLoad), len, tmp,
-            logBinaryFrameContent in fSettings.LogDetails)], self);
+            logBinaryFrameContent in fSettings^.LogDetails)], self);
       end;
     finally
-      log.DisableRemoteLog(false);
+      if DisableRemoteLog then
+        log.DisableRemoteLog(false);
     end;
   end;
 
@@ -3452,7 +3502,7 @@ begin
   if WebSocketLog <> nil then
     with WebSocketLog.Family do
       if aEvent in Level then
-        if (logHeartbeat in fSettings.LogDetails) or
+        if (logHeartbeat in fSettings^.LogDetails) or
            not (frame.opcode in [focPing, focPong]) then
           DoLog(Add);
 end;
@@ -3484,7 +3534,7 @@ var
 begin
   fSafeOut.Lock;
   try
-    Log(Frame, 'SendFrame', sllTrace, true);
+    Log(Frame, 'SendFrame', sllTrace, {disableRemote=}true);
     try
       if Frame.opcode = focConnectionClose then
         fConnectionCloseWasSent := true; // to be done once on each end
@@ -3566,78 +3616,99 @@ begin
   process := owner;
   outputframe := output;
   state := pfsHeader1;
-  len := 0;
+  pos := 0;
 end;
 
 function TWebProcessInFrame.HasBytes(P: PAnsiChar; count: integer): boolean;
+var
+  needed: PtrInt;
 begin
-  if len > count then
-    // we already got that much input data
-    result := true
-  else
+  needed := count - pos;
+  if needed > 0 then
   begin
     // TWebCrtSocketProcess SockInRead() would raise a ENetSock error on failure
-    inc(len, process.ReceiveBytes(P + len, count - len));
-    result := len = count;
-  end;
+    // TWebSocketAsyncProcess would just return the bytes available from its buffers
+    inc(pos, process.ReceiveBytes(P + pos, needed));
+    result := pos = count;
+  end
+  else
+    // we already got that much input data
+    result := true;
+end;
+
+function TWebProcessInFrame.HasHeader: boolean;
+begin
+  result := HasBytes(@header, PtrInt(header.lensize) + header.masksize);
 end;
 
 function TWebProcessInFrame.GetHeader: boolean;
+var
+  // use local variables to ease decoding and keep the header content untouched
+  b: byte;
+  len64: Int64;
 begin
   result := false;
-  if len = 0 then
+  if pos = 0 then
   begin
-    data := '';
-    FillCharFast(hdr, SizeOf(hdr), 0);
+    // reset for every decoded frame
+    FastAssignNew(data);
+    FillCharFast(header, SizeOf(header), 0);
   end;
-  if not HasBytes(@hdr, 2) then // first+len8
-    exit;
-  opcode := TWebSocketFrameOpCode(hdr.first and 15);
-  masked := hdr.len8 and FRAME_LEN_MASK <> 0;
-  if masked then
-    hdr.len8 := hdr.len8 and (FRAME_LEN_MASK - 1);
-  if hdr.len8 < FRAME_LEN_2BYTES then
-    hdr.len32 := hdr.len8
-  else if hdr.len8 = FRAME_LEN_2BYTES then
+  header.lensize := 2; // first=opcode + two=len
+  if not HasHeader then
+    exit; // not enough input
+  opcode := TWebSocketFrameOpCode(header.first and 15);
+  // note: FRAME_OPCODE_FIN is implemented below in TWebProcessInFrame.Step
+  b := header.two;
+  if b and FRAME_LEN_MASK <> 0 then
   begin
-    if not HasBytes(@hdr, 4) then // first+len8+len32.low
-      exit;
-    hdr.len32 := bswap16(hdr.len32);
+    // client-to-server masking is mandatory (but not from server to client)
+    b := b and pred(FRAME_LEN_MASK);
+    header.masksize := SizeOf(header.mask32); // = 4 for masked input
+  end;
+  if b < FRAME_LEN_2BYTES then
+    header.payloadlen := b
+  else if b = FRAME_LEN_2BYTES then
+  begin
+    header.lensize := 4; // opcode + b=126 + 16-bit len
+    if not HasHeader then
+      exit; // not enough input
+    header.payloadlen := bswap16(PWord(@header.len64)^);
   end
-  else if hdr.len8 = FRAME_LEN_8BYTES then
+  else if b = FRAME_LEN_8BYTES then
   begin
-    if not HasBytes(@hdr, 10) then // first+len8+len32+len64.low
-      exit;
-    if hdr.len32 <> 0 then // size is more than 32 bits (4GB) -> reject
-      hdr.len32 := maxInt
-    else
-      hdr.len32 := bswap32(hdr.len64);
-    if hdr.len32 > WebSocketsMaxFrameMB shl 20 then
+    header.lensize := 10; // opcode + b=127 + 64-bit len
+    if not HasHeader then
+      exit; // not enough input
+    len64 := bswap64(header.len64);
+    if len64 > WebSocketsMaxFrameMB shl 20 then
       EWebSockets.RaiseUtf8('%.GetFrame: length = % should be < % MB',
-        [process, KB(hdr.len32), WebSocketsMaxFrameMB]);
+        [process, KB(len64), WebSocketsMaxFrameMB]);
+    header.payloadlen := len64;
   end;
-  if masked then
+  if header.masksize <> 0 then // = 4 for masked input
   begin
-    len := 0; // not appended to hdr
-    if not HasBytes(@hdr.mask, 4) then
-      EWebSockets.RaiseUtf8('%.GetFrame: truncated mask', [process]);
+    if not HasHeader then
+      exit; // not enough input
+    header.mask32 := PCardinal(PAnsiChar(@header) + header.lensize)^; // at ending
+    if header.mask32 = 0 then
+      EWebSockets.RaiseUtf8('%.GetFrame: unexpected mask=0', [process]);
   end;
-  len := 0; // prepare upcoming GetData
+  pos := 0; // prepare upcoming GetData
   result := true;
 end;
 
 function TWebProcessInFrame.GetData: boolean;
 begin
-  if length(data) <> integer(hdr.len32) then
-    FastNewRawByteString(data, hdr.len32);
-  result := HasBytes(pointer(data), hdr.len32);
-  if result then
-  begin
-    if hdr.mask <> 0 then
-      // client-to-server masking is mandatory (but not from server to client)
-      ProcessMask(pointer(data), hdr.mask, hdr.len32);
-    len := 0; // prepare next upcoming GetHeader
-  end;
+  result := false;
+  if length(data) <> PtrInt(header.payloadlen) then
+    FastNewRawByteString(data, header.payloadlen);
+  if not HasBytes(pointer(data), header.payloadlen) then
+    exit; // not enough input
+  if header.mask32 <> 0 then
+    ProcessMask(pointer(data), header.mask32, header.payloadlen);
+  pos := 0; // prepare next upcoming GetHeader
+  result := true;
 end;
 
 function TWebProcessInFrame.Step(ErrorWithoutException: PInteger): TWebProcessInFrameState;
@@ -3657,7 +3728,7 @@ begin
         if GetData then
         begin
           outputframe.payload := data;
-          if hdr.first and FRAME_OPCODE_FIN = 0 then
+          if header.first and FRAME_OPCODE_FIN = 0 then
             state := pfsHeaderN
           else
             state := pfsDone;
@@ -3689,8 +3760,8 @@ begin
       pfsDataN:
         if GetData then
         begin
-          outputframe.payload := outputframe.payload + data;
-          if hdr.first and FRAME_OPCODE_FIN = 0 then
+          Append(outputframe.payload, data);
+          if header.first and FRAME_OPCODE_FIN = 0 then
             state := pfsHeaderN
           else
             state := pfsDone;
@@ -4313,10 +4384,10 @@ end;
 
 function TWebSocketEngineIOProtocol.GetSubprotocols: RawUtf8;
 begin
-  result := ''; // no "Sec-WebSocket-Protocol:" header
+  FastAssignNew(result); // no "Sec-WebSocket-Protocol:" header
 end;
 
-function TWebSocketEngineIOProtocol.SetSubprotocol(const aProtocolName: RawUtf8): boolean;
+function TWebSocketEngineIOProtocol.IsSubprotocol(const aProtocolName: RawUtf8): boolean;
 begin
   result := false; // should never be called
 end;
@@ -4379,17 +4450,15 @@ begin
   else
   begin
     // normalize root
-    if r[1] <> '/' then
-      insert('/', r, 1);
-    if r[length(r)] <> '/' then
-      Append(r, '/');
+    PrependIfNone(r, '/');
+    AppendIfNone(r, '/');
   end;
   // EIO        4          Mandatory, the version of the protocol
   // transport  websocket  Mandatory, the name of the transport
   // sid        <sid>      None here - direct websockets, not from HTTP polling
   // t          <random>   Ensure that the request is not cached by the browser
   FormatUtf8('%?EIO=4&transport=websocket&t=%',
-    [r, CardinalToHexShort(Random32Not0)], result);
+    [r, CardinalToHexShort(NetRandom32)], result);
   if PollingUpgradeSid <> '' then
     Append(result, '&sid=', PollingUpgradeSid);
 end;

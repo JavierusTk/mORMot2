@@ -422,7 +422,7 @@ begin
     end;
     if Log <> nil then
       Log.Log(sllDebug, 'Connected to % using % % recognized as %',
-        [DbmsName, DriverName, DbmsVersion, ToText(fDbms)^]);
+        [DbmsName, DriverName, DbmsVersion, DBDEF_TXT[fDbms]]);
     // notify any re-connection
     inherited Connect;
   except
@@ -562,14 +562,13 @@ begin
   end;
 end;
 
-function ODBCColumnToFieldType(DataType, ColumnPrecision, ColumnScale: integer):
-  TSqlDBFieldType;
+function OdbcColumnToFieldType(
+  DataType, ColumnPrecision, ColumnScale: integer): TSqlDBFieldType;
 begin
   // ftUnknown, ftNull, ftInt64, ftDouble, ftCurrency, ftDate, ftUtf8, ftBlob
   case DataType of
     SQL_DECIMAL,
-    SQL_NUMERIC,
-    SQL_FLOAT:
+    SQL_NUMERIC:
       begin
         result := ftDouble;
         if ColumnPrecision = 10 then
@@ -580,6 +579,7 @@ begin
               result := ftCurrency;
           end;
       end;
+    SQL_FLOAT,
     SQL_REAL,
     SQL_DOUBLE:
       result := ftDouble;
@@ -642,14 +642,14 @@ begin
         DescribeColW(fStatement, c, Name{%H-}, 256, NameLength, DataType,
           ColumnSize, DecimalDigits, Nullable),
         SQL_HANDLE_STMT, fStatement);
-      p := AddColumn(RawUnicodeToUtf8(Name, NameLength));
+      p := AddColumn(RawUnicodeToUtf8(@Name, NameLength));
       p^.ColumnValueInlined := true;
       p^.ColumnValueDBType := DataType;
+      p^.ColumnType := OdbcColumnToFieldType(DataType, ColumnSize, DecimalDigits);
       if ColumnSize > 65535 then
         ColumnSize := 0; // avoid out of memory error for BLOBs
       p^.ColumnValueDBSize := ColumnSize;
       p^.ColumnNonNullable := (Nullable = SQL_NO_NULLS);
-      p^.ColumnType := ODBCColumnToFieldType(DataType, 10, DecimalDigits);
       if p^.ColumnType = ftUtf8 then
         if ColumnSize = 0 then
           siz := 256
@@ -796,7 +796,7 @@ begin
   res := GetCol(Col, ftBlob);
   case res of
     colNull:
-      result := '';
+      FastAssignNew(result);
     colWrongType:
       ColumnToTypedValue(Col, ftBlob, result);
   else
@@ -811,7 +811,7 @@ begin
   res := GetCol(Col, ftUtf8);
   case res of
     colNull:
-      result := '';
+      FastAssignNew(result);
     colWrongType:
       ColumnToTypedValue(Col, ftUtf8, result);
   else
@@ -821,15 +821,18 @@ begin
 end;
 
 function TSqlDBOdbcStatement.ColumnCurrency(Col: integer): currency;
+var
+  curr: currency; // safer with an explicit variable
 begin
   case GetCol(Col, ftCurrency) of
     colNull:
-      result := 0;
+      PInt64(@curr)^ := 0;
     colWrongType:
-      ColumnToTypedValue(Col, ftCurrency, result);
+      ColumnToTypedValue(Col, ftCurrency, curr);
   else
-    PInt64(@result)^ := StrToCurr64(pointer(fColData[Col])); // as SQL_C_CHAR
+    PInt64(@curr)^ := StrToCurr64(pointer(fColData[Col])); // as SQL_C_CHAR
   end;
+  result := curr;
 end;
 
 function TSqlDBOdbcStatement.ColumnDateTime(Col: integer): TDateTime;
@@ -879,7 +882,7 @@ procedure TSqlDBOdbcStatement.ColumnToJson(Col: integer; W: TJsonWriter);
 var
   p: PSqlDBColumnProperty;
   v: pointer;
-  tmp: array[0..31] of AnsiChar;
+  tmp: TTemp32;
 begin
   if (not Assigned(fStatement)) or
      (CurrentRow <= 0) then
@@ -1372,7 +1375,7 @@ var
   schema, table: RawUtf8;
   stmt: TSqlDBOdbcStatement;
   F: TSqlDBColumnDefine;
-  i, n, datatype: integer;
+  i, n, datatype: integer; // not PtrInt
   status: SqlReturn;
   FA: TDynArray;
 begin
@@ -1421,7 +1424,7 @@ begin
           F.ColumnLength := stmt.ColumnInt(6);
           F.ColumnScale := stmt.ColumnInt(8);
           F.ColumnPrecision := stmt.ColumnInt(9);
-          F.ColumnType := ODBCColumnToFieldType(
+          F.ColumnType := OdbcColumnToFieldType(
             datatype, F.ColumnPrecision, F.ColumnScale);
           F.ColumnIndexed := (fDbms in [dFirebird, dDB2]) and
                              IsRowID(pointer(F.ColumnName));
@@ -1604,7 +1607,7 @@ var
   schem, pack, proc: RawUtf8;
   P: TSqlDBProcColumnDefine;
   PA: TDynArray;
-  n, DataType: integer;
+  n, DataType: integer; // not PtrInt
   status: SqlReturn;
   stmt: TSqlDBOdbcStatement;
 begin
@@ -1655,11 +1658,11 @@ begin
           end;
           DataType := stmt.ColumnInt(5);
           P.ColumnTypeNative := TrimU(stmt.ColumnUtf8(6));
-          P.ColumnLength := stmt.ColumnInt(7);
-          P.ColumnScale := stmt.ColumnInt(8);
-          P.ColumnPrecision := stmt.ColumnInt(9);
-          P.ColumnType := ODBCColumnToFieldType(
-            DataType, P.ColumnPrecision, P.ColumnScale);
+          P.ColumnLength     := stmt.ColumnInt(7);
+          P.ColumnScale      := stmt.ColumnInt(8);
+          P.ColumnPrecision  := stmt.ColumnInt(9);
+          P.ColumnType       := OdbcColumnToFieldType(
+                                  DataType, P.ColumnPrecision, P.ColumnScale);
           PA.Add(P);
         until not stmt.Step;
       SetLength(Parameters, n);

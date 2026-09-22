@@ -114,7 +114,6 @@ type
   /// array of field/parameter/column types for abstract database access
   // - this array as a fixed size, ready to handle up to MAX_SQLFIELDS items
   TSqlDBFieldTypeArray = array[0..MAX_SQLFIELDS - 1] of TSqlDBFieldType;
-
   PSqlDBFieldTypeArray = ^TSqlDBFieldTypeArray;
 
   /// how TSqlVar may be processed
@@ -207,7 +206,7 @@ function ToText(Field: TSqlDBFieldType): PShortString; overload;
 
 /// retrieve the ready-to-be displayed text of a given Database field
 // type enumeration
-function TSqlDBFieldTypeToString(aType: TSqlDBFieldType): TShort16;
+function TSqlDBFieldTypeToString(aType: TSqlDBFieldType): TShort15;
 
 
 /// returns TRUE if no bit inside this TFieldBits is set
@@ -324,6 +323,7 @@ function IsRowIDShort(const FieldName: ShortString): boolean;
 /// quickly recognize AS AT BY DO IF IN IS NO OF ON OR TO char pairs
 // - used e.g. by ReplaceParamsByNames() to generate valid :XX parameters
 function IsSqlReservedByTwo(TwoChars: PUtf8Char): boolean;
+  {$ifdef HASINLINE}inline;{$endif} overload;
 
 /// recognize most basic SQL keywords - rough estimate for table/field names
 function IsSqlReserved(const Text: RawUtf8): boolean;
@@ -335,6 +335,10 @@ function IsSqliteReserved(const Text: RawUtf8): boolean;
 /// returns the stored size of a TSqlVar database value
 // - only returns VBlobLen / StrLen(VText) size, 0 otherwise
 function SqlVarLength(const Value: TSqlVar): integer;
+
+/// convert a TSqlVar database value into 64-bit integer
+// - returns false for unsupported ftUnknown/ftBlob
+function SqlVarToInt64(const Value: TSqlVar; var Int: Int64): boolean;
 
 /// convert any Variant into a database value
 // - ftBlob kind won't be handled by this function
@@ -828,7 +832,7 @@ type
   TExtractInlineParameters = object
   {$endif USERECORDWITHMETHODS}
   public
-    /// Values[0..Count-1] contains the unquoted parameters raw values
+    /// Values[0 .. Count-1] contains the unquoted parameters raw values
     Values: TRawUtf8DynArray;
     /// generic SQL statement with ? place holders for each inlined parameter
     GenericSql: RawUtf8;
@@ -838,7 +842,7 @@ type
     // - recognized types are sptInteger, sptFloat, sptUtf8Text, sptDateTime
     // (marked with '\uFFF1...' trailer) and sptBlob (with '\uFFF0...' trailer)
     // - store sptNull for NULL value
-    Types: array[0..MAX_SQLFIELDS - 1] of TSqlParamType;
+    Types: array[0 .. MAX_SQLPARAMS - 1] of TSqlParamType;
     /// parse and extract inlined :(1234): parameters
     // - fill Values[0..Count-1] Types[0..Count-1] Nulls and compute the
     // associated GenericSQL with ? place-holders
@@ -905,12 +909,12 @@ function IsCacheableDML(Sql: PUtf8Char): boolean;
 function SqlFromWhere(const Where: RawUtf8): RawUtf8;
 
 /// compute a SQL SELECT statement from its parameters
-function SqlFromSelect(const TableName, Select, Where, SimpleFields: RawUtf8): RawUtf8;
+procedure SqlFromSelect(const TableName, Select, Where, SimpleFields: RawUtf8;
+  var Sql: RawUtf8);
 
 /// find out if the supplied WHERE clause starts with one of the
 // ORDER/GROUP/LIMIT/OFFSET/JOIN keywords
 function SqlWhereIsEndClause(const Where: RawUtf8): boolean;
-  {$ifdef FPC} inline; {$endif}
 
 /// get the order table name from a SQL statement
 // - return the word following any 'ORDER BY' statement
@@ -950,6 +954,22 @@ function GetTableNamesFromSqlSelect(const Sql: RawUtf8): TRawUtf8DynArray;
 { ************ TResultsWriter Specialized for Database Export }
 
 type
+  /// several options to customize how TOrm will be serialized by TOrmWriter
+  // - e.g. if properties storing JSON should be serialized as an object, and not
+  // escaped as a string (which is the default, matching ORM column storage)
+  // - if an additional "ID_str":"12345" field should be added to the standard
+  // "ID":12345 field, which may exceed 53-bit integer precision of JavaScript
+  // - to generate JS-friendly "id" (and "idStr") instead of "ID" or "RowID"
+  // - to generate JS-friendly "propName": from a PropName pascal property
+  TOrmWriterOption = (
+    owoAsJsonNotAsString,
+    owoID_str,
+    owoLowCaseID,
+    owoLowCaseFirstPropChar);
+
+  /// options to customize how TOrm will be written by TOrmWriter
+  TOrmWriterOptions = set of TOrmWriterOption;
+
   /// simple writer to a Stream, specialized for SQL export as JSON
   // - i.e. define some property/method helpers to export SQL resultset as JSON
   TResultsWriter = class(TJsonWriter)
@@ -958,6 +978,8 @@ type
     fExpand: boolean;
     /// used to store output format for TOrm.GetJsonValues()
     fWithID: boolean;
+    /// used by inherited TOrmWriter class - here to reduce instance size
+    fOrmOptions: TOrmWriterOptions;
     /// if not Expanded format, contains the Stream position of the first
     // useful Row of data; i.e. ',val11' position in:
     // & { "fieldCount":1,"values":["col1","col2",val11,"val12",val21,..] }
@@ -1276,8 +1298,16 @@ type
   /// the available options for TRest.BatchStart() process
   // - boInsertOrIgnore will create 'INSERT OR IGNORE' statements instead of
   // plain 'INSERT' - supported only by SQLite3 and MySQL
-  // - boInsertOrUpdate will create 'REPLACE' statements instead of
+  // - boInsertOrReplace will create 'REPLACE' statements instead of
   // plain 'INSERT' - supported only by SQLite3, Firebird and MySQL
+  // - boUpsert will insert the row, or UPDATE the supplied columns of the
+  // existing one. Unlike boInsertOrReplace - a DELETE+INSERT, which resets
+  // every column absent from the batch, notably the BLOB fields, which are
+  // never part of an ORM batch - it leaves untouched columns alone. Encoded
+  // as ON CONFLICT (key) DO UPDATE on PostgreSQL/SQLite3, ON DUPLICATE KEY
+  // UPDATE on MySQL/MariaDB, UPDATE OR INSERT .. MATCHING on Firebird. It
+  // needs the primary key name, so it is only available where the caller
+  // knows it - i.e. the ORM external path (EncodeAsSqlPrepared)
   // - boExtendedJson will force the JSON to unquote the column names,
   // e.g. writing col1:...,col2:... instead of "col1":...,"col2"...
   // - boPostNoSimpleFields (client-side only) will avoid to send a
@@ -1305,7 +1335,8 @@ type
     boRollbackOnError,
     boNoModelEncoding,
     boOnlyObjects,
-    boMayHaveBlob);
+    boMayHaveBlob,
+    boUpsert);
 
   /// a set of options for TRest.BatchStart() process
   // - TJsonObjectDecoder will use it to compute the corresponding SQL
@@ -1423,6 +1454,10 @@ type
   end;
 
 
+var
+  /// the human text of supported SQL database dialects
+  DBDEF_TXT: array[TSqlDBDefinition] of RawUtf8;
+
 /// decode JSON fields object into an UTF-8 encoded SQL-ready statement
 // - this function decodes in the P^ buffer memory itself (no memory allocation
 // or copy), for faster process - so take care that it is an unique string
@@ -1482,12 +1517,29 @@ function JsonGetID(P: PUtf8Char; out ID: TID): boolean;
 // - depending on boInsertOrIgnore/boInsertOrReplace presence in BatchOptions
 // - SQLite3 and MySQL should understand "REPLACE INTO"
 // - Firebird has its "UPDATE OR INSERT INTO" own syntax
-// - other databases are not supported, because they require a much more complex
-// SQL statement to produce the same effect - a prefix is not enough
+// - PostgreSQL has no such prefix: it needs an ON CONFLICT clause appended
+// AFTER the VALUES, so EncodeInsertSuffix() below has to be called as well
 procedure EncodeInsertPrefix(W: TTextWriter; BatchOptions: TRestBatchOptions;
   DB: TSqlDBDefinition);
 
+/// append any trailing clause the DB engine needs for the given BatchOptions
+// - call it right after the closing parenthesis of the INSERT values
+// - is a no-op for every engine which encodes it all as a prefix, i.e. this
+// only emits the PostgreSQL "ON CONFLICT" equivalent of INSERT OR IGNORE
+// - note that no conflict target is supplied on purpose: it matches the
+// "insert ignore" semantics, i.e. skip the row whichever constraint it violates
+procedure EncodeInsertSuffix(W: TTextWriter; BatchOptions: TRestBatchOptions;
+  DB: TSqlDBDefinition); overload;
 
+/// append the trailing clause boUpsert needs for this engine
+// - unlike the parameterless overload, an UPSERT needs both the conflict
+// target (the primary key column) and the list of columns to assign, so it can
+// only be emitted where the caller knows them
+// - KeyFieldName is excluded from the assignment list, as are ID/RowID
+// - falls back to the parameterless overload when boUpsert is not set
+procedure EncodeInsertSuffix(W: TTextWriter; BatchOptions: TRestBatchOptions;
+  DB: TSqlDBDefinition; const KeyFieldName: RawUtf8;
+  FieldNames: PPUtf8CharArray; FieldCount: integer); overload;
 
 
 implementation
@@ -1500,10 +1552,10 @@ begin
   result := GetEnumName(TypeInfo(TSqlDBFieldType), ord(Field));
 end;
 
-function TSqlDBFieldTypeToString(aType: TSqlDBFieldType): TShort16;
+function TSqlDBFieldTypeToString(aType: TSqlDBFieldType): TShort15;
 begin
   if aType <= high(aType) then
-    result := TrimLeftLowerCaseToShort(ToText(aType))
+    TrimLeftLowerCaseToShort(ToText(aType), result)
   else
     FormatShort('#%', [ord(aType)], result);
 end;
@@ -1777,6 +1829,26 @@ begin
       result := StrLen(Value.VText); // fast enough for our purpose
   else
     result := 0; // simple/ordinal values, or ftNull
+  end;
+end;
+
+function SqlVarToInt64(const Value: TSqlVar; var Int: Int64): boolean;
+begin
+  result := true;
+  case Value.VType of
+    ftNull:
+      Int := 0;
+    ftInt64:
+      Int := Value.VInt64;
+    ftDouble,
+    ftDate:
+      Int := trunc(Value.VDouble);
+    ftCurrency:
+      Int := trunc(Value.VCurrency);
+    ftUtf8:
+      Int:= GetInt64(Value.VText);
+  else
+    result := false; // ftUnknown/ftBlob not supported
   end;
 end;
 
@@ -2089,7 +2161,7 @@ var
 begin
   id := LastDbErrorID;
   if id = 0 then
-    result := '' // no error
+    FastAssignNew(result) // no error
   else if not LastDbError.GetMsg(id, result) then
     FormatUtf8('Too many DB errors - #% is outdated', [id], result);
 end;
@@ -2284,8 +2356,11 @@ begin
 end;
 
 function NullableTimeLogToValue(const V: TNullableTimeLog): TTimeLog;
+var
+  b: TTimeLogBits; // safer with a transient variable
 begin
-  VariantToInt64(PVariant(@V)^, PInt64(@result)^);
+  VariantToInt64(PVariant(@V)^, b.Value);
+  result := b.Value;
 end;
 
 // TNullableUtf8Text
@@ -2312,7 +2387,7 @@ var
   dummy: boolean;
 begin
   if VarDataIsEmptyOrNull(@V) then // VariantToUtf8() will return 'null'
-    result := ''
+    FastAssignNew(result)
   else
     VariantToUtf8(PVariant(@V)^, result, dummy);
 end;
@@ -2322,7 +2397,7 @@ end;
 
 function DateToSql(Date: TDateTime): RawUtf8;
 begin
-  result := '';
+  FastAssignNew(result);
   if Date <= 0 then
     exit;
   PCardinal(FastSetString(result, 13))^ := JSON_SQLDATE_MAGIC_C;
@@ -2331,7 +2406,7 @@ end;
 
 function DateToSql(Year, Month, Day: cardinal): RawUtf8;
 begin
-  result := '';
+  FastAssignNew(result);
   if (Year = 0) or
      (Month - 1 > 11) or
      (Day - 1 > 30) then
@@ -2352,7 +2427,7 @@ end;
 function DateTimeToSql(DT: TDateTime; WithMS: boolean): RawUtf8;
 begin
   if DT <= 0 then
-    result := ''
+    FastAssignNew(result)
   else if frac(DT) = 0 then
     MagicDate(result, DateToIso8601(DT, true))
   else if trunc(DT) = 0 then
@@ -2366,7 +2441,7 @@ var
   t: TTimeLogBits absolute Timestamp; // circumvent Delphi 2009 bug
 begin
   if Timestamp = 0 then
-    result := ''
+    FastAssignNew(result)
   else
     MagicDate(result, t.Text(true, 'T'));
 end;
@@ -2376,7 +2451,7 @@ begin
   if IsIso8601(pointer(S), length(S)) then
     MagicDate(result, S)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function SqlToDateTime(const ParamValueWithMagic: RawUtf8): TDateTime;
@@ -2401,7 +2476,6 @@ end;
 const
   _FROM32 = ord('F') + ord('R') shl 8 + ord('O') shl 16 + ord('M') shl 24;
   _WHER32 = ord('W') + ord('H') shl 8 + ord('E') shl 16 + ord('R') shl 24;
-  _NULL32 = ord('N') + ord('U') shl 8 + ord('L') shl 16 + ord('L') shl 24;
 
 function PosSelectTable(Sql: PUtf8Char): PUtf8Char;
 begin
@@ -2539,7 +2613,7 @@ begin
   result := false;
   if Sql = nil then
     exit;
-  while Sql^ in [#1..' '] do
+  while Sql^ in [#1 .. ' '] do
     inc(Sql);
   c := IdemPCharSep(Sql, 'SELECT|INSERT|UPDATE|DELETE|'); // DML statements
   if (c < 0) or
@@ -2589,7 +2663,7 @@ begin
         until result^ > ' ';
       c := PWord(result)^;
       if c = ord('-') + ord('-') shl 8 then
-        // SQL comments
+        // SQL -- comments
         repeat
           inc(result)
         until result^ in [#0, #10]
@@ -2619,33 +2693,51 @@ begin
     Append(Where, ' and ', Condition);
 end;
 
+const
+  ENDCLAUSE = // https://synopse.info/forum/viewtopic.php?pid=38842#p38842
+   'ORDER BY |GROUP BY |LIMIT |OFFSET |LEFT |RIGHT |INNER |OUTER |JOIN |WHERE |';
 
 function SqlWhereIsEndClause(const Where: RawUtf8): boolean;
 begin
   result := (Where <> '') and
-            (IdemPCharSep(GotoNextNotSpace(pointer(Where)),
-    'ORDER BY |GROUP BY |LIMIT |OFFSET |LEFT |RIGHT |INNER |OUTER |JOIN |WHERE |'
-             ) >= 0); // https://synopse.info/forum/viewtopic.php?pid=38842#p38842
+            (IdemPCharSep(GotoNextNotSpace(pointer(Where)), ENDCLAUSE) >= 0);
 end;
 
 function SqlFromWhere(const Where: RawUtf8): RawUtf8;
 begin
   if Where = '' then
-    result := ''
-  else if SqlWhereIsEndClause(Where) then
+    FastAssignNew(result)
+  else if IdemPCharSep(GotoNextNotSpace(pointer(Where)), ENDCLAUSE) >= 0 then
     Join([' ', Where], result)
   else
     Join([' WHERE ', Where], result);
 end;
 
-function SqlFromSelect(const TableName, Select, Where, SimpleFields: RawUtf8): RawUtf8;
+procedure SqlFromSelect(const TableName, Select, Where, SimpleFields: RawUtf8;
+  var Sql: RawUtf8);
+var
+  p: PUtf8Char;
+  tmp: TSynTempAdder;
 begin
+  tmp.Init;
+  tmp.AddShort('SELECT ');
   if Select = '*' then
     // don't send BLOB values to query: retrieve simple = all non-blob fields
-    result := SimpleFields
+    tmp.Add(SimpleFields)
   else
-    result := Select;
-  result := Join(['SELECT ', result, ' FROM ', TableName, SqlFromWhere(Where)]);
+    tmp.Add(Select);
+  tmp.AddShort(' FROM ');
+  tmp.Add(TableName);
+  p := pointer(Where);
+  if p <> nil then // inlined SqlFromWhere() logic
+  begin
+    if IdemPCharSep(GotoNextNotSpace(p), ENDCLAUSE) >= 0 then
+      tmp.AddDirect(' ')
+    else
+      tmp.AddShort(' WHERE ');
+    tmp.Add(Where);
+  end;
+  tmp.Done(Sql);
 end;
 
 function SqlGetOrder(const Sql: RawUtf8): RawUtf8;
@@ -2714,7 +2806,7 @@ begin
       Free;
     end
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function SelectInClause(const PropName: RawUtf8; const Values: array of TID;
@@ -2759,7 +2851,7 @@ begin
       Free;
     end
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function GetTableNameFromSqlSelect(const Sql: RawUtf8;
@@ -2777,7 +2869,7 @@ begin
   if EnsureUniqueTableInFrom then
     if GotoNextNotSpace(p)^ = ',' then
       exit; // there is another table name
-  FastSetString(result, beg, p - beg);
+  FastSetString(result, beg, p);
 end;
 
 function GetTableNamesFromSqlSelect(const Sql: RawUtf8): TRawUtf8DynArray;
@@ -2813,68 +2905,70 @@ end;
 
 procedure TExtractInlineParameters.Parse(const SQL: RawUtf8);
 var
-  i: PtrInt;
-  P, Gen: PUtf8Char;
+  first: PtrInt;
+  s, d: PUtf8Char;
 begin
   Count := 0;
-  i := PosEx(RawUtf8(':('), SQL, 1);
-  if (i = 0) or
-     (PosEx(RawUtf8('):'), SQL, i + 2) = 0) then
+  first := PosExChar(':', SQL); // faster pass with SSE-2 or memchr()
+  if first <> 0 then
+    first := PosEx(RawUtf8(':('), SQL, first);
+  if (first = 0) or
+     (PosEx(RawUtf8('):'), SQL, first + 2) = 0) then
   begin
     // SQL code with no valid :(...): internal parameters -> leave Count=0
     GenericSQL := SQL;
     exit;
   end;
   // compute GenericSql from SQL, converting :(...): into ?
-  P := FastSetString(GenericSQL, length(SQL)); // private copy
-  dec(i);
-  MoveFast(pointer(SQL)^, P^, i);
-  Gen := P + i;   // Gen^ just before :(
-  P := @PUtf8Char(pointer(SQL))[i + 2];  // P^ just after :(
+  d := FastSetString(GenericSQL, length(SQL)); // private copy
+  dec(first);
+  MoveFast(pointer(SQL)^, d^, first);
+  inc(d, first);   // d^ just before :(
+  s := @PUtf8Char(pointer(SQL))[first + 2];  // s^ just after :(
   repeat
-    if Count = high(Types) then
+    if Count = high(Types) then // MAX_SQLPARAMS hard limit
       ESynDBException.RaiseUtf8('Too many parameters in %', [SQL]);
-    Gen^ := '?'; // replace :(...): by ?
-    inc(Gen);
-    if length(Values) <= Count then
+    d^ := '?'; // replace :(...): by ?
+    inc(d);
+    if Count >= length(Values) then
       SetLength(Values, Count + 16);
-    P := ParseNext(P);
-    if P = nil then
+    s := ParseNext(s);
+    if s = nil then
     begin
       Count := 0;
       GenericSQL := SQL;
       exit; // any invalid parameter -> try direct SQL
     end;
-    while (P^ <> #0) and
-          (PWord(P)^ <> Ord(':') + Ord('(') shl 8) do
+    while (s^ <> #0) and
+          ((s^ <> ':') or
+           (s[1] <> '(')) do
     begin
-      Gen^ := P^;
-      inc(Gen);
-      inc(P);
+      d^ := s^; // only a few chars (typically ',' or ', ')
+      inc(s);
+      inc(d);
     end;
-    if P^ = #0 then
+    if s^ = #0 then
       break;
-    inc(P, 2);
+    inc(s, 2); // s^ just after :(
     inc(Count);
   until false;
   // return generic SQL statement, with ? place-holders and params in Values[]
-  FakeLength(GenericSQL, Gen);
+  FakeLength(GenericSQL, d);
   inc(Count);
 end;
 
 function TExtractInlineParameters.ParseNext(P: PUtf8Char): PUtf8Char;
 var
-  PBeg: PAnsiChar;
   L: integer;
   c: cardinal;
   v: pointer;
+  beg: PUtf8Char;
   spt: TSqlParamType;
 begin
   result := nil; // indicates parsing error
   if P = nil then
     exit;
-  while (P^ <= ' ') and
-        (P^ <> #0) do
+  while P^ in [#1 .. ' '] do
     inc(P);
   case P^ of
     '''',
@@ -2889,7 +2983,7 @@ begin
         L := length(RawUtf8(v)) - 3;
         if L > 0 then
         begin
-          c := PInteger(v)^ and $00ffffff;
+          c := PInteger(v)^ and $00ffffff; // recognize UTF-8 encoded patterns
           if c = JSON_BASE64_MAGIC_C then
           begin
             // ':("\uFFF0base64encodedbinary"):' format -> decode
@@ -2909,51 +3003,44 @@ begin
     '+',
     '0'..'9': // allow 0 or + in SQL
       begin
-        // check if P^ is a true numerical value
-        PBeg := pointer(P);
+        // detect the exact sptInteger/sptFloat numerical type of P^
         spt := sptInteger;
+        beg := pointer(P);
         repeat
           inc(P)
         until not (P^ in ['0'..'9']); // check digits
         if P^ = '.' then
         begin
           inc(P);
-          if P^ in ['0'..'9'] then
-          begin
-            spt := sptFloat;
-            repeat
-              inc(P)
-            until not (P^ in ['0'..'9']); // check fractional digits
-          end
-          else
-            exit;
+          if not (P^ in ['0'..'9']) then
+            exit; // not a valid number
+          spt := sptFloat;
+          repeat
+            inc(P)
+          until not (P^ in ['0'..'9']); // check fractional digits
         end;
         if byte(P^) and $DF = ord('E') then
         begin
           spt := sptFloat;
           inc(P);
-          if P^ = '+' then
-            inc(P)
-          else if P^ = '-' then
+          if P^ in ['+', '-'] then
             inc(P);
           while P^ in ['0'..'9'] do
             inc(P);
         end;
-        FastSetString(Values[Count], PBeg, P - PBeg);
+        FastSetString(Values[Count], beg, P);
       end;
     'n':
-      if PInteger(P)^ = NULL_LOW then
       begin
+        if PInteger(P)^ <> NULL_LOW then
+          exit; // invalid content (only :(null): expected)
         spt := sptNull;
         inc(P, 4);
-      end
-      else
-        exit; // invalid content (only :(null): expected)
+      end;
   else
     exit; // invalid content
   end;
-  while (P^ <= ' ') and
-        (P^ <> #0) do
+  while P^ in [#1 .. ' '] do
     inc(P);
   if (P[0] <> ')') or
      (P[1] <> ':') then
@@ -3249,7 +3336,7 @@ var
       repeat
         inc(P);
       until not (jcJsonIdentifier in JSON_CHARS[P^]); // _-.[]$0..9a..zA..Z
-      FastSetString(select.SubField, B, P - B);
+      FastSetString(select.SubField, B, P);
       fHasSelectSubFields := true;
     end;
     if P^ in ['+', '-'] then
@@ -3288,7 +3375,7 @@ var
         exit; // end of string before end quote -> incorrect
       RawUtf8ToVariant(Where.Value, Where.ValueVariant);
     end
-    else if (PInteger(P)^ and $DFDFDFDF = _NULL32) and
+    else if (PInteger(P)^ and $DFDFDFDF = NULL_HI) and
             (P[4] in [#0..' ', ';']) then
     begin
       // NULL statement
@@ -3303,7 +3390,7 @@ var
       repeat
         inc(P);
       until P^ in [#0..' ', ';', ')', ','];
-      FastSetString(Where.Value, B, P - B);
+      FastSetString(Where.Value, B, P);
       VariantLoadJson(Where.ValueVariant, Where.Value);
       Where.ValueInteger := GetInteger(pointer(Where.Value), err);
     end;
@@ -3320,7 +3407,7 @@ var
       until not (P^ in [#1..' ', ')']);
       while P[-1] = ' ' do
         dec(P); // trim right space
-      FastSetString(Where.ParenthesisAfter, B, P - B);
+      FastSetString(Where.ParenthesisAfter, B, P);
       P := GotoNextNotSpace(P);
     end;
     result := true;
@@ -3381,7 +3468,7 @@ var
       repeat
         inc(P);
       until not (jcJsonIdentifier in JSON_CHARS[P^]); // _-.[]$0..9a..zA..Z
-      FastSetString(Where.SubField, B, P - B); // '.subfield1.subfield2'
+      FastSetString(Where.SubField, B, P); // '.subfield1.subfield2'
       fWhereHasSubFields := true;
       P := GotoNextNotSpace(P);
     end;
@@ -3466,7 +3553,7 @@ var
                 else
                   inc(P);
               inc(P);
-              FastSetString(Where.Value, B, P - B);
+              FastSetString(Where.Value, B, P);
               Where.ValueSql := B;
               Where.ValueSqlLen := P - B;
               result := GetWhereValues(Where);
@@ -3550,7 +3637,7 @@ begin
         until not (P^ in [#1..' ', '(']);
         while P[-1] = ' ' do
           dec(P); // trim right space
-        FastSetString(whereBefore, B, P - B);
+        FastSetString(whereBefore, B, P);
         B := P;
       end;
       ndx := GetPropIndex;
@@ -3780,13 +3867,13 @@ begin
   P := GotoEndJsonItem(P); // quick go to end of array of object
   if P = nil then
   begin
-    result := '';
+    FastAssignNew(result);
     exit;
   end;
   if EndOfObject <> nil then
     EndOfObject^ := P^;
   PDest := P + 1;
-  FastSetString(result, Beg, P - Beg);
+  FastSetString(result, Beg, P);
 end;
 
 procedure GetJsonArrayOrObjectAsQuotedStr(P: PUtf8Char; out PDest: PUtf8Char;
@@ -3799,7 +3886,7 @@ begin
   P := GotoEndJsonItem(P); // quick go to end of array of object
   if P = nil then
   begin
-    result := '';
+    FastAssignNew(result);
     exit;
   end;
   if EndOfObject <> nil then
@@ -3821,7 +3908,7 @@ begin
     FieldValue := NULL_STR_VAR;
     exit;
   end;
-  while P^ in [#1..' '] do
+  while P^ in [#1 .. ' '] do
     inc(P);
   if (PInteger(P)^ = NULL_LOW) and
      (P[4] in [#0, #9, #10, #13, ' ', ',', '}', ']']) then
@@ -3830,7 +3917,7 @@ begin
     FieldType := ftaNull;
     FieldValue := NULL_STR_VAR;
     inc(P, 4);
-    while P^ in [#1..' '] do
+    while P^ in [#1 .. ' '] do
       inc(P);
     if P^ = #0 then
       info.Json := nil
@@ -4055,7 +4142,7 @@ var
   end;
 
 begin
-  result := '';
+  FastAssignNew(result);
   if FieldCount = 0 then
     exit;
   W := TTextWriter.CreateOwnedStream(temp);
@@ -4092,6 +4179,8 @@ begin
       for f := 0 to FieldCount - 1 do
         AddValue;
       W.ReplaceLastComma(')');
+      if Prefix1Batch <> nil then
+        EncodeInsertSuffix(W, Prefix1Batch^, DB);
     end;
     W.SetText(result);
   finally
@@ -4143,7 +4232,7 @@ var
   tmp: TTextWriterStackBuffer;
 begin
   if FieldCount = 0 then
-    result := ''
+    FastAssignNew(result)
   else
   with TTextWriter.CreateOwnedStream(tmp) do
     try
@@ -4206,7 +4295,7 @@ function UnJsonFirstField(var P: PUtf8Char): RawUtf8;
 var
   info: TGetJsonField;
 begin
-  result := '';
+  FastAssignNew(result);
   if P = nil then
     exit;
   if Expect(P, FIELDCOUNT_PATTERN, 14) then
@@ -4311,8 +4400,7 @@ begin
   Beg := P;
   if Beg = nil then
     exit;
-  while (Beg^ <= ' ') and
-        (Beg^ <> #0) do
+  while Beg^ in [#1 .. ' '] do
     inc(Beg);
   if Beg^ <> '{' then
     exit;
@@ -4350,21 +4438,140 @@ begin
     case DB of
       dMySQL,
       dMariaDB:
-        W.AddShort('insert ignore into ')
+        W.AddShort('insert ignore into ');
+      dPostgreSQL:
+        // no prefix: EncodeInsertSuffix() appends ' on conflict do nothing'
+        W.AddShort('insert into ');
     else
       W.AddShort('insert or ignore into '); // SQLite3
+    end
+  else if boUpsert in BatchOptions then
+    case DB of
+      dFirebird:
+        // the only engine whose upsert is a prefix; EncodeInsertSuffix()
+        // appends its mandatory MATCHING (key) clause
+        W.AddShort('update or insert into ');
+    else
+      // every other engine appends its clause after the VALUES
+      W.AddShort('insert into ');
     end
   else if boInsertOrReplace in BatchOptions then
     case DB of
       dFirebird:
         W.AddShort('update or insert into ');
+      dPostgreSQL:
+        // PostgreSQL has no REPLACE INTO. It could be emulated with
+        // ON CONFLICT (key) DO UPDATE, but that needs the conflict target and
+        // the field list, which a prefix-only callback does not receive - and
+        // it is a MERGE, not the DELETE+INSERT that REPLACE INTO performs.
+        // Falling through to 'replace into ' used to emit invalid SQL and let
+        // the server reject the whole batch with an obscure syntax error.
+        EJsonObjectDecoder.RaiseU('boInsertOrReplace is not supported on ' +
+          'PostgreSQL: use boInsertOrIgnore, or an explicit DELETE + INSERT');
     else
       W.AddShort('replace into '); // SQLite3 and MySQL+MariaDB
     end
   else
     W.AddShort('insert into ');
-  // PostgreSQL has no UPSERT but could be emulated with ON CONFLICT syntax
-  // https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-upsert
+end;
+
+procedure EncodeInsertSuffix(W: TTextWriter; BatchOptions: TRestBatchOptions;
+  DB: TSqlDBDefinition);
+begin
+  if (DB = dPostgreSQL) and
+     (boInsertOrIgnore in BatchOptions) then
+    // https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT
+    W.AddShort(' on conflict do nothing');
+end;
+
+procedure EncodeInsertSuffix(W: TTextWriter; BatchOptions: TRestBatchOptions;
+  DB: TSqlDBDefinition; const KeyFieldName: RawUtf8;
+  FieldNames: PPUtf8CharArray; FieldCount: integer);
+var
+  f, n, l: PtrInt;
+  assignable: TFieldBits;
+begin
+  if not (boUpsert in BatchOptions) then
+  begin
+    EncodeInsertSuffix(W, BatchOptions, DB); // boInsertOrIgnore path
+    exit;
+  end;
+  if (boInsertOrIgnore in BatchOptions) or
+     (boInsertOrReplace in BatchOptions) then
+    EJsonObjectDecoder.RaiseU(
+      'boUpsert is exclusive with boInsertOrIgnore/boInsertOrReplace');
+  if KeyFieldName = '' then
+    EJsonObjectDecoder.RaiseUtf8('boUpsert needs a key on %', [DBDEF_TXT[DB]]);
+  if DB = dFirebird then
+  begin
+    // UPDATE OR INSERT INTO t (..) VALUES (..) MATCHING (key)
+    W.AddShort(' matching (');
+    W.AddString(KeyFieldName);
+    W.AddDirect(')');
+    exit;
+  end;
+  FillZero(assignable); // checked once
+  n := 0;
+  for f := 0 to FieldCount - 1 do
+    if not IsRowID(FieldNames^[f]) and
+       (StrIComp(pointer(KeyFieldName), FieldNames^[f]) <> 0) then
+    begin
+      // the key itself is never assigned: it is what identifies the conflict
+      FieldBitSet(assignable, f);
+      inc(n);
+    end;
+  case DB of
+    dPostgreSQL,
+    dSQLite:
+      begin
+        // DO UPDATE, unlike DO NOTHING, cannot be left unqualified
+        W.AddShort(' on conflict (');
+        W.AddString(KeyFieldName);
+        if n = 0 then
+        begin
+          // an empty SET list would be a syntax error
+          W.AddShort(') do nothing');
+          exit;
+        end;
+        W.AddShort(') do update set ');
+        for f := 0 to FieldCount - 1 do
+          if FieldBitGet(assignable, f) then
+          begin
+            l := StrLen(FieldNames^[f]);
+            W.AddNoJsonEscape(FieldNames^[f], l);
+            W.AddShort('=excluded.');
+            W.AddNoJsonEscape(FieldNames^[f], l);
+            W.AddComma;
+          end;
+        W.CancelLastComma;
+      end;
+    dMySQL,
+    dMariaDB:
+      begin
+        // fires on any duplicate key, so no conflict target is needed
+        W.AddShort(' on duplicate key update ');
+        if n = 0 then
+        begin
+          // assigning the key to itself is the documented MySQL no-op upsert
+          W.AddString(KeyFieldName);
+          W.AddDirect('=');
+          W.AddString(KeyFieldName);
+          exit;
+        end;
+        for f := 0 to FieldCount - 1 do
+          if FieldBitGet(assignable, f) then
+          begin
+            l := StrLen(FieldNames^[f]);
+            W.AddNoJsonEscape(FieldNames^[f], l);
+            W.AddShorter('=values(');
+            W.AddNoJsonEscape(FieldNames^[f], l);
+            W.AddDirect(')', ',');
+          end;
+        W.CancelLastComma;
+      end;
+  else
+    EJsonObjectDecoder.RaiseUtf8('boUpsert is not supported on %', [DBDEF_TXT[DB]]);
+  end;
 end;
 
 
@@ -4378,8 +4585,9 @@ begin
   begin
     SetLength(MAX_SQLFIELDS_INDEX[j], j);
     for i := 0 to j - 1 do
-      MAX_SQLFIELDS_INDEX[j, i] := i; // set array of ShortInt or SmallInt
+      MAX_SQLFIELDS_INDEX[j, i] := i; // fill array of ShortInt or SmallInt
   end;
+  GetEnumTrimmedNames(TypeInfo(TSqlDBDefinition), @DBDEF_TXT);
 end;
 
 initialization

@@ -20,8 +20,6 @@ interface
 uses
   sysutils,
   classes,
-  variants,
-  contnrs,
   mormot.core.base,
   mormot.core.os,
   mormot.core.buffers,
@@ -184,11 +182,11 @@ type
     /// ensure the current thread will be taken into account during process
     // - this default implementation will call the BeginCurrentThread methods
     // of all its internal TRestStorage instances
-    procedure BeginCurrentThread(Sender: TThread); override;
+    procedure BeginCurrentThread(Sender: TThreadAbstract); override;
     /// called when thread is finished to ensure
     // - this default implementation will call the EndCurrentThread methods
     // of all its internal TRestStorage instances
-    procedure EndCurrentThread(Sender: TThread); override;
+    procedure EndCurrentThread(Sender: TThreadAbstract); override;
     /// missing tables are created if they don't exist yet for every TOrm
     // class of the Database Model
     // - you must call explicitly this before having called OrmMapInMemory()
@@ -615,7 +613,7 @@ begin
   inherited Destroy; // fCache.Free
 end;
 
-procedure TRestOrmServer.BeginCurrentThread(Sender: TThread);
+procedure TRestOrmServer.BeginCurrentThread(Sender: TThreadAbstract);
 var
   i: PtrInt;
 begin
@@ -624,7 +622,7 @@ begin
       fStaticVirtualTable[i].BeginCurrentThread(Sender);
 end;
 
-procedure TRestOrmServer.EndCurrentThread(Sender: TThread);
+procedure TRestOrmServer.EndCurrentThread(Sender: TThreadAbstract);
 var
   i: PtrInt;
 begin
@@ -1546,7 +1544,7 @@ begin
     // complex TOrmVirtualTableJson/External queries will rely on virtual table
     result := MainEngineList(SQL, {ajax=}false, nil);
   if result = '[]'#$A then
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TRestOrmServer.InternalUpdateEvent(aEvent: TOrmEvent;
@@ -2327,7 +2325,9 @@ begin
         fValueID := fRunningRest.InternalBatchDirectOne(
           fEncoding, fRunTableIndex, fValueDirectFields, fValueDirect);
         fResults[fCount] := fValueID;
-        result := fValueID > 0;
+        result := (fValueID > 0) and
+                  ((fEncoding <> encPutHexID) or   // returns an ID
+                   (fValueID = HTTP_SUCCESS));     // returns an HTTP status
         // no ready-to-used fValue -> no fCache notification
       end;
     encPut:
@@ -2364,10 +2364,9 @@ begin
     for i := 0 to high(fRunTableTrans) do
       if fRunTableTrans[i] <> nil then
         fRunTableTrans[i].RollBack(CONST_AUTHENTICATION_NOT_USED);
-    UniqueRawUtf8ZeroToTilde(fData, 1 shl 16);
     if Assigned(fLog) then
       fLog.Log(sllWarning, '% -> PARTIAL rollback of latest auto-committed ' +
-        'transaction data=%', [E, fData]);
+        'transaction data=%', [E, UniqueRawUtf8ZeroToTilde(fData, SizeOf(TBuffer4K))]);
   end;
 end;
 

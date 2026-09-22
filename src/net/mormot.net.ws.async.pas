@@ -32,7 +32,6 @@ uses
   mormot.core.rtti,
   mormot.core.json,
   mormot.core.buffers,
-  mormot.core.perf,
   mormot.core.interfaces,
   mormot.crypt.core,
   mormot.crypt.ecc,
@@ -401,11 +400,17 @@ end;
 
 procedure TWebSocketAsyncConnections.NotifyOutgoing(
   Connection: TWebSocketAsyncConnection);
+var
+  n: integer;
 begin
   fOutgoingSafe.Lock;
+  n := fOutgoingCount;
   AddInteger(TIntegerDynArray(fOutgoingHandle), fOutgoingCount,
     Connection.Handle, {nodup=}true);
   fOutgoingSafe.UnLock;
+  if (n = 0) and
+     (Connection.fProcess.Settings^.SendDelay = 0) then
+    WakeupServerMainThread; // send frames with no delay
 end;
 
 procedure TWebSocketAsyncConnections.ProcessIdleTixSendFrames;

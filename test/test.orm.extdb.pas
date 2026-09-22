@@ -74,11 +74,15 @@ type
     procedure _SynDBRemote;
     /// test TSqlDBConnectionProperties persistent as JSON
     procedure DBPropertiesPersistence;
+    /// NewStatementPrepared() when NewStatement itself raises an exception
+    procedure NewStatementFailure;
     /// initialize needed RESTful client (and server) instances
     // - i.e. a RESTful direct access to an external DB
     procedure ExternalRecords;
     /// check the SQL auto-adaptation features
     procedure AutoAdaptSQL;
+    /// check the INSERT prefix/suffix generated from TRestBatchOptions
+    procedure BatchInsertOptions;
     /// check the per-db encryption
     // - the testpass.db3-wal file is not encrypted, but the main
     // testpass.db3 file will
@@ -177,19 +181,37 @@ type
   TSqlDBConnectionPropertiesHook = class(TSqlDBConnectionProperties);
   TRestStorageExternalHook = class(TRestStorageExternal);
 
+  // a connection whose NewStatement always fails - as TSqlDBZeosConnection
+  // does when its implicit Connect raises (e.g. database server unreachable)
+  TSqlDBSQLite3ConnectionNoStatement = class(TSqlDBSQLite3Connection)
+  public
+    function NewStatement: TSqlDBStatement; override;
+  end;
+
+  TSqlDBSQLite3ConnectionPropertiesNoStatement = class(TSqlDBSQLite3ConnectionProperties)
+  public
+    function NewConnection: TSqlDBConnection; override;
+  end;
+
+function TSqlDBSQLite3ConnectionNoStatement.NewStatement: TSqlDBStatement;
+begin
+  raise ESynLogSilent.Create('NewStatement failed');
+end;
+
+function TSqlDBSQLite3ConnectionPropertiesNoStatement.NewConnection: TSqlDBConnection;
+begin
+  result := TSqlDBSQLite3ConnectionNoStatement.Create(self);
+end;
+
 
 { TTestExternalDatabase }
 
 procedure TTestExternalDatabase.ExternalRecords;
-var
-  sql: RawUtf8;
 begin
   if CheckFailed(fExternalModel = nil) then
     exit; // should be called once
   fExternalModel := TOrmModel.Create([TOrmPeopleExt, TOrmOnlyBlob, TOrmTestJoin,
     TOrmASource, TOrmADest, TOrmADests, TOrmPeople, TOrmMyHistory]);
-  ReplaceParamsByNames(RawUtf8OfChar('?', 200), sql);
-  CheckHash(sql, $AD27D1E0, 'excludes :IF :OF');
 end;
 
 procedure TTestExternalDatabase.AutoAdaptSQL;
@@ -225,6 +247,53 @@ var
   end;
 
 begin
+  CheckEqual(ReplaceParamsByNames('', s), 0);
+  CheckEqual(s, '');
+  CheckEqual(ReplaceParamsByNames('toto titi', s), 0);
+  CheckEqual(s, 'toto titi');
+  CheckEqual(ReplaceParamsByNames('toto titi  ', s), 0);
+  CheckEqual(s, 'toto titi');
+  CheckEqual(ReplaceParamsByNames('insert (titi);', s), 0);
+  CheckEqual(s, 'insert (titi)');
+  CheckEqual(ReplaceParamsByNames('insert (titi); ', s), 0);
+  CheckEqual(s, 'insert (titi)');
+  CheckEqual(ReplaceParamsByNames('insert (titi);', s, false), 0);
+  CheckEqual(s, 'insert (titi);');
+  CheckEqual(ReplaceParamsByNames('insert (titi); ', s, false), 0);
+  CheckEqual(s, 'insert (titi); ');
+  CheckEqual(ReplaceParamsByNames('begin titi end;', s), 0);
+  CheckEqual(s, 'begin titi end;');
+  CheckEqual(ReplaceParamsByNames('begin titi end; ', s), 0);
+  CheckEqual(s, 'begin titi end;');
+  CheckEqual(ReplaceParamsByNames('begin titi end;', s, false), 0);
+  CheckEqual(s, 'begin titi end;');
+  CheckEqual(ReplaceParamsByNames('begin titi end; ', s, false), 0);
+  CheckEqual(s, 'begin titi end; ');
+  CheckEqual(ReplaceParamsByNames('toto=? titi', s), 1);
+  CheckEqual(s, 'toto=:AA titi');
+  CheckEqual(ReplaceParamsByNames('toto=? titi=?', s), 2);
+  CheckEqual(s, 'toto=:AA titi=:AB');
+  CheckEqual(ReplaceParamsByNames('toto=? titi=? and a=''''', s), 2);
+  CheckEqual(s, 'toto=:AA titi=:AB and a=''''');
+  CheckEqual(ReplaceParamsByNames('toto=? titi=? and a=''', s), 0, 'unfinished');
+  CheckEqual(s, 'toto=? titi=? and a=''');
+  CheckEqual(ReplaceParamsByNames('toto=? titi=? and a=''d?d''', s), 2);
+  CheckEqual(s, 'toto=:AA titi=:AB and a=''d?d''');
+  CheckEqual(ReplaceParamsByNames('toto=? titi=? and a=''d''''d''?', s), 3);
+  CheckEqual(s, 'toto=:AA titi=:AB and a=''d''''d'':AC');
+  CheckEqual(ReplaceParamsByNames('toto=? titi=? and a=''d?d''', s), 2);
+  CheckEqual(s, 'toto=:AA titi=:AB and a=''d?d''');
+  CheckEqual(ReplaceParamsByNames('1?2?3?4?5?6?7?8?9?10?11?12? x', s), 12);
+  CheckEqual(s, '1:AA2:AB3:AC4:AD5:AE6:AF7:AG8:AH9:AI10:AJ11:AK12:AL x');
+  CheckEqual(ReplaceParamsByNames('(1,2,3,4,5,6,7,8) values (?,?,?,?,?,?,?,?)', s), 8);
+  CheckEqual(s, '(1,2,3,4,5,6,7,8) values (:AA,:AB,:AC,:AD,:AE,:AF,:AG,:AH)');
+  CheckEqual(ReplaceParamsByNames('select distinct(hd.referenzid) f0 from ha_doku ' +
+    'hd inner join #tmp_ids_FAB4C3C346934CB884E2FAB4B5F0E444 t on t.tempid = ' +
+    'hd.referenzid where (hd.referenz = ?) and (hd.werteart = ?);', s), 2);
+  CheckEqual(s,
+   'select distinct(hd.referenzid) f0 from ha_doku hd inner join #tmp_ids_FAB' +
+   '4C3C346934CB884E2FAB4B5F0E444 t on t.tempid = hd.referenzid where (hd.ref' +
+   'erenz = :AA) and (hd.werteart = :AB)');
   CheckEqual(ReplaceParamsByNumbers('', s), 0);
   CheckEqual(s, '');
   CheckEqual(ReplaceParamsByNumbers('toto titi', s), 0);
@@ -233,16 +302,56 @@ begin
   CheckEqual(s, 'toto=$1 titi');
   CheckEqual(ReplaceParamsByNumbers('toto=? titi=?', s), 2);
   CheckEqual(s, 'toto=$1 titi=$2');
+  CheckEqual(ReplaceParamsByNumbers('toto=?;titi=?', s), 0);
+  CheckEqual(s, 'toto=?;titi=?');
   CheckEqual(ReplaceParamsByNumbers('toto=? titi=? and a=''''', s), 2);
   CheckEqual(s, 'toto=$1 titi=$2 and a=''''');
   CheckEqual(ReplaceParamsByNumbers('toto=? titi=? and a=''dd''', s), 2);
   CheckEqual(s, 'toto=$1 titi=$2 and a=''dd''');
-  CheckEqual(ReplaceParamsByNumbers('toto=? titi=? and a=''d''''d''', s), 2);
-  CheckEqual(s, 'toto=$1 titi=$2 and a=''d''''d''');
+  CheckEqual(ReplaceParamsByNumbers('toto=? titi=? and a=''dd''eee', s), 2);
+  CheckEqual(s, 'toto=$1 titi=$2 and a=''dd''eee');
+  CheckEqual(ReplaceParamsByNumbers('toto=? titi=? and a=''dd''e''e''', s), 2);
+  CheckEqual(s, 'toto=$1 titi=$2 and a=''dd''e''e''');
+  CheckEqual(ReplaceParamsByNumbers('toto=? titi=? and a=''d''d'' end', s), 0);
+  CheckEqual(s, 'toto=? titi=? and a=''d''d'' end');
+  CheckEqual(ReplaceParamsByNumbers('toto=? titi=? and a=''d''''d'' end', s), 2);
+  CheckEqual(s, 'toto=$1 titi=$2 and a=''d''''d'' end');
   CheckEqual(ReplaceParamsByNumbers('toto=? titi=? and a=''d?d''', s), 2);
   CheckEqual(s, 'toto=$1 titi=$2 and a=''d?d''');
+  CheckEqual(ReplaceParamsByNumbers('(1,2,3,4,5,6,7,8) values (?,?,?,?,?,?,?,?)', s), 8);
+  CheckEqual(s, '(1,2,3,4,5,6,7,8) values ($1,$2,$3,$4,$5,$6,$7,$8)');
   CheckEqual(ReplaceParamsByNumbers('1?2?3?4?5?6?7?8?9?10?11?12? x', s), 12);
   CheckEqual(s, '1$12$23$34$45$56$67$78$89$910$1011$1112$12 x');
+  SqlOrigin := RawUtf8OfChar('?', 100);
+  CheckEqual(ReplaceParamsByNumbers(SqlOrigin, s), 100);
+  CheckEqual(s,
+    '$1$2$3$4$5$6$7$8$9$10$11$12$13$14$15$16$17$18$19$20$21$22$23$24$25$26$27$' +
+    '28$29$30$31$32$33$34$35$36$37$38$39$40$41$42$43$44$45$46$47$48$49$50$51$5' +
+    '2$53$54$55$56$57$58$59$60$61$62$63$64$65$66$67$68$69$70$71$72$73$74$75$76' +
+    '$77$78$79$80$81$82$83$84$85$86$87$88$89$90$91$92$93$94$95$96$97$98$99$100');
+  CheckHash(s, $284F9F2A);
+  CheckEqual(ReplaceParamsByNames(SqlOrigin, s), 100);
+  CheckEqual(s,
+    ':AA:AB:AC:AD:AE:AF:AG:AH:AI:AJ:AK:AL:AM:AN:AO:AP:AQ:AR:AU:AV:AW:AX:AY:AZ:' +
+    'BA:BB:BC:BD:BE:BF:BG:BH:BI:BJ:BK:BL:BM:BN:BO:BP:BQ:BR:BS:BT:BU:BV:BW:BX:B' +
+    'Z:CA:CB:CC:CD:CE:CF:CG:CH:CI:CJ:CK:CL:CM:CN:CO:CP:CQ:CR:CS:CT:CU:CV:CW:CX' +
+    ':CY:CZ:DA:DB:DC:DD:DE:DF:DG:DH:DI:DJ:DK:DL:DM:DN:DP:DQ:DR:DS:DT:DU:DV:DW:' +
+    'DX:DY:DZ');
+  Check(PosEx(':CO', s) <> 0);
+  Check(PosEx(':AS', s) = 0);
+  Check(PosEx(':AT', s) = 0);
+  Check(PosEx(':BY', s) = 0);
+  Check(PosEx(':DO', s) = 0);
+  CheckHash(s, $3A1DB9C2);
+  ReplaceParamsByNames(RawUtf8OfChar('?', 300), s);
+  Check(PosEx(':CO', s) <> 0);
+  Check(PosEx(':AS', s) = 0);
+  Check(PosEx(':AT', s) = 0);
+  Check(PosEx(':BY', s) = 0);
+  Check(PosEx(':DO', s) = 0);
+  Check(PosEx(':IE', s) <> 0);
+  Check(PosEx(':IF', s) = 0);
+  CheckHash(s, $B2377655, 'excludes :IF :OF');
   checkequal(BoundArrayToJsonArray(TRawUtf8DynArrayFrom([])), '');
   checkequal(BoundArrayToJsonArray(TRawUtf8DynArrayFrom(['1'])), '{1}');
   checkequal(BoundArrayToJsonArray(TRawUtf8DynArrayFrom(['''1'''])), '{"1"}');
@@ -423,6 +532,152 @@ begin
   end;
 end;
 
+procedure TTestExternalDatabase.BatchInsertOptions;
+const
+  // as the ORM would supply them: the key first, then the assignable columns
+  FIELDS: array[0..2] of PUtf8Char = ('id', 'a', 'b');
+  // a table whose only column is its own key: nothing left to assign
+  KEYONLY: array[0..0] of PUtf8Char = ('mid');
+var
+  db: TSqlDBDefinition;
+  raised: boolean;
+
+  // build the whole INSERT the way EncodeAsSql/EncodeAsSqlPrepared do
+  function Encode(const opt: TRestBatchOptions; d: TSqlDBDefinition): RawUtf8;
+  var
+    W: TTextWriter;
+    tmp: TTextWriterStackBuffer;
+  begin
+    W := TTextWriter.CreateOwnedStream(tmp);
+    try
+      EncodeInsertPrefix(W, opt, d);
+      W.AddShort('t (a,b) values (?,?)');
+      EncodeInsertSuffix(W, opt, d);
+      W.SetText(result);
+    finally
+      W.Free;
+    end;
+  end;
+
+  // same, through the overload that knows the key and the column list
+  function EncodeKey(const opt: TRestBatchOptions; d: TSqlDBDefinition;
+    const key: RawUtf8; names: PPUtf8CharArray; count: integer): RawUtf8;
+  var
+    W: TTextWriter;
+    tmp: TTextWriterStackBuffer;
+  begin
+    W := TTextWriter.CreateOwnedStream(tmp);
+    try
+      EncodeInsertPrefix(W, opt, d);
+      W.AddShort('t (id,a,b) values (?,?,?)');
+      EncodeInsertSuffix(W, opt, d, key, names, count);
+      W.SetText(result);
+    finally
+      W.Free;
+    end;
+  end;
+
+  procedure Test(const opt: TRestBatchOptions; d: TSqlDBDefinition;
+    const expected: RawUtf8);
+  begin
+    CheckEqual(Encode(opt, d), expected, DBDEF_TXT[d]);
+  end;
+
+  procedure TestKey(d: TSqlDBDefinition; const expected: RawUtf8);
+  begin
+    CheckEqual(EncodeKey([boUpsert], d, 'id', @FIELDS, 3), expected, DBDEF_TXT[d]);
+  end;
+
+  // ensure the encoding refuses to emit anything rather than emit bad SQL
+  function Refused(const opt: TRestBatchOptions; d: TSqlDBDefinition;
+    const key: RawUtf8; names: PPUtf8CharArray; count: integer): boolean;
+  begin
+    result := false;
+    try
+      EncodeKey(opt, d, key, names, count);
+    except
+      on EJsonObjectDecoder do
+        result := true;
+    end;
+  end;
+
+begin
+  TSynLog.Family.ExceptionIgnore.Add(EJsonObjectDecoder); // no log needed
+  try
+    // no option: a plain INSERT on every engine
+    for db := low(db) to high(db) do
+      Test([], db, 'insert into t (a,b) values (?,?)');
+    // boInsertOrIgnore
+    Test([boInsertOrIgnore], dMySQL,   'insert ignore into t (a,b) values (?,?)');
+    Test([boInsertOrIgnore], dMariaDB, 'insert ignore into t (a,b) values (?,?)');
+    Test([boInsertOrIgnore], dSQLite,  'insert or ignore into t (a,b) values (?,?)');
+    // PostgreSQL has no prefix form: it is an ON CONFLICT clause after the VALUES
+    Test([boInsertOrIgnore], dPostgreSQL,
+      'insert into t (a,b) values (?,?) on conflict do nothing');
+    // boInsertOrReplace
+    Test([boInsertOrReplace], dMySQL,    'replace into t (a,b) values (?,?)');
+    Test([boInsertOrReplace], dSQLite,   'replace into t (a,b) values (?,?)');
+    Test([boInsertOrReplace], dFirebird,
+      'update or insert into t (a,b) values (?,?)');
+    // ... but it has no REPLACE INTO equivalent, so it should say so loudly
+    // instead of emitting SQL the server will reject
+    raised := false;
+    try
+      Encode([boInsertOrReplace], dPostgreSQL);
+    except
+      on EJsonObjectDecoder do
+        raised := true;
+    end;
+    Check(raised, 'boInsertOrReplace should raise on PostgreSQL');
+    // the suffix must never leak into an engine which encodes it as a prefix
+    for db := low(db) to high(db) do
+      if db <> dPostgreSQL then
+        CheckUtf8(PosEx('conflict', Encode([boInsertOrIgnore], db)) = 0,
+          'no conflict clause on %', [DBDEF_TXT[db]]);
+    // boUpsert: MERGE semantics, i.e. only the supplied columns are assigned -
+    // the key itself never is, since it is what identifies the conflict
+    TestKey(dPostgreSQL, 'insert into t (id,a,b) values (?,?,?) ' +
+      'on conflict (id) do update set a=excluded.a,b=excluded.b');
+    TestKey(dSQLite,     'insert into t (id,a,b) values (?,?,?) ' +
+      'on conflict (id) do update set a=excluded.a,b=excluded.b');
+    TestKey(dMySQL,      'insert into t (id,a,b) values (?,?,?) ' +
+      'on duplicate key update a=values(a),b=values(b)');
+    TestKey(dMariaDB,    'insert into t (id,a,b) values (?,?,?) ' +
+      'on duplicate key update a=values(a),b=values(b)');
+    // Firebird is the only engine whose upsert is a prefix + a MATCHING clause
+    TestKey(dFirebird,   'update or insert into t (id,a,b) values (?,?,?) ' +
+      'matching (id)');
+    // a non-ID key name is honoured, and excluded from the assignment list
+    CheckEqual(EncodeKey([boUpsert], dPostgreSQL, 'a', @FIELDS, 3),
+      'insert into t (id,a,b) values (?,?,?) on conflict (a) do update set ' +
+      'b=excluded.b', 'custom key');
+    // nothing left to assign: an empty SET would be a syntax error
+    CheckEqual(EncodeKey([boUpsert], dPostgreSQL, 'mid', @KEYONLY, 1),
+      'insert into t (id,a,b) values (?,?,?) on conflict (mid) do nothing',
+      'key-only PostgreSQL');
+    CheckEqual(EncodeKey([boUpsert], dMySQL, 'mid', @KEYONLY, 1),
+      'insert into t (id,a,b) values (?,?,?) on duplicate key update mid=mid',
+      'key-only MySQL');
+    // without boUpsert the overload must behave like the parameterless one
+    CheckEqual(EncodeKey([boInsertOrIgnore], dPostgreSQL, 'id', @FIELDS, 3),
+      'insert into t (id,a,b) values (?,?,?) on conflict do nothing',
+      'overload falls back');
+    // refusals, rather than SQL the server would reject
+    Check(Refused([boUpsert], dOracle, 'id', @FIELDS, 3),
+      'boUpsert unsupported on Oracle');
+    Check(Refused([boUpsert], dPostgreSQL, '', @FIELDS, 3),
+      'boUpsert needs a conflict target');
+    Check(Refused([boUpsert], dFirebird, '', @FIELDS, 3),
+      'MATCHING needs a key too');
+    Check(Refused([boUpsert, boInsertOrIgnore], dPostgreSQL, 'id', @FIELDS, 3),
+      'boUpsert is exclusive with boInsertOrIgnore');
+    Check(Refused([boUpsert, boInsertOrReplace], dMySQL, 'id', @FIELDS, 3),
+      'boUpsert is exclusive with boInsertOrReplace');
+  finally
+    Check(TSynLog.Family.ExceptionIgnore.Remove(EJsonObjectDecoder) >= 0);
+  end;
+end;
+
 procedure TTestExternalDatabase.CleanUp;
 begin
   FreeAndNil(fExternalModel);
@@ -491,7 +746,7 @@ begin
           Client.Model.Owner := Client;
           try
             R.FillPrepare(fPeopleData);
-            if not CheckFailed(R.FillContext <> nil) then
+            if Check(R.FillContext <> nil) then
             begin
               Client.BatchStart(TOrmPeople);
               n := 0;
@@ -579,11 +834,13 @@ var
   Client: TRestClientDB;
   i, n, ID, LastID: integer;
 begin
+  if wsWine in WindowsSpecs then
+    exit; // JET is not available/stable enough with Wine - nor useful
   Model := TOrmModel.Create([TOrmPeople]);
   try
     R := TOrmPeople.Create;
     R.FillPrepare(fPeopleData);
-    if not CheckFailed(R.FillContext <> nil) then
+    if Check(R.FillContext <> nil) then
     try
       DeleteFile('test.mdb');
       Props := TSqlDBOleDBJetConnectionProperties.Create('test.mdb', '', '', '');
@@ -598,8 +855,8 @@ begin
           while R.FillOne do
           begin
             inc(n);
-            Check(Client.Orm.Add(R, true, true) =
-              R.FillContext.Table.GetID(n));
+            CheckEqual(Client.Orm.Add(R, true, true),
+                       R.FillContext.Table.GetID(n));
             if n > 999 then
               break; // Jet is very slow e.g. within the Delphi IDE
           end;
@@ -767,7 +1024,7 @@ begin
       DoTest(TSqlDBSocketConnectionProperties.Create(
         ADDR, 'root', 'user', 'pass'), 'socket');
       {$ifdef USEWININET}
-      if not IsWow64Emulation then
+      if not (wsWeakHttpApi in WindowsSpecs) then // e.g. PRISM or Wine
       begin
         DoTest(TSqlDBWinHTTPConnectionProperties.Create(
           ADDR, 'root', 'user', 'pass'), 'winhttp');
@@ -787,6 +1044,43 @@ begin
   end;
 end;
 
+procedure TTestExternalDatabase.NewStatementFailure;
+var
+  props: TSqlDBConnectionProperties;
+  conn: TSqlDBConnection;
+  raised: TClass;
+  level: TSynLogLevels;
+begin
+  // TryPrepare() logged stmt.SqlWithInlinedParams in its except block, with
+  // stmt=nil when NewStatement raised: an EAccessViolation replaced the
+  // original error, and LastErrorMessage was never set
+  level := SynDBLog.Family.Level;
+  SynDBLog.Family.Level := level + [sllError]; // force the logging branch
+  props := TSqlDBSQLite3ConnectionPropertiesNoStatement.Create(
+    SQLITE_MEMORY_DATABASE_NAME, '', '', '');
+  try
+    conn := props.NewConnection;
+    try
+      Check(conn.NewStatementPrepared('select 1', true, false) = nil);
+      Check(PosEx('NewStatement failed', conn.LastErrorMessage) > 0,
+        'LastErrorMessage');
+      raised := nil;
+      try
+        conn.NewStatementPrepared('select 1', true, true);
+      except
+        on E: Exception do
+          raised := E.ClassType;
+      end;
+      Check(raised = ESynLogSilent, 'original exception re-raised');
+    finally
+      conn.Free;
+    end;
+  finally
+    props.Free;
+    SynDBLog.Family.Level := level;
+  end;
+end;
+
 procedure TTestExternalDatabase.DBPropertiesPersistence;
 var
   props: TSqlDBConnectionProperties;
@@ -799,12 +1093,12 @@ begin
     props := TSqlDBSQLite3ConnectionProperties.Create('server', '', '', '');
     try
       json := props.DefinitionToJson(14);
-      Check(json = '{"Kind":"TSqlDBSQLite3ConnectionProperties",' +
+      CheckEqual(json, '{"Kind":"TSqlDBSQLite3ConnectionProperties",' +
         '"ServerName":"server","DatabaseName":"","User":"","Password":""}');
       props.Free;
       props := TSqlDBSQLite3ConnectionProperties.Create('server', '', '', '1234');
       json := props.DefinitionToJson(14);
-      Check(json = '{"Kind":"TSqlDBSQLite3ConnectionProperties",' +
+      CheckEqual(json, '{"Kind":"TSqlDBSQLite3ConnectionProperties",' +
         '"ServerName":"server","DatabaseName":"","User":"","Password":"MnVfJg=="}');
       props.DefinitionToFile(WorkDir + 'connectionprops.json');
       def.Key := 14; // same encoding as props.DefinitionToJson(14) above
@@ -857,7 +1151,7 @@ var
   begin
     Check(R.FillRewind);
     while R.FillOne do
-      if not CheckFailed(R2.FillOne) then
+      if Check(R2.FillOne) then
       begin
         Check(R.ID <> 0);
         Check(R2.ID <> 0);

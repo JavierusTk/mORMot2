@@ -130,8 +130,8 @@ type
     fRest: TRest;
     fBackgroundBatch: TRestBatchLockedDynArray;
     fBackgroundInterning: array of TRawUtf8Interning;
-    fBackgroundInterningMaxRefCount: integer;
     fBackgroundInterningSafe: TLightLock; // paranoid lock
+    fBackgroundInterningMaxRefCount: integer;
     procedure SystemUseBackgroundExecute(Sender: TSynBackgroundTimer;
       const Msg: RawUtf8);
     // used by AsyncRedirect/AsyncBatch/AsyncInterning
@@ -341,11 +341,11 @@ type
     /// you can call this method in TThread.Execute to ensure that
     // the thread will be taken into account during process
     // - this method will redirect TRestServer.OnBeginCurrentThread
-    procedure BeginCurrentThread(Sender: TThread);
+    procedure BeginCurrentThread(Sender: TThreadAbstract);
     /// you can call this method just before a thread is finished to ensure
     // e.g. that the associated external DB connection will be released
     // - this method will redirect TRestServer.OnEndCurrentThread
-    procedure EndCurrentThread(Sender: TThread);
+    procedure EndCurrentThread(Sender: TThreadAbstract);
     /// define asynchronous execution of interface methods in a background thread
     // - this class allows to implements any interface via a fake class, which will
     // redirect all methods calls into calls of another interface, but as a FIFO
@@ -440,8 +440,9 @@ type
     fRun: TRestRunThreads;
     fLogClass: TSynLogClass;
     fLogFamily: TSynLogFamily;
-    fLogLevel: TSynLogLevels;
+    fServerTimestampCacheSafe: TLightLock;
     fServerTimestampCacheTix: cardinal;
+    fLogLevel: TSynLogLevels; // 32-bit
     fLogResponseMaxBytes: integer;
     fAcquireExecution: TRestAcquireExecutions;
     fPrivateGarbageCollector: TSynObjectListLocked;
@@ -464,8 +465,8 @@ type
     class procedure RegisterClassNameForDefinition;
     /// ensure the thread will be taken into account during process
     // - will redirect to fOrmInstance: TRestOrmParent corresponding methods
-    procedure OnBeginCurrentThread(Sender: TThread); virtual;
-    procedure OnEndCurrentThread(Sender: TThread); virtual;
+    procedure OnBeginCurrentThread(Sender: TThreadAbstract); virtual;
+    procedure OnEndCurrentThread(Sender: TThreadAbstract); virtual;
     procedure OnRestBackgroundTimerCreate; virtual;
   public
     /// initialize the class, and associate it to a specified database Model
@@ -539,11 +540,11 @@ type
       Level: TSynLogLevel = sllTrace); overload;
     /// ease logging of some response in the context of the current TRest
     procedure InternalLogResponse(const aContent: RawByteString;
-      const aContext: shortstring; Level: TSynLogLevel = sllServiceReturn); overload;
+      const aContext: ShortString; Level: TSynLogLevel = sllServiceReturn); overload;
       {$ifdef HASINLINE} inline; {$endif}
     /// ease logging of some response in the context of the current TRest
     procedure InternalLogResponse(aContent: PUtf8Char; aContentLen: PtrInt;
-      const aContext: shortstring; Level: TSynLogLevel = sllServiceReturn); overload;
+      const aContext: ShortString; Level: TSynLogLevel = sllServiceReturn); overload;
     /// ease logging of method enter/leave in the context of the current TRest
     function Enter(TextFmt: PUtf8Char; const TextArgs: array of const;
       aInstance: TObject = nil): ISynLog;
@@ -859,8 +860,8 @@ type
     function TimerDisable(const aOnProcess: TOnSynBackgroundTimerProcess): boolean;
     function SystemUseTrack(periodSec: integer = 10): TSystemUse;
     function EnsureBackgroundTimerExists: TRestBackgroundTimer;
-    procedure BeginCurrentThread(Sender: TThread); virtual;
-    procedure EndCurrentThread(Sender: TThread); virtual;
+    procedure BeginCurrentThread(Sender: TThreadAbstract); virtual;
+    procedure EndCurrentThread(Sender: TThreadAbstract); virtual;
     procedure AsyncRedirect(const aGuid: TGuid;
       const aDestinationInterface: IInvokable; out aCallbackInterface;
       const aOnResult: TOnAsyncRedirectResult = nil); overload;
@@ -1119,10 +1120,11 @@ type
     // - warning: you should re-call SetPassword(aMutualAuth=true) when this
     // LogonName field is changed, since PasswordHashHexa is bound to LogonName
     // - so in this field, you may encounter such values:
-    // $ 0123abc.....ffee = 256-bit hexa of mORMot 1 SHA256('salt'+password)
-    // $ bc01a89.....2b07 = HA0 = Hash(username:realm:password) for DIGEST
-    // $ $mcf$params$checkum = standard "Modular Crypt" hash
-    // $ #mcf$params$scramkeys = SCRAM-like "Modular" hash with mutual auth
+    // $ '0123abc.....ffee' = 256-bit hexa of mORMot 1 SHA256('salt'+password)
+    // $ 'bc01a89.....2b07' = HA0 = Hash(username:realm:password) for DIGEST
+    // $ '$mcf$params$checkum' = standard "Modular Crypt" hash
+    // $ '#mcf$params$scramkeys' = SCRAM-like "Modular" hash with mutual auth
+    // $ '' for password-less authentication e.g. with GSSAPI/SSPI Kerberos
     property PasswordHashHexa: RawUtf8
       index 192 read fPasswordHashHexa write fPasswordHashHexa;
     /// the associated access rights of this user
@@ -1260,8 +1262,7 @@ type
     procedure Init(const aUri, aMethod, aInHead, aInBody: RawUtf8); overload;
     /// retrieve the "Content-Type" value from InHead
     // - if GuessJsonIfNoneSet is TRUE, returns JSON if none was set in headers
-    procedure InBodyType(var ContentType: RawUtf8;
-      GuessJsonIfNoneSet: boolean = true);
+    procedure InBodyType(var ContentType: RawUtf8; GuessJsonIfNoneSet: boolean = true);
       {$ifdef HASINLINE}inline;{$endif}
     /// retrieve the "Content-Type" value from OutHead
     // - if GuessJsonIfNoneSet is TRUE, returns JSON if none was set in headers
@@ -2136,13 +2137,13 @@ begin
 end;
 
 procedure TRest.InternalLogResponse(const aContent: RawByteString;
-  const aContext: shortstring; Level: TSynLogLevel);
+  const aContext: ShortString; Level: TSynLogLevel);
 begin // caller checked that (self <> nil) and (Level in fLogLevel)
   InternalLogResponse(pointer(aContent), length(aContent), aContext, Level);
 end;
 
 procedure TRest.InternalLogResponse(aContent: PUtf8Char; aContentLen: PtrInt;
-  const aContext: shortstring; Level: TSynLogLevel);
+  const aContext: ShortString; Level: TSynLogLevel);
 var
   max: PtrInt;
 begin // caller checked that (self <> nil) and (Level in fLogLevel)
@@ -2173,19 +2174,24 @@ end;
 
 function TRest.GetServerTimestamp(tix64: Int64): TTimeLog;
 var
-  tix: cardinal;
+  tix32, c32: cardinal;
+  tmp: TTimeLogBits;
 begin
   if tix64 = 0 then
     tix64 := GetTickCount64;
-  tix := tix64 shr 9; // resolution change from 1 ms to 512 ms
-  if fServerTimestampCacheTix = tix then
-    result := fServerTimestampCacheValue.Value
-  else
+  tix32 := tix64 shr 9; // resolution change from 1 ms to 512 ms
+  c32 := fServerTimestampCacheTix;
+  if (c32 <> tix32) and
+     LockedExc32(fServerTimestampCacheTix, tix32, c32) then
   begin
-    fServerTimestampCacheTix := tix;
-    fServerTimestampCacheValue.From(NowUtc + fServerTimestampOffset);
-    result := fServerTimestampCacheValue.Value;
-  end;
+    tmp.From(NowUtc + fServerTimestampOffset);
+    fServerTimestampCacheSafe.Lock;
+    fServerTimestampCacheValue.Value := tmp.Value; // fast 64-bit copy
+  end
+  else
+    fServerTimestampCacheSafe.Lock;
+  result := fServerTimestampCacheValue.Value;
+  fServerTimestampCacheSafe.UnLock;
 end;
 
 procedure TRest.SetServerTimestamp(const Value: TTimeLog);
@@ -2308,20 +2314,17 @@ var
 
 class procedure TRest.RegisterClassNameForDefinition;
 begin
-  ObjArrayAddOnce(GlobalDefinitions, TObject(self)); // TClass stored as TObject
+  PtrArrayAddOnce(GlobalDefinitions, pointer(self)); // store this TClass
 end;
 
-procedure TRest.OnBeginCurrentThread(Sender: TThread);
+procedure TRest.OnBeginCurrentThread(Sender: TThreadAbstract);
 begin
   fOrmInstance.BeginCurrentThread(Sender);
 end;
 
-procedure TRest.OnEndCurrentThread(Sender: TThread);
+procedure TRest.OnEndCurrentThread(Sender: TThreadAbstract);
 begin
   fOrmInstance.EndCurrentThread(Sender);
-  // most will be done e.g. in TRestRunThreadsServer.EndCurrentThread
-  if fLogFamily <> nil then
-    fLogFamily.OnThreadEnded(Sender);
 end;
 
 procedure TRest.OnRestBackgroundTimerCreate;
@@ -3043,13 +3046,13 @@ begin
     result := fRun.SystemUseTrack(periodSec);
 end;
 
-procedure TRest.BeginCurrentThread(Sender: TThread);
+procedure TRest.BeginCurrentThread(Sender: TThreadAbstract);
 begin
   if self <> nil then
     fRun.BeginCurrentThread(Sender);
 end;
 
-procedure TRest.EndCurrentThread(Sender: TThread);
+procedure TRest.EndCurrentThread(Sender: TThreadAbstract);
 begin
   if self <> nil then
     fRun.EndCurrentThread(Sender);
@@ -3962,7 +3965,7 @@ var
   up: TByteToAnsiChar;
 begin
   if self = nil then
-    result := ''
+    FastAssignNew(result)
   else if fInHeaderLastName = HeaderName then
     result := fInHeaderLastValue
   else
@@ -4090,7 +4093,7 @@ begin
   if server = '' then
     server := crc32cUtf8ToHex(Call^.OutBody);
   server := Join(['"', server, '"']);
-  if client <> server then
+  if client <> server then // ETAG value is case sensitive by RFV 7232
     AppendLine(Call^.OutHead, ['ETag: ', server])
   else
   begin
@@ -4577,13 +4580,13 @@ begin
   end;
 end;
 
-procedure TRestRunThreads.BeginCurrentThread(Sender: TThread);
+procedure TRestRunThreads.BeginCurrentThread(Sender: TThreadAbstract);
 begin
   if self <> nil then
     fOwner.OnBeginCurrentThread(sender);
 end;
 
-procedure TRestRunThreads.EndCurrentThread(Sender: TThread);
+procedure TRestRunThreads.EndCurrentThread(Sender: TThreadAbstract);
 begin
   if self <> nil then
     fOwner.OnEndCurrentThread(sender);

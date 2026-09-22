@@ -43,7 +43,6 @@ uses
   mormot.core.json,
   mormot.core.fmt,
   mormot.core.threads,
-  mormot.core.perf,
   mormot.core.zip,     // for ODS export
   mormot.crypt.secure, // for TSynUniqueIdentifierBits
   mormot.db.core;
@@ -814,28 +813,11 @@ var
 { ************ TOrmWriter Class for TOrm Serialization }
 
 type
-  /// several options to customize how TOrm will be serialized
-  // - e.g. if properties storing JSON should be serialized as an object, and not
-  // escaped as a string (which is the default, matching ORM column storage)
-  // - if an additional "ID_str":"12345" field should be added to the standard
-  // "ID":12345 field, which may exceed 53-bit integer precision of JavaScript
-  // - to generate JS-friendly "id" (and "idStr") instead of "ID" or "RowID"
-  // - to generate JS-friendly "propName": from a PropName pascal property
-  TOrmWriterOption = (
-    owoAsJsonNotAsString,
-    owoID_str,
-    owoLowCaseID,
-    owoLowCaseFirstPropChar);
-
-  /// options to customize how TOrm will be written by TOrmWriter
-  TOrmWriterOptions = set of TOrmWriterOption;
-
   /// simple writer to a Stream, specialized for writing TOrm as JSON
   // - in respect to the standard TResultsWriter as defined in mormot.db.core,
   // this class has some options dedicated to our TOrm serialization
   TOrmWriter = class(TResultsWriter)
   protected
-    fOrmOptions: TOrmWriterOptions;
     procedure SetOrmOptions(Value: TOrmWriterOptions);
   public
     /// customize TOrm.GetJsonValues serialization process
@@ -1928,7 +1910,7 @@ type
     /// release internal list items
     destructor Destroy; override;
     /// add a TOrmPropInfo to the list
-    function Add(aItem: TOrmPropInfo): integer;
+    function Add(aItem: TOrmPropInfo): PtrInt;
     /// set the length of the internal List[] array and the sorted names
     procedure AfterAdd;
     /// find an item in the list using O(log(n)) binary search
@@ -2314,7 +2296,7 @@ type
     /// retrieve a field value as a variant
     // - returns null if the row/field is incorrect
     // - expand* methods will allow to return human-friendly representations
-    procedure GetAsVariant(row, field: PtrInt; out value: variant;
+    procedure GetAsVariant(row, field: PtrInt; var value: variant;
       expandTimeLogAsText, expandEnumsAsText, expandHugeIDAsUniqueIdentifier: boolean;
       options: TDocVariantOptions = JSON_FAST);
 
@@ -2325,7 +2307,7 @@ type
     // - expand* methods will allow to return human-friendly representations
     // - if your purpose is to create a TDocVariant array from ORM/SQL JSON,
     // consider using faster TDocVariantData.InitArrayFromResults() method
-    procedure ToDocVariant(Row: PtrInt; out doc: variant;
+    procedure ToDocVariant(Row: PtrInt; var doc: variant;
       options: TDocVariantOptions = JSON_FAST;
       expandTimeLogAsText: boolean = false; expandEnumsAsText: boolean = false;
       expandHugeIDAsUniqueIdentifier: boolean = false); overload;
@@ -2790,11 +2772,10 @@ type
   TOrmLocks = object
   {$endif USERECORDWITHMETHODS}
   private
-    fSafe: TRWLock; // thread-safe and not blocking concurrent IsLocked()
-    fID: TIDDynArray;        // array[0..Count-1] of locked TID
-    fTix: TCardinalDynArray; // GetTickSec values at the Lock() time
-    fCount: PtrInt;
-    fLastPurge: integer;
+    fSafe: TRWLock;              // thread-safe and not blocking IsLocked()
+    fID: TIDDynArray;            // array[0..Count-1] of locked TID
+    fTix: TCardinalDynArray;     // GetTickSec values at the Lock() time
+    fCount, fLastPurge: integer; // no need of PtrInt here and better alignment
   public
     /// lock a record, specified by its TID
     // - returns true on success, false if was already locked
@@ -2812,7 +2793,7 @@ type
     // - could be used to release locked records e.g. if some client(s) crashed
     procedure PurgeOlderThan(MinutesFromNow: cardinal);
     /// the current number of locked TID
-    property Count: PtrInt
+    property Count: integer
       read fCount;
   end;
   POrmLocks = ^TOrmLocks;
@@ -2945,7 +2926,7 @@ type
     fBlobFields: TOrmPropInfoRttiRawBlobDynArray;
     fSqlTableName: RawUtf8;
     fLastFieldsSafe: TLightLock; // topmost to ensure proper aarch64 alignment
-    fSafe: TOSLightLock; // = TOSLightMutex = SRW lock or direct pthread mutex
+    fSafe: TOSLightLock;         // = TOSLightMutex = futex on Linux and Win8+
     fHasNotSimpleFields: boolean;
     fDynArrayFieldsHasObjArray: boolean;
     fHasTypeFields: TOrmFieldTypes;
@@ -3383,8 +3364,7 @@ var
 begin
   if P <> nil then
   begin
-    while (P^ <= ' ') and
-          (P^ <> #0) do
+    while P^ in [#1 .. ' '] do
       inc(P);
     if (PInteger(P)^ = NULL_LOW) and
        (P[4] = #0) then
@@ -3547,6 +3527,10 @@ begin
             end;
             W.ReplaceLastComma(')');
           end;
+          // the ORM path is the only one that knows the primary key column,
+          // so it is the only one that can emit a boUpsert clause
+          EncodeInsertSuffix(W, BatchOptions, DB, UpdateIDFieldName,
+            Decoder.DecodedFieldNames, Decoder.FieldCount);
         end;
     else
       EJsonObjectDecoder.RaiseUtf8('EncodeAsSqlPrepared(%)', [ToText(Occasion)^]);
@@ -3640,7 +3624,7 @@ var
 begin
   if Value = nil then
   begin
-    TSynVarData(result).VType := varNull;
+    VarClearAndSetType(variant(result), varNull);
     exit;
   end;
   VarClearAndSetType(variant(result), SQL_ELEMENTTYPES[fieldType]);
@@ -4431,8 +4415,8 @@ var
     res.fNameUnflattened := result.Name;
     max := high(aFlattenedProps);
     for i := max downto 0 do
-      res.fNameUnflattened :=
-        ToUtf8(aFlattenedProps[i]^.Name^) + '.' + result.NameUnflattened;
+      res.fNameUnflattened := Make([
+        aFlattenedProps[i]^.Name^, '.', result.fNameUnflattened]);
     if (max >= 0) and
        (aFlattenedProps[max]^.TypeInfo^.ClassFieldCount(
          {withoutgetter=}pilIgnoreIfGetter in aOptions) = 1) then
@@ -4444,7 +4428,7 @@ var
     end;
     for i := max downto 0 do
     begin
-      res.fName := ToUtf8(aFlattenedProps[i]^.Name^) + '_' + result.Name;
+      res.fName := Make([aFlattenedProps[i]^.Name^, '_', result.fName]);
       res.fJsonName := res.fName;
     end;
   end;
@@ -5437,7 +5421,7 @@ end;
 procedure TOrmPropInfoRttiMany.GetValueVar(Instance: TObject; ToSql: boolean;
   var result: RawUtf8; wasSqlString: PBoolean);
 begin
-  result := '';
+  FastAssignNew(result);
 end;
 
 procedure TOrmPropInfoRttiMany.SetValue(Instance: TObject; Value: PUtf8Char;
@@ -5683,13 +5667,10 @@ begin
       end;
     end
     else
-    begin
-      p := @up;
       if fEngine.CodePage = CP_WINANSI then
-        l := UpperCopyWin255(p, RawUtf8(tmp)) - p
+        l := UpperCopyWin255(@up, RawUtf8(tmp)) - PAnsiChar(@up)
       else
-        l := UpperCopy255Buf(p, tmp, l) - p;
-    end;
+        l := UpperCopy255Buf(@up, tmp, l) - PAnsiChar(@up);
   end;
   result := DefaultHasher(OrmHashSeed, p, l);
   if fGetterIsFieldPropOffset = 0 then
@@ -6657,7 +6638,7 @@ procedure TOrmPropInfoRttiVariant.CopySameClassProp(Source: TObject;
 var
   off: PtrUInt;
   v: PVariant;
-  value: TVarData;
+  value: TSynVarData;
 begin
   off := TOrmPropInfoRttiVariant(DestInfo).fSetterIsFieldPropOffset;
   if off <> 0 then // avoid any temporary variable
@@ -6668,10 +6649,10 @@ begin
   end
   else
   begin
-    PCardinal(@value)^ := varEmpty; // real temp variant for a setter
+    value.VType := varEmpty; // temp variant for a setter
     fPropInfo.GetVariantProp(Source, variant(value), {byref=}false);
     TOrmPropInfoRttiVariant(DestInfo).fPropInfo.SetVariantProp(Dest, variant(value));
-    VarClearProc(value);
+    VarClear(variant(value));
   end;
 end;
 
@@ -6738,7 +6719,7 @@ end;
 
 function TOrmPropInfoRttiVariant.IsValueVoid(Instance: TObject): boolean;
 var
-  value: TVarData;
+  value: TSynVarData;
   off: PtrUInt;
 begin
   off := fGetterIsFieldPropOffset;
@@ -6746,17 +6727,17 @@ begin
     result := VarIsEmptyOrNull(PVariant(PtrUInt(Instance) + off)^)
   else
   begin
-    PCardinal(@value)^ := varEmpty;
+    value.VType := varEmpty; // temp variant for a setter
     fPropInfo.GetVariantProp(Instance, variant(value), {byref=}true);
     result := VarIsEmptyOrNull(variant(value));
-    VarClearProc(value);
+    VarClear(variant(value));
   end;
 end;
 
 function TOrmPropInfoRttiVariant.CompareValue(Item1, Item2: TObject;
   CaseInsensitive: boolean): integer;
 var
-  V1, V2: TVarData;
+  V1, V2: TSynVarData;
   off: PtrUInt;
 begin
   if Item1 = Item2 then
@@ -6773,13 +6754,13 @@ begin
                                 PVarData(PtrUInt(Item2) + off), CaseInsensitive)
     else
     begin
-      PCardinal(@V1)^ := varEmpty;
-      PCardinal(@V2)^ := varEmpty;
+      V1.VType := varEmpty;
+      V2.VType := varEmpty;
       fPropInfo.GetVariantProp(Item1, variant(V1), {byref=}true);
       fPropInfo.GetVariantProp(Item2, variant(V2), {byref=}true);
       result := FastVarDataComp(@V1, @V2, CaseInsensitive);
-      VarClearProc(V1);
-      VarClearProc(V2);
+      VarClear(variant(V1));
+      VarClear(variant(V2));
     end;
   end;
 end;
@@ -7366,22 +7347,18 @@ begin
 end;
 
 procedure TOrmPropInfoList.AfterAdd;
-var
-  i: PtrInt;
 begin
   SetLength(fList, fCount);
-  if fCount = 0 then
-    fLast := nil
-  else
+  fLast := nil;
+  if fCount <> 0 then
     fLast := fList[fCount - 1];
   // initialize once the ordered lookup indexes, for binary search
   SetLength(fOrderedByName, fCount);
-  for i := 0 to fCount - 1 do
-    fOrderedByName[i] := i;
+  FillIncreasingB(pointer(fOrderedByName), 0, fCount - 1);
   QuickSortByName(0, fCount - 1);
 end;
 
-function TOrmPropInfoList.Add(aItem: TOrmPropInfo): integer;
+function TOrmPropInfoList.Add(aItem: TOrmPropInfo): PtrInt;
 var
   f: PtrInt;
 begin
@@ -7789,7 +7766,7 @@ begin
       inc(len, length(List[f].Name) + 1);
   if len = 0 then
   begin
-    result := '';
+    FastAssignNew(result);
     exit;
   end;
   p := FastSetString(result, len - 1); // allocate once for all
@@ -8330,19 +8307,42 @@ begin
     QuickSortIndexedPUtf8Char(pointer(fFieldNames), fFieldCount, fFieldNameOrder);
 end;
 
-procedure TOrmTableAbstract.GetAsVariant(row, field: PtrInt; out value: variant;
+procedure ValueVarTimeAsText(oft: TOrmFieldType; V: PUtf8Char; value: PVariant);
+var
+  t: TTimeLogBits;
+  time: RawUtf8;
+begin
+  SetInt64(V, {%H-}t.Value);
+  if t.Value = 0 then
+    value^ := 0
+  else
+  begin
+    if oft = oftUnixTime then
+      t.FromUnixTime(t.Value);
+    if oft <> oftUnixMSTime then
+      time := t.Text(true)
+    else
+      // no TTimeLog use for milliseconds resolution
+      time := UnixMSTimeToString(t.Value);
+    PDocVariantData(value)^.InitObject([
+      'Time',  time,
+      'Value', t.Value], JSON_FAST);
+  end;
+end;
+
+procedure TOrmTableAbstract.GetAsVariant(row, field: PtrInt; var value: variant;
   expandTimeLogAsText, expandEnumsAsText, expandHugeIDAsUniqueIdentifier: boolean;
   options: TDocVariantOptions);
 const
   JAN2015_UNIX = 1420070400;
 var
-  t: TTimeLogBits;
   id: TSynUniqueIdentifierBits;
   V: PUtf8Char;
+  vd: TSynVarData absolute value;
   ft: POrmTableFieldType;
   enum, err: integer;
-  time: RawUtf8;
 begin
+  VarClearAndSetType(value, varNull);
   if (self = nil) or
      (row < 1) or
      (row > fRowCount) or
@@ -8354,69 +8354,56 @@ begin
   row := row * fFieldCount + field;
   V := GetResults(row);
   if V = nil then
-    TSynVarData(value).VType := varNull
-  else
-    if expandHugeIDAsUniqueIdentifier and
-       (field = fFieldIndexID) then
-    begin
-      SetInt64(V, PInt64(@id)^);
-      if id.CreateTimeUnix > JAN2015_UNIX then
-        id.ToVariant(value)
-      else
-        value := id.Value;
-    end
+    exit;
+  vd.VType := varInt64;
+  if expandHugeIDAsUniqueIdentifier and
+     (field = fFieldIndexID) then
+  begin
+    SetInt64(V, PInt64(@id)^);
+    if id.CreateTimeUnix > JAN2015_UNIX then
+      id.ToVariant(value)
     else
+      vd.VInt64 := id.Value;
+  end
+  else
+  begin
+    if expandEnumsAsText and
+       (ft^.ContentType = oftEnumerate) then
     begin
-      if expandEnumsAsText and
-         (ft^.ContentType = oftEnumerate) then
+      enum := GetInteger(V, err);
+      if (err = 0) and
+         (ft^.ContentTypeInfo <> nil) then
       begin
-        enum := GetInteger(V, err);
-        if (err = 0) and
-           (ft^.ContentTypeInfo <> nil) then
-        begin
-          value := PRttiEnumType(ft^.ContentTypeInfo)^.GetEnumNameOrd(enum)^;
-          exit;
-        end;
-      end
-      else if expandTimeLogAsText then
-        case ft^.ContentType of
-          oftTimeLog,
-          oftModTime,
-          oftCreateTime,
-          oftUnixTime,
-          oftUnixMSTime:
-            begin
-              SetInt64(V, {%H-}t.Value);
-              if t.Value = 0 then
-                value := 0
-              else
-              begin
-                if ft^.ContentType = oftUnixTime then
-                  t.FromUnixTime(t.Value);
-                if ft^.ContentType <> oftUnixMSTime then
-                  time := t.Text(true)
-                else
-                  // no TTimeLog use for milliseconds resolution
-                  time := UnixMSTimeToString(t.Value);
-                TDocVariantData(value).InitObject([
-                  'Time',  time,
-                  'Value', t.Value], JSON_FAST);
-              end;
-              exit;
-            end;
-        end;
-      ValueVarToVariant(V, GetResultsLen(row, V), ft^.ContentType, TVarData(value),
-        {createTempCopy=}true, ft^.ContentTypeInfo, options);
-    end;
+        ShortStringToVariant(PRttiEnumType(ft^.ContentTypeInfo)^.
+          GetEnumNameOrd(enum)^, value);
+        exit;
+      end;
+    end
+    else if expandTimeLogAsText then
+      case ft^.ContentType of
+        oftTimeLog,
+        oftModTime,
+        oftCreateTime,
+        oftUnixTime,
+        oftUnixMSTime:
+          begin
+            ValueVarTimeAsText(ft^.ContentType, V, @value);
+            exit;
+          end;
+      end;
+    ValueVarToVariant(V, GetResultsLen(row, V), ft^.ContentType, vd.Data,
+      {createTempCopy=}true, ft^.ContentTypeInfo, options);
+  end;
 end;
 
-procedure TOrmTableAbstract.ToDocVariant(Row: PtrInt; out doc: variant;
+procedure TOrmTableAbstract.ToDocVariant(Row: PtrInt; var doc: variant;
   options: TDocVariantOptions; expandTimeLogAsText, expandEnumsAsText,
   expandHugeIDAsUniqueIdentifier: boolean);
 var
   f: PtrInt;
   v: TVariantDynArray;
 begin
+  VarClearAndSetType(doc, varNull);
   if (self = nil) or
      (Row < 1) or
      (Row > fRowCount) then
@@ -8787,8 +8774,11 @@ begin
 end;
 
 function TOrmTableAbstract.GetAsCurrency(Row, Field: PtrInt): currency;
+var
+  curr: currency; // safer with an explicit local variable
 begin
-  PInt64(@result)^ := StrToCurr64(Get(Row, Field), nil);
+  PInt64(@curr)^ := StrToCurr64(Get(Row, Field), nil);
+  result := curr;
 end;
 
 function TOrmTableAbstract.GetAsCurrency(Row: PtrInt; const FieldName: RawUtf8): currency;
@@ -10549,8 +10539,7 @@ begin
     TOrmTableRowVariantData(Source).VTable.ToDocVariant(r, tmp);
     if AVarType = DocVariantVType then
     begin
-      VarClear(variant(Dest));
-      ZeroFill(@Dest); // avoid GPF
+      ZeroClear(@Dest); // avoid GPF
       TDocVariantData(Dest) := TDocVariantData(tmp);
     end
     else
@@ -10978,7 +10967,7 @@ begin
     begin
       Value[i].Value.Free;
       new.Value := CopyObject(aOrm);
-      Value[i] := new // replace existing or registered ID
+      Value[i] := new; // replace existing or registered ID
     end
     else if CacheAll and
             (i >= 0) then
@@ -11073,7 +11062,7 @@ end;
 
 constructor TOrmPropertiesAbstract.Create;
 begin
-  fSafe.Init;
+  fSafe.Init; // mandatory for TOSLightLock
   fSqlTableRetrieveAllFields := 'RowID'; // to work with virtual tables
   SetLength(fManyFields, MAX_SQLFIELDS);
   SetLength(fSimpleFields, MAX_SQLFIELDS);
@@ -11089,7 +11078,7 @@ end;
 destructor TOrmPropertiesAbstract.Destroy;
 begin
   inherited Destroy;
-  fSafe.Done;
+  fSafe.Done; // mandatory for TOSLightLock
 end;
 
 function TOrmPropertiesAbstract.BlobFieldPropFromRawUtf8(const PropName: RawUtf8): PRttiProp;
@@ -11127,10 +11116,10 @@ function TOrmPropertiesAbstract.OrmFieldTypeToSql(FieldIndex: integer): RawUtf8;
 begin
   if (self = nil) or
     (cardinal(FieldIndex) >= cardinal(Fields.Count)) then
-    result := ''
+    FastAssignNew(result)
   else if (FieldIndex < length(fCustomCollation)) and
           (fCustomCollation[FieldIndex] <> '') then
-    result := ' TEXT COLLATE ' + fCustomCollation[FieldIndex] + ', '
+    Join([' TEXT COLLATE ', fCustomCollation[FieldIndex], ', '], result)
   else
     result := DEFAULT_ORMFIELDTYPETOSQL[Fields.List[FieldIndex].OrmFieldTypeStored];
 end;
@@ -11149,9 +11138,9 @@ begin
     begin
       Attributes := Attributes - [aBinaryCollation, aUnicodeNoCaseCollation];
       if PropNameEquals(aCollationName, 'BINARY') then
-        Attributes := Attributes + [aBinaryCollation]
+        Include(fAttributes, aBinaryCollation)
       else if PropNameEquals(aCollationName, 'UNICODENOCASE') then
-        Attributes := Attributes + [aUnicodeNoCaseCollation];
+        Include(fAttributes, aUnicodeNoCaseCollation);
     end;
   end;
 end;
@@ -11281,15 +11270,11 @@ begin
   info.Json := P;
   if info.Json = nil then
     exit;
-  while (info.Json^ <= ' ') and
-        (info.Json^ <> #0) do
+  while info.Json^ in [#1 .. ' '] do
     inc(info.Json);
   if info.Json^ <> '[' then
     exit;
-  repeat
-    inc(info.Json)
-  until (info.Json^ > ' ') or
-        (info.Json^ = #0);
+  info.Json := IgnoreAndGotoNextNotSpace(info.Json);
   if ID = nil then
     decoded := 0
   else
@@ -11315,10 +11300,7 @@ begin
           exit;
         W.AddNoJsonEscape(Start, info.Json - Start);
         W.AddComma;
-        repeat
-          inc(info.Json)
-        until (info.Json^ > ' ') or
-              (info.Json^ = #0);
+        info.Json := IgnoreAndGotoNextNotSpace(info.Json);
       end;
     if sfoEndWithID in Format then
       decoded := info.GetJsonInt64;
@@ -11336,10 +11318,7 @@ begin
   if EndOfObject <> nil then
     EndOfObject^ := info.Json^;
   if info.Json^ <> #0 then
-    repeat
-      inc(info.Json)
-    until (info.Json^ > ' ') or
-          (info.Json^ = #0);
+    info.Json := IgnoreAndGotoNextNotSpace(info.Json);
   P := info.Json;
 end;
 
@@ -11396,9 +11375,9 @@ end;
 
 function TOrmPropertiesAbstract.IsFieldNameOrFunction(const PropName: RawUtf8): boolean;
 var
-  L: integer;
+  L: PtrInt;
   P, P2: PUtf8Char;
-  tmp: ShortString; // no heap allocation
+  tmp: TByteToAnsiChar; // no heap allocation
 begin
   result := false;
   L := length(PropName);
@@ -11409,12 +11388,12 @@ begin
   if P[L - 1] = ')' then
   begin
     case IdemPCharSep(P, FUNCS) of
-      0..3:
+      0 .. 3: // MAX MIN AVG SUM
         begin
           inc(P, 4);
           P2 := PosChar(P, ')');
         end;
-      4..5:
+      4 .. 5: // JSONGET JSONHAS
         begin
           inc(P, 8);
           P2 := PosChar(P, ',');
@@ -11422,15 +11401,16 @@ begin
     else
       exit; // unknown function name
     end;
-    if P2 <> nil then
-    begin
-      SetString(tmp, PAnsiChar(P), P2 - P); // extract NAME from func(NAME)
-      tmp[ord(tmp[0]) + 1] := #0;
-      result := IsFieldName(@tmp[1]);
-    end;
-  end
-  else
-    result := IsFieldName(P);
+    if P2 = nil then
+      exit;
+    L := P2 - P;
+    if L > high(tmp) then
+      exit;
+    MoveFast(P^, tmp, L); // extract NAME from func(NAME)
+    tmp[L] := #0;
+    P := @tmp;
+  end;
+  result := IsFieldName(P);
 end;
 
 function TOrmPropertiesAbstract.FieldBitsFromBlobField(aBlobField: PRttiProp;
@@ -11684,7 +11664,7 @@ function TOrmPropertiesAbstract.MainFieldName(ReturnFirstIfNoUnique: boolean): R
 begin
   if (self = nil) or
      (MainField[ReturnFirstIfNoUnique] < 0) then
-    result := ''
+    FastAssignNew(result)
   else
     result := Fields.List[MainField[ReturnFirstIfNoUnique]].Name;
 end;
@@ -11737,11 +11717,11 @@ begin
   pointer(@OrmFieldTypeComp[oftVariant])    := @StrComp;
   pointer(@OrmFieldTypeComp[oftNullable])   := @StrComp;
   // refresh ORM types RTTI with actual type definitions
-  PTC_INFO[pctRecordReference] := TypeInfo(TRecordReference);
+  PTC_INFO[pctRecordReference]            := TypeInfo(TRecordReference);
   PTC_INFO[pctRecordReferenceToBeDeleted] := TypeInfo(TRecordReferenceToBeDeleted);
-  PTC_INFO[pctCreateTime]      := TypeInfo(TCreateTime);
-  PTC_INFO[pctModTime]         := TypeInfo(TModTime);
-  PTC_INFO[pctRecordVersion]   := TypeInfo(TRecordVersion);
+  PTC_INFO[pctCreateTime]                 := TypeInfo(TCreateTime);
+  PTC_INFO[pctModTime]                    := TypeInfo(TModTime);
+  PTC_INFO[pctRecordVersion]              := TypeInfo(TRecordVersion);
   for ptc := succ(low(ptc)) to high(ptc) do
     PTC_RTTI[ptc] := Rtti.RegisterType(PTC_INFO[ptc]);
 end;

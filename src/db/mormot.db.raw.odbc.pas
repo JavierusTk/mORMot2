@@ -770,7 +770,7 @@ type
   public
     /// load the ODBC library
     // - and retrieve all SQL*() addresses for ODBC_ENTRIES[] items
-    constructor Create;
+    constructor Create; override;
     /// raise an exception on error
     procedure Check(Conn: TSqlDBConnection; Stmt: TSqlDBStatement; Status: SqlReturn;
       HandleType: SqlSmallint; Handle: SqlHandle; InfoRaiseException: boolean = false;
@@ -846,17 +846,14 @@ begin
 end;
 
 function SQL_TIMESTAMP_STRUCT.ToDateTime(DataType: SqlSmallint): TDateTime;
-var
-  time: TDateTime;
 begin
-  if (DataType = SQL_TYPE_TIME) or
-     not mormot.core.datetime.TryEncodeDate(Year, Month, Day, result) then
-    result := 0;
+  if DataType = SQL_TYPE_TIME then
+    result := 0
+  else
+    result := EncodeDateOrZero(Year, Month, Day);
   if (DataType <> SQL_TYPE_DATE) and
-     (PInt64(@Hour)^ <> 0)  and
-     mormot.core.datetime.TryEncodeTime(Hour, Minute, Second,
-                                        Fraction div 1000000, time) then
-    result := result  +  time;
+     (PInt64(@Hour)^ <> 0)  then
+    result := result + EncodeTimeOrZero(Hour, Minute, Second, Fraction div 1000000);
 end;
 
 function SQL_TIMESTAMP_STRUCT.ToIso8601(Dest: PUtf8Char; DataType: SqlSmallint;
@@ -977,19 +974,19 @@ const
 
 {$ifdef OSWINDOWS}
 
+function GetFullFileVersion(const aFileName: TFileName): string;
+begin
+  with TFileVersion.Create(aFileName) do
+  try
+    // five digits by section for easy version number comparison as string
+    result := Format('%0.5d.%0.5d.%0.5d.%0.5d', [Major, Minor, Release, Build]);
+  finally
+    Free;
+  end;
+end;
+
 function OdbcInstalledDriversList(const aIncludeVersion: boolean;
   var aDrivers: TStrings): boolean;
-
-  function GetFullFileVersion(const aFileName: TFileName): string;
-  begin
-    with TFileVersion.Create(aFileName, 0, 0, 0, 0) do
-    try // five digits by section for easy version number comparison as string
-      result := Format('%0.5d.%0.5d.%0.5d.%0.5d', [Major, Minor, Release, Build]);
-    finally
-      Free;
-    end;
-  end;
-
 var
   i: PtrInt;
   s: string;
@@ -1011,7 +1008,7 @@ begin
           result := OpenKeyReadOnly('Software\ODBC\ODBCINST.INI\'  +  aDrivers[i]);
           if result then
           begin
-            // expand environment variable, i.e %windir%
+            // expand environment variable, e.g. %windir%
             s := ExpandEnvVars(ReadString('Driver'));
             aDrivers[i] := aDrivers[i]  +  '='  +  GetFullFileVersion(s);
           end;
@@ -1042,6 +1039,7 @@ end;
 
 constructor TOdbcLib.Create;
 begin
+  inherited Create;
   try
     TryLoadResolve([ODBC_LIB], 'SQL', @ODBC_ENTRIES, @@AllocEnv, EOdbcException);
   except
@@ -1055,14 +1053,14 @@ end;
 
 function TOdbcLib.GetDiagField(StatementHandle: SqlHStmt): RawUtf8;
 var
-  Status: array[0..7] of AnsiChar;
+  Status: TTemp8;
   StringLength: SqlSmallint;
 begin
   if ODBC.GetDiagFieldA(SQL_HANDLE_STMT, StatementHandle, 1, SQL_DIAG_SQLSTATE,
      @Status, SizeOf(Status), StringLength) = 0 then
     FastSetString(result, @Status, StringLength)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 procedure TOdbcLib.GetInfoString(ConnectionHandle: SqlHDbc;
@@ -1085,7 +1083,7 @@ const
   FMT: PUtf8Char = '%[%] % (%)'#13#10;
 var
   Sqlstate: array[0..6] of WideChar;
-  MessageText: array[0..1023] of WideChar;
+  MessageText: TWide1K;
   RecNum, NativeError: SqlInteger;
   TextLength: SqlSmallint;
   msg: RawUtf8;

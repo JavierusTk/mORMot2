@@ -23,7 +23,6 @@ uses
   sysutils,
   classes,
   variants,
-  contnrs,
   mormot.core.base,
   mormot.core.os,
   mormot.core.unicode,
@@ -814,7 +813,7 @@ begin
       if limit.Position = posNone then
       begin
         fRest.InternalLog('AdaptSqlForEngineList: unknown % LIMIT syntax for [%]',
-          [ToText(fProperties.Dbms)^, SQL], sllWarning);
+          [DBDEF_TXT[fProperties.Dbms], SQL], sllWarning);
         exit;
       end;
       if limit.Position = posOuter then
@@ -1391,7 +1390,7 @@ function TRestStorageExternal.EngineList(TableModelIndex: integer;
 var
   stmt: ISqlDBStatement;
 begin
-  result := '';
+  FastAssignNew(result);
   if ReturnedRowCount <> nil then
     ERestStorage.RaiseUtf8('%.EngineList(ReturnedRowCount<>nil) for %',
       [self, StoredClass]);
@@ -1416,7 +1415,7 @@ var
   tmp: TTextWriterStackBuffer; // 8KB work buffer on stack
 begin
   // TableModelIndex is not useful here
-  result := '';
+  FastAssignNew(result);
   if (self <> nil) and
      (ID > 0) then
     try
@@ -1925,11 +1924,17 @@ end;
 function TRestStorageExternal.TransactionBegin(aTable: TOrmClass;
   SessionID: cardinal): boolean;
 begin
-  if (aTable = fStoredClass) and
-     inherited TransactionBegin(aTable, SessionID) then
-    result := fProperties.SharedTransaction(SessionID, transBegin) <> nil
-  else
-    result := false;
+  result := false;
+  if (aTable <> fStoredClass) or
+     not inherited TransactionBegin(aTable, SessionID) then
+    exit;
+  // inherited has already set fTransactionActiveSession - if the actual
+  // StartTransaction fails (e.g. the connection died), we MUST release it,
+  // otherwise every future TransactionBegin() is refused by the inherited
+  // check and the storage stays locked until the process restarts
+  result := fProperties.SharedTransaction(SessionID, transBegin) <> nil;
+  if not result then
+    inherited RollBack(SessionID); // reset fTransactionActiveSession
 end;
 
 procedure TRestStorageExternal.Commit(SessionID: cardinal;
@@ -2249,7 +2254,7 @@ begin
     result := fSelectAllDirectSQL; // if Prepared is not supported -> full scan
     exit;
   end;
-  result := '';
+  FastAssignNew(result);
   WR := TTextWriter.CreateOwnedStream(temp);
   try
     WR.AddString(fSelectAllDirectSQL);

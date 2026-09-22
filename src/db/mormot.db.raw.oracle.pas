@@ -906,7 +906,7 @@ type
     UseLobChunks: boolean;
     /// load the oci.dll library
     // - and retrieve all Oci*() addresses for OCI_ENTRIES[] items
-    constructor Create(LibraryFileName: TFileName = '');
+    constructor Create(LibraryFileName: TFileName = ''); reintroduce;
     /// retrieve the client version as 'oci.dll rev. 11.2.0.1'
     function ClientRevision: RawUtf8;
     /// retrieve the OCI charset ID from a Windows Code Page
@@ -919,9 +919,14 @@ type
       Status: integer; ErrorHandle: POCIError;
       InfoRaiseException: boolean = false; LogLevelNoRaise: TSynLogLevel = sllNone);
       {$ifdef HASINLINE}inline;{$endif}
+    /// error handling for SessionBegin() API call
     procedure CheckSession(Conn: TSqlDBConnection; Stmt: TSqlDBStatement;
       Status: integer; ErrorHandle: POCIError;
       InfoRaiseException: boolean = false; LogLevelNoRaise: TSynLogLevel = sllNone);
+    /// log a warning for Status = OCI_SUCCESS_WITH_INFO
+    procedure CheckSuccessInfo(Stmt: TSqlDBStatement; Status: integer;
+      ErrorHandle: POCIError);
+      {$ifdef HASINLINE}inline;{$endif}
     /// retrieve some BLOB content
     procedure BlobFromDescriptor(Stmt: TSqlDBStatement; svchp: POCISvcCtx;
       errhp: POCIError; locp: POCIDescriptor; out result: RawByteString); overload;
@@ -1013,27 +1018,19 @@ implementation
 // see http://download.oracle.com/docs/cd/B28359_01/appdev.111/b28395/oci03typ.htm#sthref389
 
 function TOracleDate.ToDateTime: TDateTime;
-var
-  time: TDateTime;
 begin
-  if (PInteger(@self)^ = 0) and
-     (PInteger(PtrUInt(@self) + 3)^ = 0) then
-    // Cent=Year=Month=Day=Hour=Main=Sec=0 -> returns 0
-    result := 0
-  else
+  if (Cent <= 100) or
+     ((PInteger(@self)^ = 0) and
+      (PInteger(PAnsiChar(@self) + 3)^ = 0)) then // 0 or not supported date
   begin
-    if (Cent <= 100) or
-      // avoid TDateTime values < 0 (generates wrong DecodeTime)
-      not mormot.core.datetime.TryEncodeDate(
-            (Cent - 100) * 100 + Year - 100, Month, Day, result) then
-      result := 0;
-    if (Hour > 1) or
-       (Min > 1) or
-       (Sec > 1) then
-      if mormot.core.datetime.TryEncodeTime(
-           Hour - 1, Min - 1, Sec - 1, 0, time) then
-        result := result + time;
+    result := 0;
+    exit;
   end;
+  result := EncodeDateOrZero((Cent - 100) * 100 + Year - 100, Month, Day);
+  if (Hour > 1) or
+     (Min > 1) or
+     (Sec > 1) then
+    result := result + EncodeTimeOrZero(Hour - 1, Min - 1, Sec - 1, 0);
 end;
 
 procedure TOracleDate.ToIso8601(var aIso8601: RawUtf8);
@@ -1604,13 +1601,20 @@ begin
   end;
 end;
 
+procedure TSqlDBOracleLib.CheckSuccessInfo(Stmt: TSqlDBStatement; Status: integer;
+  ErrorHandle: POCIError);
+begin
+  if Status = OCI_SUCCESS_WITH_INFO then
+    HandleError(nil, Stmt, Status, ErrorHandle, {raise=}false, sllWarning);
+end;
+
 function TSqlDBOracleLib.ClientRevision: RawUtf8;
 begin
   if self = nil then
-    result := ''
+    FastAssignNew(result)
   else
-    result := FormatUtf8('% rev. %.%.%.%',
-      [fLibraryPath, major_version, minor_version, update_num, patch_num]);
+    FormatUtf8('% rev. %.%.%.%',
+      [fLibraryPath, major_version, minor_version, update_num, patch_num], result);
 end;
 
 var
@@ -1669,11 +1673,12 @@ constructor TSqlDBOracleLib.Create(LibraryFileName: TFileName);
 var
   l1, l2, l3: TFileName;
 begin
+  inherited Create;
   if LibraryFileName = '' then
     LibraryFileName := LIBNAME;
   if (SynDBOracleOCIpath <> '') and
      DirectoryExists(SynDBOracleOCIpath) then
-    l1 := MakePath([SynDBOracleOCIpath, LibraryFileName]);
+    MakePath([SynDBOracleOCIpath, LibraryFileName], l1);
   l2 := Executable.ProgramFilePath + LibraryFileName;
   if not FileExists(l2) then
   begin

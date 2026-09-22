@@ -581,7 +581,7 @@ type
   /// exception class raised during SSPI process
   ESynSspi = class(ExceptionWithProps)
   public
-    class procedure RaiseLastOSError(const aContext: TSecContext);
+    class procedure RaiseLastOSError(const Ctx: ShortString; Res: cardinal);
   end;
 
 
@@ -777,10 +777,6 @@ function ClientSspiAuthWithPassword(var aSecContext: TSecContext;
   const aPassword: SpiUtf8;  const aSecKerberosSpn: RawUtf8;
   out aOutData: RawByteString): boolean;
 
-/// check if the password is a local keytab/ccache file with a FILE: prefix
-// - always return false with SSPI which does not support those keytabs
-function ClientSspiPasswordIsFile(const aPassword: SpiUtf8): boolean;
-
 /// check if a binary request packet from a client is using NTLM
 function ServerSspiDataNtlm(const aInData: RawByteString): boolean;
 
@@ -852,6 +848,8 @@ const
   /// HTTP header pattern received for authentication
   SECPKGNAMEHTTPAUTHORIZATION = 'AUTHORIZATION: NEGOTIATE ';
 
+  /// by default, no GSSAPI is to be loaded with the Windows SSPI
+  GssApi_LastLoadError = '';
 
 
 { ****************** Lan Manager Access Functions }
@@ -1244,9 +1242,19 @@ end;
 
 { ESynSspi }
 
-class procedure ESynSspi.RaiseLastOSError(const aContext: TSecContext);
+procedure Check(const Ctx: ShortString; Res: cardinal);
 begin
-  raise Create(WinLastError('SSPI API'));
+  if Res <> SEC_E_OK then
+    ESynSspi.RaiseLastOSError(Ctx, Res);
+end;
+
+class procedure ESynSspi.RaiseLastOSError(const Ctx: ShortString; Res: cardinal);
+var
+  sys: integer;
+begin
+  sys := GetLastError;
+  raise Create(format('%s returned %s, System Error %d [%s]',
+          [Ctx, OsErrorShort(res), sys, GetErrorShort(sys)]));
 end;
 
 
@@ -1293,18 +1301,17 @@ function SecEncrypt(var aSecContext: TSecContext;
 var
   sizes: TSecPkgContext_Sizes;
   len: cardinal;
-  token:   array[0..127] of byte; // Usually 60 bytes
-  padding: array[0..63]  of byte; // Usually 1 byte
+  token:   TTemp128; // Usually 60 bytes
+  padding: TTemp64;  // Usually 1 byte
   inDesc: TSecBufferDesc;
   buffer: RawByteString;
   status: integer;
   res: PByte;
 begin
-  result := '';
+  FastAssignNew(result);
   // sizes.cbSecurityTrailer is size of the trailer (signature + padding) block
-  if QueryContextAttributesW(
-       @aSecContext.CtxHandle, SECPKG_ATTR_SIZES, @sizes) <> 0 then
-    ESynSspi.RaiseLastOSError(aSecContext);
+  Check('SecEncrypt QueryContextAttributesW',
+    QueryContextAttributesW(@aSecContext.CtxHandle, SECPKG_ATTR_SIZES, @sizes));
   if (sizes.cbSecurityTrailer > SizeOf(token)) or
      (sizes.cbBlockSize > SizeOf(padding)) then
     raise ESynSspi.Create('SecEncrypt: unexpected ATTR_SIZES');
@@ -1332,7 +1339,7 @@ begin
   inDesc.Add(SECBUFFER_PADDING, @padding, sizes.cbBlockSize);
   status := EncryptMessage(@aSecContext.CtxHandle, 0, @inDesc, 0);
   if status < 0 then
-    ESynSspi.RaiseLastOSError(aSecContext);
+    Check('EncryptMessage', status);
   len := inDesc.Data[0].cbBuffer + inDesc.Data[1].cbBuffer + inDesc.Data[2].cbBuffer;
   SetLength(result, len);
   res := pointer(result);
@@ -1355,10 +1362,7 @@ begin
   enclen := Length(aEncrypted);
   buf := PByte(aEncrypted);
   if enclen < SizeOf(cardinal) then
-  begin
-    SetLastError(ERROR_INVALID_PARAMETER);
-    ESynSspi.RaiseLastOSError(aSecContext);
-  end;
+    raise ESynSspi.CreateFmt('SecDecrypt enclen=%d', [enclen]);
   // Hack for compatibility with previous versions.
   // Should be removed in future.
   // Old version buffer format - first 4 bytes is Trailer length, skip it.
@@ -1375,7 +1379,7 @@ begin
   inDesc.Add(SECBUFFER_DATA);
   status := DecryptMessage(@aSecContext.CtxHandle, @inDesc, 0, qop);
   if status < 0 then
-    ESynSspi.RaiseLastOSError(aSecContext);
+    Check('DecryptMessage', status);
   FastSetRawByteString(result, inDesc.Data[1].pvBuffer, inDesc.Data[1].cbBuffer);
 end;
 
@@ -1385,7 +1389,7 @@ var
   nfo: TSecPkgConnectionInfo;
   cip: TSecPkgCipherInfo; // Vista+ attribute
 begin
-  result := '';
+  FastAssignNew(result);
   FillCharFast(nfo, SizeOf(nfo), 0);
   if QueryContextAttributesW(
       @Ctxt, SECPKG_ATTR_CONNECTION_INFO, @nfo) <> SEC_E_OK then
@@ -1424,7 +1428,7 @@ function TlsCertRaw(var Ctxt: TCtxtHandle; SignOid: PRawUtf8): RawByteString;
 var
   nfo: PCCERT_CONTEXT;
 begin
-  result := '';
+  FastAssignNew(result);
   if SignOid <> nil then
     SignOid^ := '';
   nfo := nil;
@@ -1459,7 +1463,7 @@ procedure WinCertName(var Name: CERT_NAME_BLOB; out Text: RawUtf8;
   StrType: cardinal);
 var
   len: PtrInt;
-  tmp: array[0..4095] of WideChar;
+  tmp: TWide4K;
 begin
   len := CertNameToStrW(X509_ASN_ENCODING, Name, StrType, @tmp, SizeOf(tmp));
   if len <> 0 then
@@ -1485,7 +1489,7 @@ var
   i, j, o: PtrInt;
   t: RawUtf8;
 begin
-  result := '';
+  FastAssignNew(result);
   o := 1;
   repeat
     i := PosEx(Pattern, Text, o);
@@ -1518,7 +1522,7 @@ end;
 
 function ParseAltNames(P: PByteArray; L: PtrInt): RawUtf8;
 begin // rough parsing, but works with most simple content
-  result := '';
+  FastAssignNew(result);
   { 2.5.29.17 = 30:20:
                   82:0c: 73:79:6e:6f:70:73:65:2e:69:6e:66:6f:
                   82:10: 77:77:77:2e:73:79:6e:6f:70:73:65:2e:69:6e:66:6f
@@ -1690,8 +1694,8 @@ begin
     '  Signature Algorithm: ', c.AlgorithmName, #13#10 +
     '  Issuer: ', c.IssuerName, #13#10 +
     '  Validity:'#13#10 +
-    '    Not Before: ', DoDateTimeToText(c.NotBefore), #13#10 +
-    '    Not After : ', DoDateTimeToText(c.NotAfter), #13#10 +
+    '    Not Before: ', OsDateTimeToText(c.NotBefore), #13#10 +
+    '    Not After : ', OsDateTimeToText(c.NotAfter), #13#10 +
     '  Subject: ', c.SubjectName, #13#10 +
     '  Subject Public Key Info:'#13#10 +
     '    Public Key Algorithm: ', c.PublicKeyAlgorithmName, #13#10 +
@@ -1759,9 +1763,9 @@ begin
   if (aSecContext.CredHandle.dwLower = -1) and
      (aSecContext.CredHandle.dwUpper = -1) then
   begin
-    if AcquireCredentialsHandleW(nil, pointer(NegotiateName), SECPKG_CRED_OUTBOUND,
-        nil, pAuthData, nil, nil, @aSecContext.CredHandle, nil) <> 0 then
-      ESynSspi.RaiseLastOSError(aSecContext);
+    Check('Client AcquireCredentialsHandleW',
+      AcquireCredentialsHandleW(nil, pointer(NegotiateName), SECPKG_CRED_OUTBOUND,
+      nil, pAuthData, nil, nil, @aSecContext.CredHandle, nil));
     ctx := nil;
   end
   else
@@ -1784,9 +1788,13 @@ begin
             (status = SEC_I_COMPLETE_AND_CONTINUE);
   if (status = SEC_I_COMPLETE_NEEDED) or
      (status = SEC_I_COMPLETE_AND_CONTINUE) then
+  begin
     status := CompleteAuthToken(@aSecContext.CtxHandle, @outDesc);
-  if status < 0 then
-    ESynSspi.RaiseLastOSError(aSecContext);
+    if status < 0 then
+      Check('Client CompleteAuthToken', status);
+  end
+  else if status < 0 then
+    Check('Client InitializeSecurityContextW', status);
   FastSetRawByteString(aOutData, outDesc.Data[0].pvBuffer, outDesc.Data[0].cbBuffer);
   FreeContextBuffer(outDesc.Data[0].pvBuffer);
 end;
@@ -1853,15 +1861,10 @@ begin
   //FillCharFast(pointer(password)^, length(password) * 2, 0); // anti-forensic
 end;
 
-function ClientSspiPasswordIsFile(const aPassword: SpiUtf8): boolean;
-begin
-  result := false;
-end;
-
 function ServerSspiDataNtlm(const aInData: RawByteString): boolean;
 begin
   result := (aInData <> '') and
-            (PCardinal(aInData)^ or $20202020 = NTLM_LOW);
+            (PCardinal(aInData)^ or $20202020 = NTLM_LO);
 end;
 
 function ServerSspiAuth(var aSecContext: TSecContext;
@@ -1884,9 +1887,9 @@ begin
       pkg := pointer(NtlmName) // backward compatible but unsafe/legacy
     else
       pkg := pointer(NegotiateName);
-    if AcquireCredentialsHandleW(nil, pkg, SECPKG_CRED_INBOUND,
-        nil, nil, nil, nil, @aSecContext.CredHandle, nil) <> 0 then
-      ESynSspi.RaiseLastOSError(aSecContext);
+    Check('Server AcquireCredentialsHandleW',
+      AcquireCredentialsHandleW(nil, pkg, SECPKG_CRED_INBOUND,
+        nil, nil, nil, nil, @aSecContext.CredHandle, nil));
     ctx := nil;
   end
   else
@@ -1901,9 +1904,13 @@ begin
             (status = SEC_I_COMPLETE_AND_CONTINUE); // need more client input
   if (status = SEC_I_COMPLETE_NEEDED) or
      (status = SEC_I_COMPLETE_AND_CONTINUE) then
+  begin
     status := CompleteAuthToken(@aSecContext.CtxHandle, @outDesc);
-  if status < 0 then
-      ESynSspi.RaiseLastOSError(aSecContext);
+    if status < 0 then
+      Check('Server CompleteAuthToken', status);
+  end
+  else if status < 0 then
+    Check('Server AcceptSecurityContext', status);
   FastSetRawByteString(aOutData, outDesc.Data[0].pvBuffer, outDesc.Data[0].cbBuffer);
   FreeContextBuffer(outDesc.Data[0].pvBuffer);
 end;
@@ -1913,9 +1920,8 @@ procedure ServerSspiAuthUser(var aSecContext: TSecContext;
 var
   Names: SecPkgContext_NamesW;
 begin
-  if QueryContextAttributesW(@aSecContext.CtxHandle,
-       SECPKG_ATTR_NAMES, @Names) <> 0 then
-    ESynSspi.RaiseLastOSError(aSecContext);
+  Check('ServerSspiAuthUser QueryContextAttributesW',
+    QueryContextAttributesW(@aSecContext.CtxHandle, SECPKG_ATTR_NAMES, @Names));
   Win32PWideCharToUtf8(Names.sUserName, aUserName);
   FreeContextBuffer(Names.sUserName);
 end;
@@ -1942,9 +1948,9 @@ function SecPackageName(var aSecContext: TSecContext): RawUtf8;
 var
   NegotiationInfo: TSecPkgContext_NegotiationInfo;
 begin
-  if QueryContextAttributesW(@aSecContext.CtxHandle,
-       SECPKG_ATTR_NEGOTIATION_INFO, @NegotiationInfo) <> 0 then
-    ESynSspi.RaiseLastOSError(aSecContext);
+  Check('SecPackageName',
+    QueryContextAttributesW(@aSecContext.CtxHandle,
+      SECPKG_ATTR_NEGOTIATION_INFO, @NegotiationInfo));
   Win32PWideCharToUtf8(NegotiationInfo.PackageInfo^.Name, result);
   FreeContextBuffer(NegotiationInfo.PackageInfo);
 end;
@@ -2110,7 +2116,7 @@ begin
       for i := 0 to integer(dwEntriesRead) - 1 do
       begin
         Win32PWideCharToUtf8(g^.name, result[i]);
-        sid^[i] := SidToText(g^.group_sid);
+        SidToText(g^.group_sid, sid^[i]);
         inc(g);
       end;
       NetAPIBufferFree(v);
@@ -2129,7 +2135,7 @@ var
   name: RawUtf8;
   srv: TSynTempBuffer;
 begin
-  result := '';
+  FastAssignNew(result);
   if GroupName = '' then
     exit;
   s := Utf8ToWin32PWideChar(Server, srv);
@@ -2147,7 +2153,7 @@ begin
       Win32PWideCharToUtf8(g^.name, Name);
       if PropNameEquals(Name, GroupName) then
       begin
-        result := SidToText(g^.group_sid);
+        SidToText(g^.group_sid, result);
         break;
       end;
       inc(g);
@@ -2211,8 +2217,8 @@ function MsiGetFileSignatureInformationW; external msidll;
 
 function MsiGetString(hRecord: TMsiHandle; index: integer; var str: RawUtf8): boolean;
 var
-  tmp: TSynTempBuffer;
   sz, res: cardinal;
+  tmp: TSynTempBuffer;
 begin
   result := false;
   sz := tmp.Init shr 1; // size in WideChar

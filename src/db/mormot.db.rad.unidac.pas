@@ -295,7 +295,7 @@ procedure TSqlDBUniDACConnectionProperties.GetFields(const aTableName: RawUtf8;
   out Fields: TSqlDBColumnDefineDynArray);
 var
   meta: TDAMetaData;
-  n: integer;
+  n: integer; // not PtrInt
   F: TSqlDBColumnDefine;
   FA: TDynArray;
   hasSubType: boolean;
@@ -357,7 +357,7 @@ var
   meta, indexs: TDAMetaData;
   F: TSqlDBIndexDefine;
   FA: TDynArray;
-  n: integer;
+  n: integer; // not PtrInt
   ColName, Owner, Table: RawUtf8;
   ndxName: string;
 begin
@@ -457,7 +457,7 @@ var
   Server, Port: RawUtf8;
 begin
   if aServer < low(UNIDAC_PROVIDER) then
-    result := ''
+    FastAssignNew(result)
   else
     result := UNIDAC_PROVIDER[aServer];
   if result = '' then
@@ -503,7 +503,7 @@ var
 begin
   inherited Create(aProperties);
   if (aProperties.Dbms = dMSSQL) and
-     not SameText(cMSSQLProvider, 'prDirect') then
+     not SameTextS(cMSSQLProvider, 'prDirect') then
     CoInit;
   fDatabase := TUniConnection.Create(nil);
   fDatabase.LoginPrompt := false;
@@ -592,7 +592,7 @@ begin
   try
     Disconnect;
     if (fProperties.Dbms = dMSSQL) and
-       not SameText(cMSSQLProvider, 'prDirect') then
+       not SameTextS(cMSSQLProvider, 'prDirect') then
       CoUnInit;
   except
     on Exception do

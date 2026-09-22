@@ -128,6 +128,17 @@ type
     vIsOnStack,
     vIsHFA);
 
+  /// define how TInterfaceMethodExecuteRaw.RawExecute should handle a parameter
+  TInterfaceMethodRawExecute = (
+    reValReg,
+    reValRegs,
+    reValStack,
+    reRefReg,
+    reRefStack,
+    reValFpReg,
+    reValFpRegs,
+    reNone);
+
   /// a pointer to an interface-based service provider method description
   // - since TInterfaceFactory instances are shared in a global list, we
   // can safely use such pointers in our code to refer to a particular method
@@ -178,8 +189,7 @@ type
     // - may be -1 if pure register parameter with no backup on stack (x86)
     InStackOffset: SmallInt;
     /// how TInterfaceMethodExecuteRaw.RawExecute should handle this value
-    RawExecute: (reValReg, reValRegs, reValStack, reRefReg, reRefStack,
-                 reValFpReg, reValFpRegs, reNone);
+    RawExecute: TInterfaceMethodRawExecute;
     /// 64-bit aligned position in TInterfaceMethod.ArgsSizeAsValue memory
     OffsetAsValue: cardinal;
     /// true if is a const/var input argument
@@ -1503,7 +1513,7 @@ type
     fHasExpects: set of (eCount, eTrace);
     fLogs: TInterfaceStubLogDynArray;
     fLog: TDynArray;
-    fLogCount: integer;
+    fLogCount: integer; // not PtrInt
     fInterfaceExpectedTraceHash: cardinal;
     fLastInterfacedObjectFake: TInterfacedObject;
     function TryResolve(aInterface: PRttiInfo; out Obj): boolean; override;
@@ -1842,6 +1852,45 @@ SYSV aarch64:
  https://c9x.me/compile/bib/abi-arm64.pdf
 }
 
+{$ifdef ISDELPHI}
+  {$ifdef ABISYSVX64}
+    // Delphi's LLVM Linux x64 compiler returns a by-ref result (managed
+    // record, string, dynarray, variant...) following the Itanium C++ ABI:
+    // the hidden result pointer is the 1st integer register (RDI) and Self
+    // is pushed to the 2nd (RSI). FPC and Delphi-Win64 do the opposite (Self
+    // first), which is what the register layout in this unit assumes. This
+    // symbol enables the small fixups that bridge that ABI difference.
+    {$define DELPHI_RESULT_FIRST}
+  {$endif ABISYSVX64}
+  {$ifdef ABIA32}
+    {$ifdef OSANDROID}
+      // Delphi's LLVM ARM compiler (armeabi-v7a) follows AAPCS with VFP
+      // hard-float, as CPUARMHF expects, but has no asm: the external stubs
+      // (assembled from delphi-arm.s) replace ArmFakeStub and CallMethod
+      {$define DELPHI_ARM32_STUBS}
+      // like Delphi on Linux x64, it passes a by-ref result in R0 and Self in R1
+      {$define DELPHI_RESULT_FIRST}
+      // the VMT entry points come compiled in (armfakethunks), as on aarch64
+      {$define DELPHI_STATIC_FAKEVMT}
+    {$endif OSANDROID}
+  {$endif ABIA32}
+  {$ifdef ABIA64}
+    {$if defined(OSANDROID) or defined(IOS)}
+      // Delphi's LLVM aarch64 compiler follows AAPCS64 and passes a by-ref
+      // result in the dedicated X8 register, so it does not consume X1 as FPC
+      // does: the external aarch64fakestub (assembled from delphi-aarch64.s)
+      // saves X8 into TFakeCallStack.Frame, and no integer register is
+      // reserved for the result
+      // - the very same code is used as ELF for Android and as Mach-O for iOS
+      // - macOS/Windows aarch64 would need their own object: not done yet
+      {$define DELPHI_AARCH64_RESULT_X8}
+      // iOS terminates an app which runs code it wrote itself, so the VMT
+      // entry points come compiled in (aarch64fakethunks) instead of JITted
+      {$define DELPHI_STATIC_FAKEVMT}
+    {$ifend}
+  {$endif ABIA64}
+{$endif ISDELPHI}
+
 const
 {$ifdef ABIX86}
   MAX_EXECSTACK = 1024;
@@ -2019,18 +2068,20 @@ type
     {$ifdef ABIX86}
     EDX, ECX, MethodIndex, EBP, Ret: cardinal;
     {$else}
-    {$ifdef OSPOSIX}
+    // the x64 Windows stub stores the integer registers after the frame,
+    // every other ABI (including aarch64 on Windows) stores them first
+    {$ifndef ABIWINX64}
     ParamRegs: packed array[PARAMREG_FIRST .. PARAMREG_LAST] of pointer;
-    {$endif OSPOSIX}
+    {$endif ABIWINX64}
     {$ifdef HAS_FPREG}
     FPRegs: packed array[FPREG_FIRST..FPREG_LAST] of double;
     {$endif HAS_FPREG}
     MethodIndex: PtrUInt;
     Frame: pointer;
     Ret: pointer;
-    {$ifndef OSPOSIX}
+    {$ifdef ABIWINX64}
     ParamRegs: packed array[PARAMREG_FIRST .. PARAMREG_LAST] of pointer;
-    {$endif OSPOSIX}
+    {$endif ABIWINX64}
     {$endif ABIX86}
     {$ifdef ABIA32}
     // alf: on ARM, there is more on the stack than you will expect
@@ -3419,7 +3470,19 @@ begin
     else
     {$endif HAS_FPREG}
       if a^.RegisterIdent > 0 then
-        V := @ctxt.Stack.ParamRegs[a^.RegisterIdent + (PARAMREG_FIRST - 1)];
+        {$ifdef DELPHI_AARCH64_RESULT_X8}
+        if a^.ValueDirection = imdResult then
+          V := @ctxt.Stack.Frame // X8, as saved by aarch64fakestub
+        else
+        {$endif DELPHI_AARCH64_RESULT_X8}
+        {$ifdef DELPHI_RESULT_FIRST}
+        if a^.ValueDirection = imdResult then
+          // Delphi LLVM Linux x64 and ARM: the hidden result pointer travels
+          // in the 1st integer register, not the 2nd as FPC/Delphi-Win64 do
+          V := @ctxt.Stack.ParamRegs[PARAMREG_FIRST]
+        else
+        {$endif DELPHI_RESULT_FIRST}
+          V := @ctxt.Stack.ParamRegs[a^.RegisterIdent + (PARAMREG_FIRST - 1)];
     if a^.RegisterIdent = PARAMREG_FIRST then
       FakeCallRaiseError(ctxt, 'unexpected self', []);
     if V = nil then
@@ -3454,6 +3517,13 @@ asm
 end;
 {$endif HASINLINE}
 
+{$ifndef ABIX86}
+var
+  // reuse the very same JITted stubs for all interfaces (declared early so
+  // FakeCall() below can use it to validate a fake interface Self pointer)
+  _FAKEVMT: TPointerDynArray;
+{$endif ABIX86}
+
 procedure FakeCallRaise(Fake: TInterfacedObjectFakeRaw; MethodIndex: PtrUInt);
 begin
   EInterfaceFactory.RaiseUtf8('%.FakeCall(%) failed: out of range %',
@@ -3471,6 +3541,17 @@ begin
      forged to call a remote SOA server or mock/stub an interface
   *)
   me := SelfFromInterface;
+  {$ifdef DELPHI_RESULT_FIRST}
+  // for a by-ref-result method, Delphi's LLVM Linux x64 and ARM ABIs pass the
+  // hidden result pointer in the 1st integer register, so the shared stub
+  // trampoline forwarded @Result (not the interface) to us as Self. A genuine
+  // fake interface has fVTable = _FAKEVMT; if it does not, the real Self was
+  // pushed into the 2nd register (RSI/R1), saved on the stack: recover it there.
+  if (self = nil) or
+     (me.fVTable <> pointer(_FAKEVMT)) then
+    me := TInterfacedObjectFakeRaw(PAnsiChar(stack^.ParamRegs[PARAMREG_RESULT]) -
+      PtrUInt(@TInterfacedObjectFakeRaw(nil).fVTable));
+  {$endif DELPHI_RESULT_FIRST}
   // setup context
   ctxt.Stack := stack;
   if stack.MethodIndex >= PtrUInt(me.fFactory.MethodsCount) then
@@ -3653,10 +3734,10 @@ begin
     exit;
   if R = nil then
     FakeCallRaiseError(ctxt, 'method returned value, but OutputJson=''''', []);
-  if R^ in [#1..' '] then
+  if R^ in [#1 .. ' '] then
     repeat
       inc(R)
-    until not (R^ in [#1..' ']);
+    until not (R^ in [#1 .. ' ']);
   asJsonObject := false; // [value,...] JSON array format
   if R^ <> '[' then
     if R^ = '{' then
@@ -4027,11 +4108,11 @@ var
   {$ifdef ABIX86}
   offs: integer;
   {$else}
-  {$ifdef OSPOSIX} // not used for Win64
+  {$ifndef ABIWINX64} // not used for the x64 Windows ABI
   {$ifdef HAS_FPREG}
   fpreg: integer;
   {$endif HAS_FPREG}
-  {$endif OSPOSIX}
+  {$endif ABIWINX64}
   {$endif ABIX86}
 begin
   // validate supplied TypeInfo() RTTI input
@@ -4242,9 +4323,9 @@ begin
     // prepare stack and register layout
     reg := PARAMREG_FIRST;
     {$ifdef HAS_FPREG}
-    {$ifdef OSPOSIX}
+    {$ifndef ABIWINX64} // only the x64 Windows ABI overlaps int and FP indexes
     fpreg := FPREG_FIRST;
-    {$endif OSPOSIX}
+    {$endif ABIWINX64}
     {$endif HAS_FPREG}
     a := pointer(m^.Args);
     for na := 0 to high(m^.Args) do
@@ -4283,7 +4364,7 @@ begin
         imvDouble,
         imvDateTime:
           if not (vPassedByReference in a^.ValueKindAsm) then
-            SizeInFPR := 1; // stored in one double
+            SizeInFPR := 1; // stored in one FP register
         {$endif HAS_FPREG}
         imvDynArray:
           if (a^.ArgRtti.ArrayRtti <> nil) and
@@ -4306,13 +4387,13 @@ begin
                 'should be at least % bytes (i.e. bigger than a pointer) to be on stack',
                 [self, a^.ArgTypeName^, fInterfaceName, m^.URI,
                  a^.ParamName^, POINTERBYTES + 1]);
-              // to be fair, both ABIWINX64 and ABISYSVX64 could handle those and
-              // transmit them within a register
+              // to be fair, both ABIWINX64 and ABISYSVX64 could handle those
+              // and transmit them within a register
             if RecordIsHfa(a^.ArgRtti.Props) then
             begin
               include(a^.ValueKindAsm, vIsHFA); // e.g. record x, y: double end;
               {$ifdef HAS_FPREG}
-              SizeInFPR := a^.ArgRtti.Size shr 3;
+              SizeInFPR := a^.ArgRtti.Size shr 3; // how many FP registers
               {$endif HAS_FPREG}
             end;
          end;
@@ -4348,12 +4429,12 @@ begin
         (a^.SizeInStack <> POINTERBYTES) or
         {$endif ABIA32}
         {$ifdef HAS_FPREG}
-        {$ifdef OSPOSIX}  // Linux x64, armhf, aarch64
+        {$ifdef ABIWINX64}
+        (reg > PARAMREG_LAST) // Win64 x64: XMMs overlap regular registers
+        {$else}  // Linux x64, armhf, aarch64 - and aarch64 on Windows
         ((SizeInFPR = 1) and (fpreg > FPREG_LAST)) or // too many FP registers
         ((SizeInFPR = 0) and (reg > PARAMREG_LAST))  // too many int registers
-        {$else}
-        (reg > PARAMREG_LAST) // Win64: XMMs overlap regular registers
-        {$endif OSPOSIX}
+        {$endif ABIWINX64}
         {$else}
         (reg > PARAMREG_LAST) // Win32, Linux x86, armel
         {$endif HAS_FPREG}
@@ -4386,22 +4467,26 @@ begin
         // this parameter will go in a register
         a^.InStackOffset := -1;
         {$ifndef ABIX86}
+        {$ifndef DELPHI_AARCH64_RESULT_X8} // X8 is used instead
         if (m^.ArgsResultIndex >= 0) and
            (reg = PARAMREG_RESULT) and
            (m^.Args[m^.ArgsResultIndex].ValueType in ARGS_RESULT_BY_REF) then
           inc(reg); // this register is reserved for method result pointer
+        {$endif DELPHI_AARCH64_RESULT_X8}
         {$endif ABIX86}
         {$ifdef HAS_FPREG}
         if SizeInFPR = 1 then
         begin
           // put in next floating-point register
-          {$ifdef OSPOSIX}
-          a^.FPRegisterIdent := fpreg; // ABISYSVX64 has its own FP registers index
-          inc(fpreg);
-          {$else}
-          a^.FPRegisterIdent := reg; // Win64 ABI: reg and fpreg do overlap
+          {$ifdef ABIWINX64}
+          a^.FPRegisterIdent := reg; // Win64 x64 ABI: reg and fpreg do overlap
           inc(reg);
-          {$endif OSPOSIX}
+          {$else}
+          // SysV x64, armhf and aarch64 (POSIX or Windows) have a separate
+          // floating-point register bank with its own index
+          a^.FPRegisterIdent := fpreg;
+          inc(fpreg);
+          {$endif ABIWINX64}
         end
         else
         {$endif HAS_FPREG}
@@ -4455,15 +4540,16 @@ begin
       if vPassedByReference in a^.ValueKindAsm then
         if vIsOnStack in a^.ValueKindAsm then
           if a^.SizeInStack <> POINTERBYTES then
-            EInterfaceFactory.RaiseUtf8('Unexpected I% % ref with no pointer',
-              [m^.InterfaceDotMethodName, a^.ParamName^])
+            EInterfaceFactory.RaiseUtf8('Unexpected I% %:% with size=% <> % ' +
+              '- missing var or const?', [m^.InterfaceDotMethodName,
+              a^.ParamName^, a^.ArgTypeName^, a^.SizeInStack, POINTERBYTES])
           else
             a^.RawExecute := reRefStack
         else if a^.RegisterIdent > 0 then
           a^.RawExecute := reRefReg
         else
-          EInterfaceFactory.RaiseUtf8('Unexpected I% % reference with no slot',
-            [m^.InterfaceDotMethodName, a^.ParamName^])
+          EInterfaceFactory.RaiseUtf8('Unexpected I% %:% reference with no slot',
+            [m^.InterfaceDotMethodName, a^.ParamName^, a^.ArgTypeName^])
       else // pass by value
         if vIsOnStack in a^.ValueKindAsm then
           a^.RawExecute := reValStack
@@ -4657,7 +4743,7 @@ function TInterfaceFactory.GetMethodName(aMethodIndex: integer): RawUtf8;
 begin
   if (aMethodIndex < 0) or
      (self = nil) then
-    result := ''
+    FastAssignNew(result)
   else if aMethodIndex < SERVICE_PSEUDO_METHOD_COUNT then
     result := SERVICE_PSEUDO_METHOD[TServiceInternalMethod(aMethodIndex)]
   else
@@ -4666,14 +4752,14 @@ begin
     if cardinal(aMethodIndex) < cardinal(fMethodsCount) then
       result := fMethods[aMethodIndex].Uri
     else
-      result := '';
+      FastAssignNew(result);
   end;
 end;
 
 function TInterfaceFactory.GetFullMethodName(aMethodIndex: integer): RawUtf8;
 begin
   if self = nil then
-    result := ''
+    FastAssignNew(result)
   else
   begin
     result := GetMethodName(aMethodIndex);
@@ -4815,9 +4901,95 @@ end;
 {$ifdef ABIA64}
 procedure TInterfacedObjectFakeRaw.AArch64FakeStub;
 begin
-  // TODO: use external .o for Delphi ARM64
+  // unused: DELPHI_AARCH64_RESULT_X8 platforms link aarch64fakestub instead
 end;
+
+{$ifdef DELPHI_AARCH64_RESULT_X8}
+
+// the external stub calls back fakecall(Instance, Stack), with X8 in Stack.Frame
+function DelphiAArch64FakeCall(Instance: TInterfacedObjectFakeRaw;
+  Stack: PFakeCallStack): Int64; cdecl;
+begin
+  result := Instance.FakeCall(Stack); // FakeCall uses SelfFromInterface
+end;
+
+exports
+  DelphiAArch64FakeCall name 'fakecall';
+
+const
+  // the same code, one object per binary format and platform
+  AARCH64OBJ =
+    {$if defined(OSANDROID)}
+      '../../res/static/delphillvm/delphi-android-arm64.o'  // ELF
+    {$elseif defined(IOSSIMULATOR)}
+      '../../res/static/delphillvm/delphi-iossim-arm64.o'   // Mach-O
+    {$else}
+      '../../res/static/delphillvm/delphi-ios-arm64.o'      // Mach-O
+    {$ifend};
+
+procedure aarch64fakestub; external AARCH64OBJ
+  name 'aarch64fakestub';
+
+{$ifdef DELPHI_STATIC_FAKEVMT}
+const
+  // one VMT entry point per method index, 8 bytes each, in the order _FAKEVMT
+  // expects them - delphi-aarch64.s supplies 128 of them
+  FAKETHUNKSIZE = 8;
+
+{$if MAX_METHOD_COUNT > 128}
+  {$message fatal 'delphi-aarch64.s: aarch64fakethunks has only 128 entries'}
+{$ifend}
+
+// the table is addressed through this function on purpose: Delphi wraps an
+// "external ... name" procedure into a thunk of its own, so @aarch64fakethunks
+// would yield that wrapper instead of the table itself
+function FakeThunkBase: pointer; cdecl; external AARCH64OBJ
+  name 'aarch64fakethunkbase';
+{$endif DELPHI_STATIC_FAKEVMT}
+
+{$endif DELPHI_AARCH64_RESULT_X8}
 {$endif ABIA64}
+
+{$ifdef ABIA32}
+procedure TInterfacedObjectFakeRaw.ArmFakeStub;
+begin
+  // unused: DELPHI_ARM32_STUBS platforms link armfakestub instead
+end;
+
+{$ifdef DELPHI_ARM32_STUBS}
+
+// the external stub calls back fakecall(Instance, Stack)
+function DelphiArmFakeCall(Instance: TInterfacedObjectFakeRaw;
+  Stack: PFakeCallStack): Int64; cdecl;
+begin
+  result := Instance.FakeCall(Stack); // FakeCall uses SelfFromInterface
+end;
+
+exports
+  DelphiArmFakeCall name 'fakecall';
+
+const
+  ARMOBJ = '../../res/static/delphillvm/delphi-android-arm.o'; // ELF
+
+procedure armfakestub; external ARMOBJ
+  name 'armfakestub';
+
+const
+  // one VMT entry point per method index, 8 bytes each, in the order _FAKEVMT
+  // expects them - delphi-arm.s supplies 128 of them
+  FAKETHUNKSIZE = 8;
+
+{$if MAX_METHOD_COUNT > 128}
+  {$message fatal 'delphi-arm.s: armfakethunks has only 128 entries'}
+{$ifend}
+
+// the table is addressed through this function on purpose: Delphi wraps an
+// "external ... name" procedure into a thunk of its own
+function FakeThunkBase: pointer; cdecl; external ARMOBJ
+  name 'armfakethunkbase';
+
+{$endif DELPHI_ARM32_STUBS}
+{$endif ABIA32}
 
 {$endif FPC}
 
@@ -4977,9 +5149,29 @@ end;
 
 {$else}
 
+{$ifdef DELPHI_STATIC_FAKEVMT}
+
+// no JIT here: the VMT entry points are compiled in, because iOS terminates an
+// app which executes code it wrote itself - such a JITted page shows up as
+// "Untagged" rwx memory, and the kernel reports CODESIGNING / "Invalid Page"
+// - internal function protected by VmtSafe.Lock
+procedure Compute_FAKEVMT;
 var
-  // reuse the very same JITted stubs for all interfaces
-  _FAKEVMT: TPointerDynArray;
+  i: PtrInt;
+  thunk: PAnsiChar;
+begin
+  SetLength(_FAKEVMT, MAX_METHOD_COUNT + RESERVED_VTABLE_SLOTS);
+  // set IInterface RESERVED_VTABLE_SLOTS required methods
+  _FAKEVMT[0] := @TInterfacedObjectFakeRaw.FakeQueryInterface;
+  _FAKEVMT[1] := @TInterfacedObjectFakeRaw.Fake_AddRef;
+  _FAKEVMT[2] := @TInterfacedObjectFakeRaw.Fake_Release;
+  // point to the static thunk of each method index (e.g. mov x16,i; b stub)
+  thunk := FakeThunkBase;
+  for i := 0 to MAX_METHOD_COUNT - 1 do
+    _FAKEVMT[i + RESERVED_VTABLE_SLOTS] := @thunk[i * FAKETHUNKSIZE];
+end;
+
+{$else}
 
 // JIT MAX_METHOD_COUNT VMT stubs for every method of any interface
 // - internal function protected by VmtSafe.Lock
@@ -5066,6 +5258,8 @@ begin
   ReserveExecutableMemoryPageAccess(
     _FAKEVMT[RESERVED_VTABLE_SLOTS], {exec=}true);
 end;
+
+{$endif DELPHI_STATIC_FAKEVMT}
 
 function TInterfaceFactory.GetMethodsVirtualTable: pointer;
 begin
@@ -5361,7 +5555,7 @@ function TInterfaceResolverForSingleInterface.GetImplementationName: RawUtf8;
 begin
   if (self = nil) or
      (fImplementation.ValueClass = nil) then
-    result := ''
+    FastAssignNew(result)
   else
     result := fImplementation.Name;
 end;
@@ -5798,7 +5992,7 @@ begin
   {$endif NOPATCHVMT}
   if (r = nil) or
      not (rcfAutoCreateFields in r.Flags) then
-    r := DoRegisterAutoCreateFields(self);
+    r := pointer(Rtti.RegisterAutoCreateFieldsClass(PClass(self)^));
   // resolve all published interface fields
   p := pointer(TRttiCustomWrapper(r).fAutoResolveInterfaces);
   if p = nil then
@@ -6083,7 +6277,7 @@ function TOnInterfaceStubExecuteParamsVariant.GetInUtf8(
 var
   wasString: boolean;
 begin
-  result := '';
+  FastAssignNew(result);
   VariantToUtf8(GetInNamed(ParamName), result, wasString);
 end;
 
@@ -6115,7 +6309,7 @@ var
   o: PVarData;
   temp: TTextWriterStackBuffer; // 8KB work buffer on stack
 begin
-  fResult := '';
+  FastAssignNew(fResult);
   if fOutput = nil then
     exit;
   W := TJsonWriter.CreateOwnedStream(temp);
@@ -6703,7 +6897,7 @@ var
   log: ^TInterfaceStubLog;
 begin
   if fLogCount = 0 then
-    result := ''
+    FastAssignNew(result)
   else
   begin
     WR := TJsonWriter.CreateOwnedStream(temp);
@@ -6872,11 +7066,20 @@ type
     {$endif HAS_FPREG}
     res64: Int64Rec;
     resKind: TInterfaceMethodValueType;
+    {$ifdef DELPHI_AARCH64_RESULT_X8}
+    // by-ref result pointer, loaded into X8 by aarch64callmethod
+    // - its offset 168 is hardcoded in delphi-aarch64.s
+    ResultX8: PtrInt;
+    {$endif DELPHI_AARCH64_RESULT_X8}
   end;
 
 // ARM/AARCH64 code below provided by ALF, greatly inspired by pascalscript
 {$ifdef ABIA32}
 
+{$ifdef DELPHI_ARM32_STUBS}
+procedure CallMethod(var Args: TCallMethodArgs); external
+  ARMOBJ name 'armcallmethod';
+{$else}
 procedure CallMethod(var Args: TCallMethodArgs); assembler; nostackframe;
 label
   {$ifdef HAS_FPREG}
@@ -6964,8 +7167,6 @@ load_regs:
    cmp   r2, imvDouble
    beq   float_result
    cmp   r2, imvDateTime
-   beq   float_result
-   cmp   r2, imvCurrency
    bne   asmcall_end
    // store double result in res64
 float_result:
@@ -6975,6 +7176,7 @@ asmcall_end:
    // epilog
    ldmea fp, {v1, v2, sb, sl, fp, sp, pc}
 end;
+{$endif DELPHI_ARM32_STUBS}
 
 {$endif ABIA32}
 
@@ -7048,8 +7250,6 @@ load_regs:
    cmp  x15, imvDouble
    b.eq float_result
    cmp  x15, imvDateTime
-   b.eq float_result
-   cmp  x15, imvCurrency
    b.ne asmcall_end
    // store double result in res64
 float_result:
@@ -7061,10 +7261,15 @@ asmcall_end:
    ret
 end;
 {$else}
+{$ifdef DELPHI_AARCH64_RESULT_X8}
+procedure CallMethod(var Args: TCallMethodArgs); external
+  AARCH64OBJ name 'aarch64callmethod';
+{$else}
 procedure CallMethod(var Args: TCallMethodArgs);
 begin
   // TODO: use external .o stub on Delphi ARM64
 end;
+{$endif DELPHI_AARCH64_RESULT_X8}
 {$endif FPC}
 {$endif ABIA64}
 
@@ -7080,8 +7285,17 @@ procedure CallMethod(var Args: TCallMethodArgs); assembler;
 {$ifdef FPC} nostackframe;
 asm
         push    rbp
+        {$ifdef OSPOSIX}
         push    r12
         mov     rbp, rsp
+        {$else} // Win64 requires unwinding information
+        .seh_pushreg rbp
+        push    r12
+        .seh_pushreg r12
+        mov     rbp, rsp
+        .seh_setframe rbp,0
+        .seh_endprologue
+        {$endif OSPOSIX}
         // simulate .params 32
         lea     rsp, [rsp - MAX_EXECSTACK]
         // align stack to 16 bytes
@@ -7141,12 +7355,16 @@ asm
         je      @d
         cmp     cl, imvDateTime
         je      @d
+        {$ifdef FPCPOSIX} // FPC x86-64 SysV store imvCurrency into x87 ST0
         cmp     cl, imvCurrency
         jne     @e
+        fistp   qword [r12].TCallMethodArgs.res64
+        {$endif FPCPOSIX}
+        jmp     @e
 @d:     movlpd  qword ptr [r12].TCallMethodArgs.res64, xmm0
         // movlpd to ignore upper 64-bit of 128-bit xmm0 reg
 @e:     {$ifdef FPC}
-        mov     rsp, rbp
+        lea     rsp, [rbp]
         pop     r12
         pop     rbp
         {$endif FPC}
@@ -7340,7 +7558,7 @@ begin
   begin
     inc(arg);
     inc(pv);
-    case arg^.RawExecute of
+    case arg^.RawExecute of // use pre-computed parameter access modes
       reValReg:
         call.ParamRegs[arg^.RegisterIdent] := PPtrInt(pv^)^;
       reValRegs:
@@ -7349,7 +7567,12 @@ begin
       reValStack:
         MoveFast(pv^^, Stack[arg^.InStackOffset], arg^.SizeInStack);
       reRefReg:
-        call.ParamRegs[arg^.RegisterIdent] := PPtrInt(pv)^;
+        {$ifdef DELPHI_AARCH64_RESULT_X8}
+        if arg^.ValueDirection = imdResult then
+          call.ResultX8 := PPtrInt(pv)^ // AAPCS64 passes it in X8
+        else
+        {$endif DELPHI_AARCH64_RESULT_X8}
+          call.ParamRegs[arg^.RegisterIdent] := PPtrInt(pv)^;
       reRefStack:
         PPointer(@Stack[arg^.InStackOffset])^ := pv^;
       {$ifdef HAS_FPREG}
@@ -7361,6 +7584,14 @@ begin
       {$endif HAS_FPREG}
     end;
   end;
+  {$ifdef DELPHI_RESULT_FIRST}
+  // the FPC-shaped layout above placed a by-ref result pointer in RSI/R1
+  // (PARAMREG_RESULT); Delphi's LLVM Linux x64 and ARM ABIs expect it in
+  // RDI/R0, so move it there once. Self is assigned to RSI/R1 per-instance.
+  if (fMethod^.ArgsResultIndex >= 0) and
+     (fMethod^.Args[fMethod^.ArgsResultIndex].ValueType in ARGS_RESULT_BY_REF) then
+    call.ParamRegs[PARAMREG_FIRST] := call.ParamRegs[PARAMREG_RESULT];
+  {$endif DELPHI_RESULT_FIRST}
   // execute the method
   for i := 0 to InstancesLast do
   begin
@@ -7378,6 +7609,13 @@ begin
       end;
     end;
     // prepare the low-level call context for the asm stub
+    {$ifdef DELPHI_RESULT_FIRST}
+    if (fMethod^.ArgsResultIndex >= 0) and
+       (fMethod^.Args[fMethod^.ArgsResultIndex].ValueType in ARGS_RESULT_BY_REF) then
+      // Delphi LLVM Linux x64 and ARM: Self travels in the 2nd integer register
+      call.ParamRegs[PARAMREG_RESULT] := PtrInt(Instances[i])
+    else
+    {$endif DELPHI_RESULT_FIRST}
     call.ParamRegs[PARAMREG_FIRST] := PtrInt(Instances[i]); // pass self
     call.method := PPtrIntArray(PPointer(Instances[i])^)^[
       fMethod^.ExecutionMethodIndex];
@@ -7812,18 +8050,17 @@ type
   TSetWeakZero = class(TSynDictionary) // TClass / TPointerDynArray map
   protected
     fHookedFreeInstance: PtrUInt;
+    procedure HookedFreeInstance;
   public
     constructor Create(aClass: TClass); reintroduce;
   end;
 
-type
-  TFreeInstanceMethod = procedure(self: TObject);
-
-procedure HookedFreeInstance(self: TObject);
+procedure TSetWeakZero.HookedFreeInstance;
 var
   inst: TSetWeakZero;
   i: PtrInt;
   fields: PPointerArray; // holds a TPointerDynArray but avoid try..finally
+  next: TThreadMethod;
 begin
   inst := Rtti.FindClass(PClass(self)^).GetPrivateSlot(TSetWeakZero);
   fields := nil;
@@ -7835,8 +8072,19 @@ begin
       PPointer(fields[i])^ := nil;
     FastDynArrayClear(@fields, nil);
   end;
-  TFreeInstanceMethod(inst.fHookedFreeInstance)(self); // CleanupInstance + FreeMem()
+  // cascaded call up to TObject.FreeInstance = CleanupInstance + FreeMem()
+  TMethod(next).Code := pointer(inst.fHookedFreeInstance);
+  TMethod(next).Data := self;
+  next();
 end;
+
+const
+  // = the deprecated System.vmtFreeInstance, which Delphi replaced by the
+  // asm-only VMTOFFSET operator - verified to match the RTL value on 32/64-bit
+  // - CPP_ABI_ADJUST was introduced with Delphi XE3, and the RTL constant is
+  // not deprecated on older compilers, so it is used as-is there and on FPC
+  VMT_FREEINSTANCE = {$ifdef ISDELPHIXE3} -2 * SizeOf(pointer) - CPP_ABI_ADJUST
+                     {$else} vmtFreeInstance {$endif ISDELPHIXE3};
 
 constructor TSetWeakZero.Create(aClass: TClass);
 var
@@ -7844,12 +8092,12 @@ var
 begin
   // key = instance TObject, value = dynarray field(s) to be zeroed
   inherited Create(TypeInfo(TPointerDynArray), TypeInfo(TPointerDynArrayDynArray));
-  P := pointer(PAnsiChar(aClass) + vmtFreeInstance);
-  if P^ = PtrUInt(@HookedFreeInstance) then
+  P := pointer(PAnsiChar(aClass) + VMT_FREEINSTANCE);
+  if PPointer(P)^ = @TSetWeakZero.HookedFreeInstance then
     // hook once - Create may be done twice in GetWeakZero() for SetPrivateSlot
     exit;
   fHookedFreeInstance := P^;
-  PatchCodePtrUInt(P, PtrUInt(@HookedFreeInstance), {leaveunprot=}false);
+  PatchPointer(P, PtrUInt(@TSetWeakZero.HookedFreeInstance));
 end;
 
 function GetWeakZero(aClass: TClass; CreateIfNonExisting: boolean): TSetWeakZero;
@@ -8086,7 +8334,7 @@ var
           begin
             info := ContextFromRtti(
               ClassToWrapperType(rtti.ObjArrayClass), rtti.ArrayRtti);
-            _Safe(info)^.AddValue('isObjArray', true);
+            _Safe(info)^.AddValue('isObjArray', varTrue);
           end
           else
           begin
@@ -8108,7 +8356,7 @@ var
             'camelName', LowerCamelCase(typName),
             'snakeName', SnakeCase(typName)], info);
           if rtti.Cache.ItemCount > 0 then
-            _Safe(info)^.AddValue('staticMaxIndex', rtti.Cache.ItemCount-1);
+            _Safe(info)^.AddValue('staticMaxIndex', rtti.Cache.ItemCount - 1);
         end;
     end;
     if not VarIsEmptyOrNull(info) then
@@ -8690,7 +8938,7 @@ begin
           // simple type (record, array, enumeration, set)
           if Descriptions.GetValueIndex(typeName) < 0 then
           begin
-            Descriptions.AddValue(typeName, RawUtf8ToVariant(desc));
+            Descriptions.AddValueText(typeName, desc);
             if typeName[1] = 'I' then
               interfaceName := Copy(typeName, 2, 128)
             else
@@ -8701,8 +8949,7 @@ begin
           if PropNameEquals(typeName, 'function') or
              PropNameEquals(typeName, 'procedure') then
             if GetNextFieldProp(P, typeName) then
-              Descriptions.AddValue(interfaceName + '.' + typeName,
-                RawUtf8ToVariant(desc));
+              Descriptions.AddValueText(Join([interfaceName, '.', typeName]), desc);
     end
     else
       P := GotoNextLineSmall(P);

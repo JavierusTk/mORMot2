@@ -29,9 +29,9 @@ uses
   sysutils,
   classes,
   variants,
-  contnrs,
   mormot.core.base,
   mormot.core.os,
+  mormot.core.os.security, // for SymmetricEncrypt()
   mormot.core.buffers,
   mormot.core.unicode,
   mormot.core.text,
@@ -116,7 +116,7 @@ type
     /// the thread which launched the request
     // - is set by TRestServer.BeginCurrentThread from multi-thread server
     // handlers - e.g. TRestHttpServer
-    RunningThread: TThread;
+    RunningThread: TThreadAbstract;
   end;
 
   /// kind of (static) database server implementation available
@@ -1834,9 +1834,9 @@ type
     fServer: IRestOrmServer;
     fRouter: TRestRouter;
     fRouterSafe: TRWLightLock;
+    fServiceReleaseTimeoutMicrosec: integer;
     fOnNotifyCallback: TOnRestServerClientCallback;
     fAuthenticationBearerHeader: PAesSignature;
-    fServiceReleaseTimeoutMicrosec: integer;
     procedure SetNoAjaxJson(const Value: boolean);
     function GetNoAjaxJson: boolean;
       {$ifdef HASINLINE}inline;{$endif}
@@ -1845,8 +1845,8 @@ type
     function StatusCodeToText(Code: cardinal): PRawUtf8; virtual;
     procedure HandleUriError(Ctxt: TRestServerUriContext; E: Exception);
     /// ensure the thread will be taken into account during process
-    procedure OnBeginCurrentThread(Sender: TThread); override;
-    procedure OnEndCurrentThread(Sender: TThread); override;
+    procedure OnBeginCurrentThread(Sender: TThreadAbstract); override;
+    procedure OnEndCurrentThread(Sender: TThreadAbstract); override;
     // called by Stat() and Info() method-based services
     procedure InternalStat(Ctxt: TRestServerUriContext; W: TJsonWriter); virtual;
     procedure AddStat(Flags: TRestServerAddStats; W: TJsonWriter);
@@ -1882,8 +1882,12 @@ type
     // - may be used e.g. from OnSessionCreate to limit the number of active sessions
     // - this method is thread-safe via Sessions.Safe.ReadWriteLock/WriteLock
     // - it will be called to search for outdated sessions only once per second
-    // - returns how many deprecated sessions have been purge
+    // - returns how many deprecated sessions have been purged
     function SessionDeleteDeprecated(tix32: cardinal): integer;
+    /// force all sessions to expire immediately
+    // - could be used e.g. to force re-authentication of all connected clients
+    // - returns how many sessions have been purged
+    function SessionDeleteAll: integer;
     /// return the Server's current nonce in the proper JSON format
     // - as called from TRestServerAuthenticationDefault.Auth
     procedure ReturnNonce(Ctxt: TRestServerUriContext;
@@ -2980,7 +2984,7 @@ function TRestServerUriContext.Authenticate: boolean;
 var
   s: TAuthSession;
   a: ^TRestServerAuthentication;
-  tix32, bearerid: cardinal;
+  tix32, c32, bearerid: cardinal;
   n: PtrInt;
 begin
   result := true;
@@ -3025,7 +3029,9 @@ begin
     end;
     // first check for deprecated sessions (every second is enough)
     tix32 := TickCount64 shr 10;
-    if Server.fSessionsDeprecatedTix <> tix32 then
+    c32 := Server.fSessionsDeprecatedTix;
+    if (c32 <> tix32) and
+       LockedExc32(Server.fSessionsDeprecatedTix, tix32, c32) then
       Server.SessionDeleteDeprecated(tix32);
     // TAuthSession instance may have been stored at connection level
     if (rsoSessionInConnectionOpaque in Server.Options) and
@@ -3547,8 +3553,8 @@ begin
   end;
   if TServiceFactoryServer(Service).ResultAsXMLObjectIfAcceptOnlyXML and
      FindNameValue(Call^.InHead, 'ACCEPT:', fTemp) and
-     (PropNameEquals(fTemp, 'application/xml') or
-      PropNameEquals(fTemp, 'text/xml')) then
+     (IdemPChar(pointer(fTemp), 'APPLICATION/XML') or
+      IdemPChar(pointer(fTemp), 'TEXT/XML')) then
     ForceServiceResultAsXMLObject := true;
   try
     InternalExecuteSoaByInterfaceComputeResult;
@@ -3852,9 +3858,10 @@ begin
             // if ORDER BY already in the where clause
             SetLength(wherecount, i - 1);
         end;
+        Server.fModel.TableProps[TableIndex].SqlFromSelectWhere(
+          'Count(*)', wherecount, sql);
         resultlist := TRestOrmServer(Server.fOrmInstance).
-          ExecuteList([Table], Server.fModel.TableProps[TableIndex].
-            SqlFromSelectWhere('Count(*)', wherecount));
+          ExecuteList([Table], sql);
         if resultlist <> nil then
         try
           totalrowcount := resultlist.GetAsInteger(1, 0);
@@ -3868,8 +3875,8 @@ begin
   else
     select := ROWID_TXT; // /root/tablename returns all IDs of this table
   // execute the select/where request on this table
-  sql := Server.fModel.TableProps[TableIndex].SqlFromSelectWhere(
-    select, TrimU(where));
+  Server.fModel.TableProps[TableIndex].SqlFromSelectWhere(
+    select, TrimU(where), sql);
   fCall^.OutBody := TRestOrmServer(Server.fOrmInstance).
     InternalListRawUtf8(TableIndex, sql);
   if fCall^.OutBody = '' then
@@ -4638,7 +4645,7 @@ var
   fileName: TFileName;
 begin
   if fUriMethodPath = '' then
-    fileName := MakePath([FolderName, DefaultFileName])
+    MakePath([FolderName, DefaultFileName], fileName)
   else
     NormalizeUriToFileName(fUriMethodPath, filename, FolderName);
   ReturnFile(fileName,
@@ -5028,7 +5035,7 @@ end;
 function TAuthSession.GetUserName: RawUtf8;
 begin
   if User = nil then
-    result := ''
+    FastAssignNew(result)
   else
     result := User.LogonName;
 end;
@@ -5060,13 +5067,18 @@ const
   // version 2 includes fRemoteOsVersion
 
 procedure TAuthSession.SaveTo(W: TBufferWriter);
+var
+  g: TAuthGroup;
 begin
   W.Write1(TAUTHSESSION_MAGIC);
   W.WriteVarUInt32(fID);
   W.WriteVarUInt32(fUser.IDValue);
-  fUser.GetBinaryValues(W); // User.fGroup is a pointer, but will be overriden
-  W.WriteVarUInt32(fUser.GroupRights.IDValue);
-  fUser.GroupRights.GetBinaryValues(W);
+  g := fUser.GroupRights;
+  fUser.GroupRights := nil; // store 0 now but WriteVarUInt32(g.IDValue) below
+  fUser.GetBinaryValues(W);
+  fUser.GroupRights := g;
+  W.WriteVarUInt32(g.IDValue); // store the TAuthGroup with no DB involved
+  g.GetBinaryValues(W);
   W.Write(fPrivateKey);
   W.Write(fSentHeaders);
   W.Write4(integer(fRemoteOsVersion));
@@ -5081,8 +5093,8 @@ begin
   fID := Read.VarUInt32;
   fUser := Server.AuthUserClass.Create;
   fUser.IDValue := Read.VarUInt32;
-  fUser.SetBinaryValues(Read); // fUser.fGroup will be overriden by true instance
-  fUser.GroupRights := Server.AuthGroupClass.Create;
+  fUser.SetBinaryValues(Read);
+  fUser.GroupRights := Server.AuthGroupClass.Create; // expects a true instance
   fUser.GroupRights.IDValue := Read.VarUInt32;
   fUser.GroupRights.SetBinaryValues(Read);
   Read.VarUtf8(fPrivateKey);
@@ -5269,9 +5281,9 @@ begin
   if Executable.Version.Major <> 0 then
   begin
     if saoFullServerVersion in fOptions then
-      vers := Executable.Version.DetailedOrVoid
+      vers := Executable.Version.Detailed // '3.1.2.3'
     else
-      vers := Executable.Version.Main;
+      vers := Executable.Version.Main;    // '3.1'
     body.AddValue('version', StringToVariant(vers));
   end;
   if Assigned(fServer.Services) and
@@ -6344,7 +6356,7 @@ var
   m: TUriMethod;
   n: TRestNode;
 begin
-  result := ''; // just concatenate the counters for logging
+  FastAssignNew(result); // just concatenate the counters for logging
   for m := low(fTreeCount) to high(fTreeCount) do
     if fTreeCount[m] <> 0 then
       Append(result, [' ', ToText(m), '=', fTreeCount[m]]);
@@ -6689,7 +6701,7 @@ var
 begin
   if (self = nil) or
      (Services = nil) then
-    result := ''
+    FastAssignNew(result)
   else
   begin
     nfo.PublicUri := fPublicUri;
@@ -6865,7 +6877,7 @@ begin
     'nowutc',    now.Text(true, ' '),
     'timestamp', now.Value,
     'exe',       Executable.ProgramName,
-    'version',   Executable.Version.DetailedOrVoid,
+    'version',   Executable.Version.DetailedOrVoid, // '3.1.2.3'
     'host',      Executable.Host,
     {$ifdef OSWINDOWS}
     'cpuhist',   TSystemUse.CurrentHistoryText(0, 15, @mem),
@@ -7357,19 +7369,18 @@ begin
   // optional callback
   if Assigned(OnSessionClosed) then
     OnSessionClosed(self, aSession, Ctxt);
-  // actually remove this sesion from the internal list
+  // actually remove this session from the internal list
   fSessions.Delete(aSessionIndex);
-  fStats.ClientDisconnect;
+  fStats.ClientDisconnect; // dec(ClientDisconnect)
 end;
 
 function TRestServer.SessionDeleteDeprecated(tix32: cardinal): integer;
 var
   i: PtrInt;
   log: ISynLog;
-  a: ^TAuthSession;
+  a: PAuthSession;
 begin
   // TRestServer.Uri() runs this method at most every second
-  fSessionsDeprecatedTix := tix32;
   result := 0;
   if (self = nil) or
      (fSessions = nil) or
@@ -7377,20 +7388,20 @@ begin
     exit;
   fSessions.Safe.ReadWriteLock; // won't block the ReadOnlyLock methods
   try
-    a := @fSessions.List[fSessions.Count];
+    a := @fSessions.List[fSessions.Count]; // for faster loop against tix32
     for i := fSessions.Count - 1 downto 0 do // backward for deletion
     begin
       dec(a);
-      if tix32 > a^.fTimeOutTix then // remove this session
+      if tix32 <= a^.fTimeOutTix then
+        continue; // keep this session
+      if result = 0 then // first deprecated session identified
       begin
-        if result = 0 then // first deprecated session identified
-        begin
-          fLogClass.EnterLocal(log, self, 'SessionDeleteDeprecated');
-          fSessions.Safe.WriteLock; // upgrade the lock (only if needed)
-        end;
-        WriteLockedSessionDelete(i, a^, nil);
-        inc(result);
+        fLogClass.EnterLocal(log, self, 'SessionDeleteDeprecated');
+        fSessions.Safe.WriteLock; // upgrade the lock (only if needed)
       end;
+      WriteLockedSessionDelete(i, a^, nil); // with full clean-up
+      a := @fSessions.List[i]; // List[] may have moved in memory
+      inc(result);
     end;
   finally
     if result <> 0 then
@@ -7401,6 +7412,29 @@ begin
     end;
     fSessions.Safe.ReadWriteUnLock;
   end;
+end;
+
+function TRestServer.SessionDeleteAll: integer;
+var
+  i: PtrInt;
+  start: Int64;
+begin
+  result := 0;
+  if (self = nil) or
+     (fSessions = nil) or
+     (fSessions.Count = 0) then
+    exit;
+  QueryPerformanceMicroSeconds(start);
+  fSessions.Safe.WriteLock;
+  try
+    result := fSessions.Count;
+    for i := result - 1 downto 0 do // backward for deletion
+      WriteLockedSessionDelete(i, fSessions.List[i], nil);
+  finally
+    fSessions.Safe.WriteUnlock;
+  end;
+  fLogClass.Add.Log(sllTrace, 'SessionDeleteAll=% in %',
+    [result, MicroSecFrom(start)], self);
 end;
 
 function TRestServer.LockedSessionAccess(Ctxt: TRestServerUriContext;
@@ -7467,7 +7501,7 @@ var
   W: TJsonWriter;
   temp: TTextWriterStackBuffer;
 begin
-  result := '';
+  FastAssignNew(result);
   if (self = nil) or
      (fSessions.Count = 0) then
     exit;
@@ -7546,7 +7580,7 @@ function TRestServer.ServiceMethodRegister(aMethodName: RawUtf8;
 var
   m: TUriMethods;
   one: TUriMethod;
-  pos: PtrInt;
+  pos, ndx: PtrInt;
   obj: TObject;
   met: PRestServerMethod;
 begin
@@ -7576,12 +7610,14 @@ begin
      (Model.GetTableIndex(aMethodName) >= 0) then
     EServiceException.RaiseUtf8('Published method name %.% ' +
       'conflicts with a Table in the Model!', [obj, aMethodName]);
+  ndx := 0;
   met := fPublishedMethods.AddUniqueName(aMethodName,
-    'Duplicated published method name %.%', [obj, aMethodName], @result);
+    'Duplicated published method name %.%', [obj, aMethodName], @ndx);
   met^.Callback := aEvent;
   met^.ByPassAuthentication := aByPassAuthentication;
   met^.Methods := m;
-  ResetRoutes;  // fRouter will be re-generated when needed
+  ResetRoutes;   // fRouter will be re-generated when needed
+  result := ndx; // safer with a transient local variable
 end;
 
 function TRestServer.ServiceMethodByPassAuthentication(
@@ -7777,7 +7813,7 @@ begin
     DeleteFile(aFileName);
 end;
 
-procedure TRestServer.OnBeginCurrentThread(Sender: TThread);
+procedure TRestServer.OnBeginCurrentThread(Sender: TThreadAbstract);
 var
   tc: integer;
   id: TThreadID;
@@ -7805,7 +7841,7 @@ begin
   inherited OnBeginCurrentThread(Sender);
 end;
 
-procedure TRestServer.OnEndCurrentThread(Sender: TThread);
+procedure TRestServer.OnEndCurrentThread(Sender: TThreadAbstract);
 var
   tc: integer;
   i: PtrInt;
@@ -7863,7 +7899,7 @@ var
   ctxt: TRestServerUriContext;
   node: TRestTreeNode;
   i: PtrInt;
-  idletix32: cardinal;
+  idletix32, c32: cardinal;
   m: TUriMethod;
 begin
   // 1. reject ASAP if not worth processing
@@ -8047,12 +8083,12 @@ begin
     ctxt.Free;
   end;
   // 12. trigger post-request periodic process
-  if (idletix32 <> 0) and
-     (fOnIdleLastTix <> idletix32) then
-  begin
-    fOnIdleLastTix := idletix32;
+  if idletix32 = 0 then
+    exit;
+  c32 := fOnIdleLastTix;
+  if (c32 <> idletix32) and
+     LockedExc32(fOnIdleLastTix, idletix32, c32) then
     OnIdle(self);
-  end;
 end;
 
 procedure TRestServer.Stat(Ctxt: TRestServerUriContext);
@@ -8335,7 +8371,7 @@ begin
   call.Init;
   LibraryRequestString(call.Url, Url, UrlLen);
   LibraryRequestString(call.Method, Method, MethodLen);
-  call.LowLevelConnectionID := PtrInt(GlobalLibraryRequestServer);
+  call.LowLevelConnectionID := PtrUInt(GlobalLibraryRequestServer);
   call.LowLevelConnectionFlags := [llfSecured]; // in-process call
   call.InHead := 'RemoteIP: 127.0.0.1';
   call.LowLevelRemoteIP := '127.0.0.1';
@@ -8414,7 +8450,7 @@ end;
 initialization
   // should match TPerThreadRunningContext definition in mormot.core.interfaces
   assert(SizeOf(TServiceRunningContext) =
-    SizeOf(TObject) + SizeOf(TObject) + SizeOf(TThread));
+    SizeOf(TObject) + SizeOf(TObject) + SizeOf(TThreadAbstract));
   GetEnumTrimmedNames(TypeInfo(TOnAuthenticationFailedReason), @OAFR_TXT, scUnCamelCase);
 
 end.

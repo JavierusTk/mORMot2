@@ -109,7 +109,7 @@ uses
   mormot.core.rtti,
   mormot.core.json,
   mormot.crypt.jwt,
-  mormot.core.perf,
+  mormot.core.perf, // for GetDiskPartitionsVariant/TSynMonitorMemory
   mormot.crypt.secure,
   mormot.net.sock,
   mormot.net.http,
@@ -173,7 +173,7 @@ type
     // implements mormot.net.ws.core's TWebSocketProtocolRest variants
     // to behave like a regular mORMot server from the client point of view
     function GetSubprotocols: RawUtf8; override;
-    function SetSubprotocol(const aProtocolName: RawUtf8): boolean; override;
+    function IsSubprotocol(const aProtocolName: RawUtf8): boolean; override;
   public
     /// initialize the protocol to be processed on a given TPublicRelay
     constructor Create(aOwner: TPublicRelay); reintroduce;
@@ -550,7 +550,7 @@ begin
   result := 'synopsejson, synopsebin, synopsebinary';
 end;
 
-function TSynopseServerProtocol.SetSubprotocol(
+function TSynopseServerProtocol.IsSubprotocol(
   const aProtocolName: RawUtf8): boolean;
 begin
   result := FindPropName(
@@ -572,7 +572,8 @@ begin
       focBinary:
         if fOwner.fServerConnected = nil then
           ERelayProtocol.RaiseUtf8(
-            '%.ProcessIncomingFrame: No server to relay to', [self]);
+           '%.ProcessIncomingFrame(%): No server to relay to',
+            [self, ToText(Frame.opcode)^]);
       focConnectionClose:
         if fOwner.fServerConnected = nil then
           exit;
@@ -1086,7 +1087,7 @@ begin
     else
       ip := fServerConnected.RemoteIP;
     fStatCache := JsonReformat(JsonEncode([
-      'version',     Executable.Version.Detailed,
+      'version',     Executable.Version.Main,
       'started',     Started,
       'memory',      TSynMonitorMemory.ToVariant,
       'diskfree',    GetDiskPartitionsVariant,

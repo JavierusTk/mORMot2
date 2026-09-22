@@ -85,7 +85,7 @@ type
       0: (sin_family: word;
           sin_port:   word;
           sin_addr:   TNetIP4;
-          sin_zero:   array[0..7] of AnsiChar);
+          sin_zero:   Int64);
       1: (sa_family:  word;
           sa_data:    array[0..13] of AnsiChar)
   end;
@@ -524,12 +524,12 @@ var
 { TNetAddr }
 
 function SetWinAddr(const host, port: RawUtf8; family: cardinal; layer: TNetLayer;
-  out addr): boolean;
+  var addr): boolean;
 var
   h: TAddrInfo;
   res: PAddrInfo;
 begin
-  // use regular OS resolution for known addresses or host names
+  // use regular WinAPI resolution for known addresses or host names
   FillCharFast(h, SizeOf(h), 0);
   h.ai_family := family;
   h.ai_socktype := _ST[layer];
@@ -537,47 +537,31 @@ begin
   res := nil;
   result := getaddrinfo(pointer(host), pointer(port), @h, res) = NO_ERROR;
   if result then
-    MoveFast(res^.ai_addr^, addr, res^.ai_addrlen); // return the first result
+    // return the first result - fill the whole TSockAddr structure
+    MoveFast(res^.ai_addr^, addr, res^.ai_addrlen);
   if res <> nil then
     freeaddrinfo(res);
 end;
 
-procedure TNetAddr.Clear;
-begin
-  FillCharFast(Addr, SizeOf(Addr), 0);
-end; // some obscure Windows docs seem to state that zeroing is expected
-
-procedure TNetAddr.SetFamily(fam: cardinal);
-begin
-  PSockAddr(@Addr)^.sin_family := fam;
-end;
-
-function TNetAddr.SetFrom(const address, addrport: RawUtf8;
-  layer: TNetLayer): TNetResult;
-var
-  p: TNetPort;
+function TNetAddr.SetFrom(const address, addrport: RawUtf8; layer: TNetLayer): TNetResult;
 begin
   Clear;
-  result := nrNotImplemented;
   if layer = nlUnix then
-    exit;
-  result := nrNotFound;
-  if address = '' then
-    exit;
-  // check and decode supplied IP port
-  p := GetCardinal(pointer(addrport));
-  if (p = 0) and
-     (addrport <> '0') then // explicit '0' to get ephemeral port
-    exit;
-  // first check most simple IPv4 resolution (maybe using mormot.net.dns)
-  if SetFromIP4(address, false) or
-     // fallback to OS getaddrinfo() resolution, first try as IPv4, then IPv6
-     SetWinAddr(address, addrport, AF_INET, layer, Addr) or
-     SetWinAddr(address, addrport, AF_INET6, layer, Addr) then
-  begin
-    PSockAddr(@Addr)^.sin_port := bswap16(p); // eventually set port
-    result := nrOk;
-  end;
+    result := nrNotImplemented
+  else if address = '' then
+    result := nrNotFound
+  else if not ParsePort(addrport) then
+    result := nrInvalidParameter
+  else
+    // first check most simple IPv4/IPv6 resolution (maybe using mormot.net.dns)
+    if SetFromIP4(address, false) or
+       SetFromIP6(address) or // Inet6Pton() OS API is faster than getaddrinfo
+       // fallback to OS getaddrinfo() resolution, first try as IPv4, then IPv6
+       SetWinAddr(address, addrport, AF_INET,  layer, Addr) or
+       SetWinAddr(address, addrport, AF_INET6, layer, Addr) then
+    result := nrOk
+  else
+    result := nrNotFound;
 end;
 
 
@@ -622,6 +606,45 @@ begin
   // do nothing on Windows
 end;
 
+type
+  TTCPKeepAlive = record
+    onoff: cardinal;
+    keepalivetime: cardinal;
+    keepaliveinterval: cardinal;
+  end;
+const
+  IOC_IN             = DWORD($80000000);
+  IOC_VENDOR         = DWORD($18000000);
+  SIO_KEEPALIVE_VALS = IOC_IN or IOC_VENDOR or 4;
+
+  TCP_KEEPIDLE  = 3;
+  TCP_KEEPINTVL = 17;
+  TCP_KEEPCNT   = 16;
+
+procedure TNetSocketWrap.SetKeepAliveTcp(idle, intvl, cnt: cardinal);
+var
+  ka: TTCPKeepAlive;
+  ret: DWORD;
+  s: TSocket;
+begin
+  s := TSocket(@self);
+  // first try the newest API available
+  if (OSVersion32.win >= wEleven) or // Windows 11 or Windows Server 2019
+     ((OSVersion32.win in [wTen, wTen_64]) and // Windows 10 1709 (16299)
+      (OSVersion32.winbuild >= 16299)) then
+    if setsockopt(s, IPPROTO_TCP, TCP_KEEPIDLE, @idle, SizeOf(idle)) = NO_ERROR then
+    begin
+      setsockopt(s, IPPROTO_TCP, TCP_KEEPINTVL, @intvl, SizeOf(intvl));
+      setsockopt(s, IPPROTO_TCP, TCP_KEEPCNT,   @cnt, SizeOf(cnt));
+      exit;
+    end;
+  // fallback to SIO_KEEPALIVE_VALS for Windows 7/8/2016 - cnt not handled
+  ka.onoff := 1;
+  ka.keepalivetime := idle * 1000;
+  ka.keepaliveinterval := intvl * 1000;
+  WSAIoctl(s, SIO_KEEPALIVE_VALS, @ka, SizeOf(ka), nil, 0, @ret, nil, nil);
+end;
+
 const
   // https://techcommunity.microsoft.com/t5/networking-blog/ledbat-background-data-transfer-for-windows/ba-p/3639278
   SIO_PRIORITY_HINT = integer($98000018); // _WSAIOW(IOC_VENDOR,$18)
@@ -648,6 +671,73 @@ begin
   result :=
     (getsockopt(TSocket(@self), SOL_SOCKET, SIO_PRIORITY_HINT, @v, @l) = NO_ERROR) and
     (v = SocketPriorityHintVeryLow);
+end;
+
+// no POSIX signals interception needed for Send/Recv/SendTo/RecvFrom on WinAPI
+
+function TNetSocketWrap.Send(Buf: pointer; var len: integer;
+  rawError: PNetErrorInt): TNetResult;
+begin
+  if @self = nil then
+    result := nrNoSocket
+  else
+  begin
+    len := mormot.net.sock.send(TSocket(@self), Buf, len, MSG_NOSIGNAL);
+    // man send: Upon success, send() returns the number of bytes sent.
+    // Otherwise, -1 is returned and errno set to indicate the error.
+    if len < 0 then
+      result := NetLastError(NO_ERROR, rawError)
+    else
+      result := nrOK;
+  end;
+end;
+
+function TNetSocketWrap.Recv(Buf: pointer; var len: integer;
+  rawError: PNetErrorInt): TNetResult;
+begin
+  if @self = nil then
+    result := nrNoSocket
+  else
+  begin
+    len := mormot.net.sock.recv(TSocket(@self), Buf, len, 0);
+    // man recv: Upon successful completion, recv() shall return the length of
+    // the message in bytes. If no messages are available to be received and the
+    // peer has performed an orderly shutdown, recv() shall return 0.
+    // Otherwise, -1 shall be returned and errno set to indicate the error,
+    // which may be nrRetry if no data is available.
+    if len <= 0 then
+      if len = 0 then
+        result := nrClosed
+      else
+        result := NetLastError(NO_ERROR, rawError)
+    else
+      result := nrOK;
+  end;
+end;
+
+function TNetSocketWrap.SendTo(Buf: pointer; len: integer;
+  const addr: TNetAddr): TNetResult;
+begin
+  if @self = nil then
+    result := nrNoSocket
+  else if mormot.net.sock.sendto(TSocket(@self), Buf, len, 0, @addr, addr.Size) < 0 then
+    result := NetLastError
+  else
+    result := nrOk;
+end;
+
+function TNetSocketWrap.RecvFrom(Buf: pointer; len: integer;
+  out addr: TNetAddr): integer;
+var
+  addrlen: integer;
+begin
+  if @self = nil then
+    result := -1
+  else
+  begin
+    addrlen := SizeOf(addr);
+    result := mormot.net.sock.recvfrom(TSocket(@self), Buf, len, 0, @addr, @addrlen);
+  end;
 end;
 
 procedure SetTimeVal(ms: cardinal; out tv: TTimeVal);
@@ -745,6 +835,31 @@ begin
     include(result, neError);
 end;
 
+function TNetSocketWrap.Available(loerr: PNetErrorInt; nowait: boolean): boolean;
+var
+  events: TNetEvents;
+  dummy: integer;
+begin
+  result := true;
+  if loerr <> nil then
+    loerr^ := 0;
+  if nowait then
+    events := [neRead] // just MSG_PEEK
+  else
+    events := WaitFor(0, [neRead, neError], loerr); // select() or poll()
+  if events = [] then
+    exit; // the socket seems stable with no pending input
+  if neRead in events then
+    // - on Windows, may be WSACONNRESET (nrClosed), with recv() returning 0
+    // - no need to MakeAsync: recv() should not block after neRead
+    // - may be [neRead, neClosed] on gracefully closed HTTP/1.0 response
+    // - expected recv() result: -1=error, 0=closed, 1=success
+    if (mormot.net.sock.recv(TSocket(@self), @dummy, 1, MSG_PEEK) = 1) or
+       (NetLastError(NO_ERROR, loerr) = nrRetry) then
+      exit;
+  result := false; // e.g. neError or neClosed with no neRead
+end;
+
 
 { ******************** IP Addresses Support }
 
@@ -763,9 +878,10 @@ type
     end;
   end;
 
+const
+  iphlpapi = 'iphlpapi.dll';
 var
-  iphlpapiDll: THandle;
-
+  iphlp: THandle;
   // some iphlpapi.dll late-binded API via DelayedProc()
   GetIpAddrTable: function (pIpAddrTable: PMIB_IPADDRTABLE;
     var pdwSize: DWord; bOrder: BOOL): DWord; stdcall;
@@ -781,13 +897,12 @@ begin
   if Kind = tiaIPv6 then
     exit; // GetIpAddrTable() is an IPv4 only API
   Size := SizeOf(Table);
-  if not DelayedProc(GetIpAddrTable, iphlpapiDll, 'iphlpapi.dll',
-           'GetIpAddrTable') or
+  if not DelayedProc(GetIpAddrTable, iphlp, iphlpapi, 'GetIpAddrTable') or
      (GetIpAddrTable(@Table, Size, false) <> NO_ERROR) then
     exit;
   SetLength(result, Table.dwNumEntries);
   n := 0;
-  for i := 0 to Table.dwNumEntries-1 do
+  for i := 0 to Table.dwNumEntries - 1 do
     with Table.ip[i] do
       if IP4Filter(dwAddr, Kind) then
       begin
@@ -798,6 +913,16 @@ begin
     SetLength(result, n);
 end;
 
+function Inet6Pton(text: PUtf8Char; value: PByte): boolean;
+var
+  term: PUtf8Char;
+begin
+  term := nil;
+  result := Assigned(RtlIpv6StringToAddress) and // resolved in mormot.core.os
+            (RtlIpv6StringToAddress(text, term, value) = NO_ERROR) and
+            (term <> nil) and
+            (term^ = #0); // requires full string match just like inet_pton()
+end;
 
 
 { ******************** MAC and DNS Addresses Support }
@@ -917,7 +1042,7 @@ type
     // DHCP v6 Info following (not used by our code)
   end;
 
-  IP_ADDRESS_STRING = array[0..15] of AnsiChar;
+  IP_ADDRESS_STRING = TTemp16;
   IP_ADDR_IP4 = TNetIP4;
 
   IP_ADDR_STRING = packed record
@@ -947,9 +1072,9 @@ type
   PFIXED_INFO = ^FIXED_INFO;
 
 var
-  // some iphlpapi.dll late-binded API via DelayedProc()
+  // some other iphlpapi.dll late-binded API via DelayedProc()
   GetAdaptersAddresses: function(Family: ULONG; Flags: DWord; Reserved: pointer;
-      pAdapterAddresses: PIP_ADAPTER_ADDRESSES; pOutBufLen: PULONG): DWord; stdcall;
+    pAdapterAddresses: PIP_ADAPTER_ADDRESSES; pOutBufLen: PULONG): DWord; stdcall;
   SendARP: function(DestIp: DWord; srcIP: DWord; pMacAddr: pointer;
     PhyAddrLen: pointer): DWord; stdcall;
   GetNetworkParams: function(pFixedInfo: PFIXED_INFO;
@@ -957,17 +1082,17 @@ var
   GetBestInterface: function(dwDestAddrIPv4: cardinal;
     var pdwBestIfIndex: DWord): DWord; stdcall;
 
-function _GetDnsAddresses(usePosixEnv, getAD: boolean): TRawUtf8DynArray;
+procedure _GetDnsAddresses(usePosixEnv, getAD: boolean; var result: TRawUtf8DynArray);
 var
   n, l: PtrInt;
   siz: ULONG;
   p: PIP_ADDR_STRING_LINKED_LIST;
+  dom: RawUtf8;
   tmp: RawByteString;
 begin
   result := nil;
   siz := 0;
-  if not DelayedProc(GetNetworkParams, iphlpapiDll, 'iphlpapi.dll',
-           'GetNetworkParams') or
+  if not DelayedProc(GetNetworkParams, iphlp, iphlpapi, 'GetNetworkParams') or
      (GetNetworkParams(nil, @siz) <> ERROR_BUFFER_OVERFLOW) then
     exit;
   SetLength(tmp, siz);
@@ -977,9 +1102,13 @@ begin
   begin
     l := StrLen(@PFIXED_INFO(tmp)^.DomainName);
     if l <> 0 then
+      FastSetString(dom, @PFIXED_INFO(tmp)^.DomainName, l)
+    else
+      GetSystemEnv('USERDNSDOMAIN', dom);
+    if dom <> '' then
     begin
       SetLength(result, 1);
-      FastSetString(result[0], @PFIXED_INFO(tmp)^.DomainName, l);
+      result[0] := dom;
     end;
     exit;
   end;
@@ -1016,8 +1145,7 @@ begin
            GAA_FLAG_INCLUDE_PREFIX;
   if OsVersion >= wVista then
     flags := flags or GAA_FLAG_INCLUDE_GATEWAYS;
-  if not DelayedProc(GetAdaptersAddresses, iphlpapiDll, 'iphlpapi.dll',
-           'GetAdaptersAddresses') or
+  if not DelayedProc(GetAdaptersAddresses, iphlp, iphlpapi, 'GetAdaptersAddresses') or
      (GetAdaptersAddresses(AF_INET, flags, nil, nil, @siz) <> ERROR_BUFFER_OVERFLOW) or
      (siz = 0) then
     exit;
@@ -1135,8 +1263,7 @@ begin
     exit;
   dwRemoteIP := addr.IP4;
   if (dwRemoteIP <> 0) and
-     DelayedProc(GetBestInterface, iphlpapiDll,
-       'iphlpapi.dll', 'GetBestInterface') and
+     DelayedProc(GetBestInterface, iphlp, iphlpapi, 'GetBestInterface') and
      (GetBestInterface(dwRemoteIP, ifIndex) = NO_ERROR) then
   begin
     all := GetMacAddresses;
@@ -1157,9 +1284,9 @@ var
   PhyAddrLen: Longword;
   pMacAddr: array[0..7] of byte;
 begin
-  result := '';
+  FastAssignNew(result);
   if NetIsIP4(pointer(IP), @dwRemoteIP) and
-     DelayedProc(SendARP, iphlpapiDll, 'iphlpapi.dll', 'SendARP') then
+     DelayedProc(SendARP, iphlp, iphlpapi, 'SendARP') then
   begin
     PhyAddrLen := 8;
     if SendARP(dwremoteIP, 0, @pMacAddr, @PhyAddrLen) = NO_ERROR then
@@ -1486,7 +1613,7 @@ end;
 constructor TWinIocp.Create(processing: integer; options: TWinIocpOptions);
 begin
   if processing = 0 then
-    processing := CpuThreads;
+    processing := SystemInfo.dwNumberOfProcessors; // = CpuThreads
   fIocp := IocpCreate(INVALID_HANDLE_VALUE, 0, nil, processing);
   if fIocp <= 0 then
     RaiseLastError('TWinIocp: CreateIoCompletionPort', EWinIocp);
@@ -1920,12 +2047,14 @@ end;
 function TWinIocp.Unsubscribe(var one: PWinIocpSubscription): boolean;
 var
   res: TNetResult;
-  o: PIocpSubscription absolute one;
+  o: PIocpSubscription;
 begin
   result := false;
+  o := pointer(one); // local copy
   if (self = nil) or
-     (one = nil) or
-     fTerminated then
+     fTerminated or
+     (o = nil) or
+     not LockedExc(PPtrUInt(@one)^, 0, PtrUInt(o)) then // CAS one := nil
     exit;
   res := nrOK;
   if Assigned(fOnLog) then
@@ -1942,25 +2071,23 @@ begin
     // - follow documented pattern: shutdown(SD_SEND) + recv()=0 + closesocket
     shutdown(o^.socket, SHUT_WR); // = SD_SEND
     o^.recvclosing := true; // flag for GetNext() to call closesocket()
-    if PrepareNext('unsub', one, wieRecv) then
+    if PrepareNext('unsub', pointer(o), wieRecv) then
     begin
       // started async WSARecv() until the function completes with success
       result := true;
-      one := nil;
       exit;
     end
     else // if failed, graceful disconnect is not possible (already closed)
       closesocket(o^.socket);
   end;
-  result := fOne.Free(one); // one^.sequence will avoid ABA problem in GetNext()
-  one := nil;
+  result := fOne.Free(o); // one^.sequence will avoid ABA problem in GetNext()
 end;
 
 
 { ******************** TLS / HTTPS Encryption Abstract Layer }
 
 type
-  ESChannel = class(Exception);
+  ESChannel = class(ExceptionWithProps);
 
   TSChannelNetTls = class(TInterfacedObject, INetTls)
   private
@@ -2615,10 +2742,12 @@ end;
 function GetExtensionFunc(sock: TSocket; const id: TGuid): pointer;
 var
   ret: cardinal;
+  res: pointer; // safer with an explicit local variable
 begin
-  result := nil;
   if WSAIoctl(sock, SIO_GET_EXTENSION_FUNCTION_POINTER, @id, sizeof(id),
-      @result, SizeOf(result), @ret, nil, nil) <> 0 then
+      @res, SizeOf(res), @ret, nil, nil) = 0 then
+    result := res
+  else
     result := nil;
 end;
 

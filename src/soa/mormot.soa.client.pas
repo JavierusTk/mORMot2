@@ -104,7 +104,7 @@ type
     fResultAsJsonObject: boolean;
     fDelayedInstance: boolean;
     fNonBlockWithoutAnswer: boolean;
-    fSendNotificationsThread: TThread;
+    fSendNotificationsThread: TThreadAbstract;
     fSendNotificationsRest: TRest;
     fSendNotificationsLogClass: TOrmServiceNotificationsClass;
     function CreateFakeInstance: TInterfacedObject;
@@ -612,7 +612,7 @@ begin
     HTTP_NOTIMPLEMENTED: // 501
       result := 'Server does not support this request';
   else
-    result := '';
+    FastAssignNew(result);
   end;
 end;
 
@@ -771,11 +771,8 @@ begin
       begin
         // no "result":... layout
         if aErrorMsg <> nil then
-        begin
-          UniqueRawUtf8ZeroToTilde(resp, 1 shl 10);
-          aErrorMsg^ :=
-            'Invalid returned JSON content: expects {result:...}, got ' + resp;
-        end;
+          Join(['Invalid returned JSON content: expects {result:...}, got ',
+            UniqueRawUtf8ZeroToTilde(resp, 1 shl 10)], aErrorMsg^); // 1KB trunc
         exit; // leave result=false
       end;
       if aResult <> nil then
@@ -906,7 +903,7 @@ end;
 
 function TServiceFactoryClient.RetrieveSignature: RawUtf8;
 begin
-  result := '';
+  FastAssignNew(result);
   if InternalInvoke(SERVICE_PSEUDO_METHOD[imSignature], '', @result) and
      (result <> '') then
     if result[1] = '[' then

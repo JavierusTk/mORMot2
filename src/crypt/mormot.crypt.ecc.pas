@@ -950,6 +950,7 @@ type
     // - returns nil if all items were valid
     // - returns the list of any invalid instances
     // - do not free the returned items, since they are reference to Items[]
+    // - this method is not thread-safe so should be run e.g. just after loading
     function ValidateItems: TEccCertificateObjArray;
     /// check if the digital signature is recognized by the stored certificates
     // - ensure that sign.AuthoritySerial is part of Items[] list but not the CRL
@@ -1894,7 +1895,7 @@ const
     128, 128, 128, 128, 128, 128, 128, 128,
     128, 256, 128, 256, 128, 256, 128, 256);
 
-  ECIES_MAGIC: array[0..1] of array[0..15] of AnsiChar = (
+  ECIES_MAGIC: array[0..1] of TTemp16 = (
     'SynEccEncrypted'#26,
     'SynEccEncrypt01'#26);
 
@@ -2021,7 +2022,7 @@ begin
   if EciesHeaderFile(encryptedfile, h, rawencryptedfile) then
     result := EciesHeaderText(h)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function EciesSeal(aes: TAesAbstractClass; aesbits: integer;
@@ -2036,7 +2037,7 @@ var
   secret: THash512Rec; // uses 256-bit or 384-bit of it
   sha3: TSha3;
 begin
-  result := '';
+  FastAssignNew(result);
   l := length(msg);
   if (aes = nil) or
      (l = 0) or
@@ -2054,7 +2055,7 @@ begin
     p^ := ephpub;
     inc(p);
     if not a.EncryptPkcs7Buffer(pointer(msg), p, l, o, false) then
-      result := '';
+      FastAssignNew(result);
   finally
     a.Free;
     FillZero(secret.b);
@@ -2075,7 +2076,7 @@ var
 begin
   p := pointer(msg);
   l := length(msg);
-  result := '';
+  FastAssignNew(result);
   if (aes = nil) or
      (l <= SizeOf(p^)) or
      IsZero(privkey) or
@@ -2103,7 +2104,7 @@ begin
   if AesAlgoNameDecode(pointer(cipher), mode, bits) then
     result := EciesSeal(TAesFast[mode], bits, pubkey, msg)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function EciesOpen(const cipher: RawUtf8; const privkey: TEccPrivateKey;
@@ -2115,7 +2116,7 @@ begin
   if AesAlgoNameDecode(pointer(cipher), mode, bits) then
     result := EciesOpen(TAesFast[mode], bits, privkey, msg)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 var
@@ -2146,7 +2147,7 @@ begin
   if FileExists(TruncatedFileName) then
     exit;
   ext := ECCCERTIFICATE_FILEEXT[privkey];
-  if ExtractFileExt(TruncatedFileName) <> ext then
+  if ExtractExt(TruncatedFileName) <> ext then
   begin
     fn := TruncatedFileName + ext;
     if FileExists(fn) then
@@ -2181,7 +2182,7 @@ end;
 
 function EccToDer(const sign: TEccSignature): RawByteString;
 var
-  der: array[0..511] of AnsiChar;
+  der: TTemp512;
   len: PtrInt;
 begin
   if IsZero(sign) then
@@ -2198,7 +2199,7 @@ end;
 
 function EccToDer(const priv: TEccPrivateKey): RawByteString;
 var
-  der: array[0..511] of AnsiChar;
+  der: TTemp512;
   len: PtrInt;
 begin
   if IsZero(priv) then
@@ -2214,7 +2215,7 @@ end;
 
 function EccToDer(const pub: TEccPublicKey): RawByteString;
 var
-  der: array[0..511] of AnsiChar;
+  der: TTemp512;
   len: PtrInt;
 begin
   if IsZero(pub) then
@@ -2465,7 +2466,7 @@ var
 begin
   content := StringFromFile(FileName);
   if (content = '') and
-     (ExtractFileExt(filename) = '') then
+     not HasExt(filename) then
     content := StringFromFile(filename + ECCCERTIFICATEPUBLIC_FILEEXT);
   if content = '' then
     result := false
@@ -2504,7 +2505,7 @@ var
   st: TRawByteStringStream;
   sav: boolean;
 begin
-  result := '';
+  FastAssignNew(result);
   sav := fStoreOnlyPublicKey;
   st := TRawByteStringStream.Create;
   try
@@ -2561,7 +2562,7 @@ end;
 
 function TEccCertificate.AppendSave: RawByteString;
 begin
-  result := '';
+  FastAssignNew(result);
 end;
 
 function TEccCertificate.Verify(const hash: THash256;
@@ -2631,7 +2632,7 @@ var
   aeskey, mackey: THash256Rec;
   c: TAesAbstractClass;
 begin
-  result := '';
+  FastAssignNew(result);
   if Plain = '' then
     exit;
   if not CheckCRC then
@@ -2778,7 +2779,7 @@ begin
     (GetUsage * [cuDataEncipherment, cuEncipherOnly] <> []) then
     result := EciesSeal(Cipher, fContent.Head.Signed.PublicKey, Plain)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TEccCertificate.ToVariant(withBase64: boolean): variant;
@@ -2934,7 +2935,7 @@ end;
 function TEccCertificateSecret.AppendSave: RawByteString;
 begin
   if fStoreOnlyPublicKey then
-    result := ''
+    FastAssignNew(result)
   else
     result := TAesPrng.Main.AFSplit(
                 fPrivateKey, SizeOf(fPrivateKey), fAFSplitStripes);
@@ -2948,10 +2949,10 @@ end;
 
 const
   // header of a private key binary file
-  PRIVKEY_MAGIC: array[0..15] of AnsiChar =
+  PRIVKEY_MAGIC: TTemp16 =
     'SynEccPrivatKey'#26;
   // 128-bit is enough, since it is transmitted as clear
-  PRIVKEY_SALTSIZE = 16;
+  PRIVKEY_SALTSIZE = SizeOf(TTemp16);
 
 function TEccCertificateSecret.SaveToSecureBinary(const PassWord: RawUtf8;
   AFStripes, Pbkdf2Round: integer; Aes: TAesAbstractClass;
@@ -2964,7 +2965,7 @@ var
   a: TAesAbstract;
   e: PAnsiChar absolute result;
 begin
-  result := '';
+  FastAssignNew(result);
   if Aes = nil then
     Aes := TAesCfb;
   pksav := fStoreOnlyPublicKey;
@@ -2975,7 +2976,7 @@ begin
     plain := SaveToBinary;
     if plain <> '' then
       try
-        RandomByteString(PRIVKEY_SALTSIZE, salt); // public: TLecuyer is enough
+        Random128(FastNewRawByteString(salt, PRIVKEY_SALTSIZE));
         Pbkdf2HmacSha256(PassWord, salt, Pbkdf2Round, aeskey);
         a := Aes.Create(aeskey);
         try
@@ -3142,7 +3143,7 @@ function TEccCertificateSecret.LoadFromSecureFile(const FileName: TFileName;
 var
   FN: TFileName;
 begin
-  if ExtractFileExt(FileName) = '' then
+  if not HasExt(FileName) then
     FN := FileName + ECCCERTIFICATESECRET_FILEEXT
   else
     FN := FileName;
@@ -3158,7 +3159,7 @@ var
   data: RawByteString;
   name, suffix: RawUtf8;
 begin
-  result := '';
+  FastAssignNew(result);
   if (self = nil) or
      (PassWord = '') then
     exit;
@@ -3200,7 +3201,7 @@ begin
   if (Data = nil) or
      (Len < 0) or
      not (cuDigitalSignature in GetUsage) then
-    result := ''
+    FastAssignNew(result)
   else
     result := SignToBinary(Sha256Digest(Data, Len));
 end;
@@ -3209,7 +3210,7 @@ function TEccCertificateSecret.SignToBinary(const Hash: THash256): RawByteString
 var
   sign: TEccSignatureCertified;
 begin
-  result := '';
+  FastAssignNew(result);
   if (self = nil) or
      IsZero(Hash) or
      not (cuDigitalSignature in GetUsage) then
@@ -3444,7 +3445,7 @@ begin
      HasSecret then
     result := EciesOpen(Cipher, fPrivateKey, Encrypted)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 
@@ -3623,7 +3624,7 @@ end;
 function TEccSignatureCertified.SaveToDerBinary: RawByteString;
 begin
   if not Check then
-    result := ''
+    FastAssignNew(result)
   else
     result := EccToDer(fCertified.Signature);
 end;
@@ -3639,7 +3640,7 @@ end;
 function TEccSignatureCertified.SaveToPemText: RawUtf8;
 begin
   if not Check then
-    result := ''
+    FastAssignNew(result)
   else
     result := DerToPem(EccToDer(fCertified.Signature), pemSynopseSignature);
 end;
@@ -3659,7 +3660,7 @@ function TEccSignatureCertifiedFile.FromFile(const aFileName: TFileName): boolea
 var
   json: RawUtf8;
 begin
-  if SameText(ExtractFileExt(aFileName), ECCCERTIFICATESIGN_FILEEXT) then
+  if SameTextS(ExtractExt(aFileName), ECCCERTIFICATESIGN_FILEEXT) then
     json := StringFromFile(aFileName)
   else
     json := StringFromFile(aFileName + ECCCERTIFICATESIGN_FILEEXT);
@@ -4392,7 +4393,7 @@ var
 begin
   st := TRawByteStringStream.Create;
   try
-    fSafe.ReadLock;
+    fSafe.WriteLock; // ReadLock not enough because of fStoreOnlyPublicKey flag
     try
       // genuine magic header
       n := CHAIN_MAGIC;
@@ -4419,7 +4420,7 @@ begin
       for i := 0 to n - 1 do
         fCrl[i].SaveToStream(st);
     finally
-      fSafe.ReadUnLock;
+      fSafe.WriteUnLock;
     end;
     result := st.DataString;
   finally
@@ -4519,14 +4520,10 @@ begin
   result := nil;
   if self = nil then
     exit;
-  fSafe.ReadLock;
-  try
-    for i := 0 to high(fItems) do
-      if not (IsValid(fItems[i]) in ECC_VALIDSIGN) then
-        PtrArrayAdd(result, fItems[i]);
-  finally
-    fSafe.ReadUnLock;
-  end;
+  // note: fSafe.ReadLock here would deadlock within nested IsValid()
+  for i := 0 to high(fItems) do
+    if not (IsValid(fItems[i]) in ECC_VALIDSIGN) then
+      PtrArrayAdd(result, fItems[i]);
 end;
 
 constructor TEccCertificateChain.CreateFromFile(const jsonfile: TFileName);
@@ -4620,7 +4617,7 @@ end;
 
 function GetChainFileName(const jsonfile: TFileName): TFileName;
 begin
-  if ExtractFileExt(jsonfile) = '' then
+  if not HasExt(jsonfile) then
     result := jsonfile + ECCCERTIFICATES_FILEEXT
   else
     result := jsonfile;
@@ -5648,7 +5645,7 @@ function TCryptPrivateKeyEcc.Generate(Algorithm: TCryptAsymAlgo): RawByteString;
 var
   eccpub: TEccPublicKey;
 begin
-  result := '';
+  FastAssignNew(result);
   if (self = nil) or
      (fKeyAlgo <> ckaNone) then
     exit;
@@ -5670,10 +5667,9 @@ function TCryptPrivateKeyEcc.ToDer: RawByteString;
 var
   rawecc: RawByteString;
 begin
-  if self = nil then
-    result := ''
-  else if IsZero(fEcc) then
-    result := ''
+  if (self = nil) or
+     IsZero(fEcc) then
+    FastAssignNew(result)
   else
   begin
     // EccToDer() raw encoding is not standard as PEM -> use PKCS#8 format
@@ -5688,7 +5684,7 @@ function TCryptPrivateKeyEcc.ToSubjectPublicKey: RawByteString;
 var
   eccpub: TEccPublicKey;
 begin
-  result := '';
+  FastAssignNew(result);
   if self <> nil then
     if not IsZero(fEcc) then
     begin
@@ -5702,7 +5698,7 @@ function TCryptPrivateKeyEcc.SignDigest(const Dig: THash512Rec; DigLen: integer;
 var
   eccsig: TEccSignature;
 begin
-  result := '';
+  FastAssignNew(result);
   if (self <> nil) and
      (CAA_CKA[DigAlgo] = fKeyAlgo) and
      (HASH_SIZE[CAA_HF[DigAlgo]] = DigLen) then
@@ -5715,7 +5711,7 @@ end;
 function TCryptPrivateKeyEcc.Open(const Message: RawByteString;
   const Cipher: RawUtf8): RawByteString;
 begin
-  result := '';
+  FastAssignNew(result);
   if (self <> nil) and
      (fKeyAlgo = ckaEcc256) then
     result := EciesOpen(Cipher, fEcc, Message);
@@ -5727,7 +5723,7 @@ var
   sec: TEccSecretKey;
   pub: TCryptPublicKeyEcc;
 begin
-  result := '';
+  FastAssignNew(result);
   if PeerKey = nil then
     exit;
   pub := PeerKey.Instance as TCryptPublicKeyEcc;
@@ -5787,7 +5783,7 @@ type
     function GetNotAfter: TDateTime; override;
     function IsValidDate(date: TDateTime): boolean; override;
     function IsVoid: boolean; override;
-    function GetUsage: TCryptCertUsages; override;
+    function GetUsage(PathLen: PInteger): TCryptCertUsages; override;
     function GetPeerInfo: RawUtf8; override;
     function GetSignatureInfo: RawUtf8; override;
     function Load(const Saved: RawByteString; Content: TCryptCertContent;
@@ -5912,7 +5908,7 @@ begin
   if fEcc <> nil then
     result := fEcc.Serial
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TCryptCertInternal.GetSubjectName: RawUtf8;
@@ -5920,14 +5916,14 @@ begin
   if fEcc <> nil then
     result := fEcc.Content.GetSubject
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TCryptCertInternal.GetSubject(const Rdn: RawUtf8): RawUtf8;
 var
   h: THashAlgo;
 begin
-  result := '';
+  FastAssignNew(result);
   if (Rdn <> '') and
      (fEcc <> nil) then
     if IsCN(Rdn) then // only 'CN' and hash are supported with syn-ecc
@@ -5948,14 +5944,14 @@ begin
   if fEcc <> nil then
     result := fEcc.AuthorityIssuer
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TCryptCertInternal.GetIssuer(const Rdn: RawUtf8): RawUtf8;
 var
   h: THashAlgo;
 begin
-  result := '';
+  FastAssignNew(result);
   if (Rdn <> '') and
      (fEcc <> nil) then
     if IsCN(Rdn) then
@@ -5975,7 +5971,7 @@ begin
   if fEcc <> nil then
     result := fEcc.Serial
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TCryptCertInternal.GetAuthorityKey: RawUtf8;
@@ -5983,7 +5979,7 @@ begin
   if fEcc <> nil then
     result := fEcc.AuthoritySerial
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TCryptCertInternal.IsSelfSigned: boolean;
@@ -6035,12 +6031,14 @@ begin
   result := not fEcc.CheckCRC;
 end;
 
-function TCryptCertInternal.GetUsage: TCryptCertUsages;
+function TCryptCertInternal.GetUsage(PathLen: PInteger): TCryptCertUsages;
 begin
   if fEcc <> nil then
     result := fEcc.GetUsage
   else
     result := [];
+  if PathLen <> nil then
+    PathLen^ := -1; // not supported
 end;
 
 function TCryptCertInternal.GetPeerInfo: RawUtf8;
@@ -6048,13 +6046,13 @@ begin
   if fEcc <> nil then // in Hjson readable format - close enough to X509_print()
     JsonBufferReformat(pointer(fEcc.ToJson({withbase64=}false)), result, jsonH)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TCryptCertInternal.GetSignatureInfo: RawUtf8;
 begin
   if fEcc = nil then
-    result := ''
+    FastAssignNew(result)
   else
     result := '128 syn-es256';
 end;
@@ -6099,20 +6097,24 @@ function TCryptCertInternal.Save(Content: TCryptCertContent;
 var
   pk: PEccPrivateKey;
   der: RawByteString;
+  pem: TPemKind;
 begin
-  result := '';
+  // hexa or base64 encoding of the ccfBinary output is handled by TCryptCert
   if not (Format in [ccfBinary, ccfPem]) then
-    // hexa or base64 encoding of the ccfBinary output is handled by TCryptCert
-    result := inherited Save(Content, PrivatePassword, Format)
-  else
+  begin
+    result := inherited Save(Content, PrivatePassword, Format);
+    exit;
+  end;
   // we implement ccfPem and ccfBinary here
+  FastAssignNew(result);
+  pem := pemUnspecified;
   case Content of
     cccCertOnly:
       if fEcc <> nil then
       begin
         result := fEcc.SaveToBinary({publickeyonly=}true);
         if Format = ccfPem then
-          result := DerToPem(result, pemSynopseCertificate);
+          pem := pemSynopseCertificate;
       end;
     cccCertWithPrivateKey:
       if fEcc <> nil then
@@ -6121,11 +6123,7 @@ begin
           RaiseError('Save(cccCertWithPrivateKey) with no Private Key');
         result := TEccCertificateSecret(fEcc).SaveToSecureBinary(PrivatePassword);
         if Format = ccfPem then
-        begin
-          der := result;
-          result := DerToPem(der, pemSynopsePrivateKeyAndCertificate);
-          FillZero(der);
-        end;
+          pem := pemSynopsePrivateKeyAndCertificate;
       end;
     cccPrivateKeyOnly:
       begin
@@ -6136,23 +6134,23 @@ begin
            (PrivatePassword = '') then
         begin
           // -----BEGIN SYNECC PRIVATE KEY----- has a real DER encoding
-          der := EccToDer(pk^);
-          result := DerToPem(der, pemSynopseUnencryptedPrivateKey);
-          FillZero(der);
+          result := EccToDer(pk^);
+          pem := pemSynopseUnencryptedPrivateKey;
         end
         else
         begin
           // other formats use our encrypted TEccPrivateKey binary
           result := EccPrivateKeyEncrypt(pk^, PrivatePassword);
-         if Format = ccfPem then
-         begin
-           der := result;
-           result := DerToPem(der, pemSynopseEccEncryptedPrivateKey);
-           FillZero(der);
-         end;
+          if Format = ccfPem then
+           pem := pemSynopseEccEncryptedPrivateKey;
         end;
       end;
   end;
+  if pem = pemUnspecified then
+    exit;
+  der := result; // anti-forensic measure
+  result := DerToPem(der, pem);
+  FillZero(der);
 end;
 
 function TCryptCertInternal.Load(const Saved: RawByteString;
@@ -6232,7 +6230,7 @@ begin
   if pk <> nil then
     FastSetRawByteString(result{%H-}, pk, SizeOf(pk^))
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TCryptCertInternal.SetPrivateKey(const saved: RawByteString): boolean;
@@ -6280,7 +6278,7 @@ begin
   if HasPrivateSecret then
     result := TEccCertificateSecret(fEcc).SignToBinary(Data, Len)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 procedure TCryptCertInternal.Sign(const Authority: ICryptCert);
@@ -6336,7 +6334,7 @@ begin
      (fEcc.Usage * [cuDataEncipherment, cuEncipherOnly] <> []) then
     result := EciesSeal(Cipher, fEcc.Content.Head.Signed.PublicKey, Message)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TCryptCertInternal.Decrypt(const Message: RawByteString;
@@ -6350,7 +6348,7 @@ begin
       (fEcc.Usage * [cuDataEncipherment, cuDecipherOnly] <> [])) then
     result := EciesOpen(Cipher, pk^, Message)
   else
-    result := '';
+    FastAssignNew(result);
 end;
 
 function TCryptCertInternal.SharedSecret(const pub: ICryptCert): RawByteString;
@@ -6370,7 +6368,7 @@ begin
         TEccCertificate(pub.Handle).Content.Head.Signed.PublicKey, pk^, sec) then
        FastSetRawByteString(result{%H-}, @sec, SizeOf(sec))
      else
-       result := '';
+       FastAssignNew(result);
   FillZero(sec);
 end;
 

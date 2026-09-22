@@ -79,7 +79,7 @@ type
     /// write some console text, with an optional color
     // - will output the text even if NoPrompt is TRUE
     procedure Text(const Fmt: RawUtf8; const Args: array of const;
-      Color: TConsoleColor = ccLightGray);
+      Color: TConsoleColor = ccDefault);
   end;
 
   /// a class to process the command line switches, with console interactivity
@@ -152,7 +152,7 @@ type
     // - will output the text even if NoPrompt=TRUE, but not if NoConsole=TRUE
     // - will append the text to the internal storage, available from ConsoleText
     procedure Text(const Fmt: RawUtf8; const Args: array of const;
-      Color: TConsoleColor = ccLightGray);
+      Color: TConsoleColor = ccDefault);
     /// returns the UTF-8 text as inserted by Text() calls
     // - line feeds will be included to the ConsoleLines[] values
     function ConsoleText(const LineFeed: RawUtf8 = CRLF): RawUtf8;
@@ -195,7 +195,7 @@ begin
       if p[1] in ['-', '/'] then
       begin
         if {%H-}sw <> '' then
-          fValues.AddValue(sw, true); // -flag -switch value -> flag=true
+          fValues.AddValue(sw, VarTrue); // -flag -switch value -> flag=true
         sw := LowerCase(copy(p, 2, 100));
         if sw = 'noprompt' then
         begin
@@ -205,12 +205,12 @@ begin
       end
       else if sw <> '' then
       begin
-        fValues.AddValueFromText(sw, p, true);
+        fValues.AddValueFromText(sw, p, {update=}true);
         sw := '';
       end;
   end;
   if sw <> '' then
-    fValues.AddValue(sw, true); // trailing -flag
+    fValues.AddValue(sw, VarTrue); // trailing -flag
 end;
 
 constructor TCommandLine.Create(const switches: variant;
@@ -299,7 +299,7 @@ begin
      (Prompt = '') or
      not HasConsole then
     exit;
-  TextColor(ccLightGray);
+  TextColor(ccDefault);
   {$I-}
   writeln(Prompt);
   if ioresult <> 0 then
@@ -314,7 +314,7 @@ begin
   writeln;
   ioresult;
   {$I+}
-  TextColor(ccLightGray);
+  TextColor(ccDefault);
   TrimSelf(result);
   if result = '' then
     result := Default;

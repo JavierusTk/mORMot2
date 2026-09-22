@@ -947,7 +947,7 @@ procedure JS_SetMemoryLimit(rt: JSRuntime; limit: PtrUInt);
 procedure JS_SetGCThreshold(rt: JSRuntime; gc_threshold: PtrUInt);
   cdecl; external {$ifdef QJSDLL}QJ{$endif};
 
-procedure JS_SetMaxStackSize(ctx: JSContext; stack_size: PtrUInt);
+procedure JS_SetMaxStackSize(rt: JSRuntime; stack_size: PtrUInt);
   cdecl; external {$ifdef QJSDLL}QJ{$endif};
 
 function JS_NewRuntime2(const mf: PJSMallocFunctions;
@@ -1461,7 +1461,6 @@ function JS_EnqueueJob(ctx: JSContext; job_func: PJSJobFunc; argc: integer;
 
 function JS_IsJobPending(rt: JSRuntime): JS_BOOL;
    cdecl; external {$ifdef QJSDLL}QJ{$endif};
-// TODO: Check pctx if the type is right.
 
 function JS_ExecutePendingJob(rt: JSRuntime; pctx: PJSContext): integer;
    cdecl; external {$ifdef QJSDLL}QJ{$endif};
@@ -1765,28 +1764,28 @@ uses
 // note: Delphi expects the dependencies to be in the very same unit
 //  -> we either implement them here, or asm jmp to mormot.lib.static code
 
-function pas_malloc(size: cardinal): pointer; cdecl;
-begin
+function pas_malloc(size: PtrUInt): pointer; cdecl;
+begin // defined as void *pas_malloc(size_t size); in cutils.h
   if size = 0 then
   begin
     result := nil;
     exit;
   end;
-  GetMem(result, size + 4);
+  GetMem(result, size + 4);  // +4 on Delphi since we don't have FPC MemSize(P)
   PInteger(result)^ := size; // put size as trailer for pas_malloc_usable_size()
   inc(PInteger(result));
 end;
 
 procedure pas_free(P: pointer); cdecl;
-begin
+begin // void pas_free(void *ptr);
   if P = nil then
     exit;
   dec(PInteger(P));
   FreeMem(P);
 end;
 
-function pas_realloc(P: pointer; Size: integer): pointer; cdecl;
-begin
+function pas_realloc(P: pointer; Size: PtrUInt): pointer; cdecl;
+begin // void *pas_realloc(void *ptr, size_t size);
   if (P = nil) or
      (Size = 0) then
   begin
@@ -1801,14 +1800,14 @@ begin
   inc(PInteger(result));
 end;
 
-function pas_malloc_usable_size(P: pointer): integer; cdecl;
-begin
+function pas_malloc_usable_size(P: pointer): PtrUInt; cdecl;
+begin // size_t pas_malloc_usable_size(void *ptr);
   if P = nil then
     result := 0
   else
   begin
     dec(PInteger(P));
-    result := PInteger(P)^;
+    result := PInteger(P)^; // we don't have FPC MemSize(P) on Delphi
   end;
 end;
 
@@ -3420,8 +3419,8 @@ end;
 
 function TJSContext.FromW(P: PWideChar; Len: PtrInt): JSValue;
 var
+  W: PtrInt;
   tmp: TSynTempBuffer; // avoid most memory allocations
-  W: integer;
 begin
   if (P = nil) or (Len = 0) then
     result := From(nil, 0)
@@ -3539,7 +3538,7 @@ var
   v: TVarData absolute val;
 begin
   vt := v.VType;
-  case vt of
+  case vt of // most simple types with a O(1) case jmp
     varEmpty:
       {%H-}result.Empty;
     varNull:
@@ -3576,41 +3575,30 @@ begin
       result.FromFloat(v.VCurrency);
     varDate:
       FromDate(v.VDate, result);
-    varString:
-      result := From(RawUtf8(v.VString));
-    {$ifdef HASVARUSTRING}
-    varUString:
-      result := FromW(v.VAny, length(UnicodeString(v.VAny)));
-    {$endif HASVARUSTRING}
     varOleStr:
       result := FromW(v.VAny, length(WideString(v.VAny)));
   else
-    if SetVariantUnRefSimpleValue(val, tmp{%H-}) then
-      // simple varByRef
-      FromVariant(Variant(tmp), result)
-    else if vt = varVariantByRef then
-      // complex varByRef
-      FromVariant(PVariant(v.VPointer)^, result)
-    else if vt = varStringByRef then
-      result := From(PRawUtf8(v.VString)^)
-    else if vt = varOleStrByRef then
-      result := FromW(PPointer(v.VAny)^, length(PWideString(v.VAny)^))
-    else
+    if vt = varString then
+      result := From(RawUtf8(v.VString))
     {$ifdef HASVARUSTRING}
-    if vt = varUStringByRef then
-      result := FromW(PPointer(v.VAny)^, length(PUnicodeString(v.VAny)^))
-    else
+    else if vt = varUString then
+      result := FromW(v.VAny, length(UnicodeString(v.VAny)))
     {$endif HASVARUSTRING}
-      begin
-        // not recognizable vt -> seralize as JSON to handle also custom types
-        tmp.VAny := nil;
-        try
-          _VariantSaveJson(val, twJsonEscape, RawUtf8(tmp.VAny));
-          FromJson(RawUtf8(tmp.VAny), result, {exceptonerror=}false);
-        finally
-          FastAssignNew(tmp.VAny);
-        end;
+    else if vt and varByRef = 0 then
+    begin
+      // not recognizable vt -> seralize as JSON to handle also custom types
+      tmp.VAny := nil;
+      try
+        _VariantSaveJson(val, twJsonEscape, RawUtf8(tmp.VAny));
+        FromJson(RawUtf8(tmp.VAny), result, {exceptonerror=}false);
+      finally
+        FastAssignNew(tmp.VAny);
       end;
+    end
+    else if vt = varVariantByRef then
+      FromVariant(PVariant(v.VPointer)^, result)
+    else
+      FromVariant(SetVarDataUnRef(vt, @v, tmp)^, result);
   end;
 end;
 

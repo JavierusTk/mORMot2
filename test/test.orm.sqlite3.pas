@@ -151,6 +151,8 @@ type
     procedure ShardReadAfterPurge;
     /// validate TRestStorageShardDB.MaxShardCount implementation
     procedure _MaxShardCount;
+    /// validate "uhex" BATCH UPDATE over several tables and rejected rows
+    procedure BatchUpdate;
   end;
 
 
@@ -537,7 +539,12 @@ begin
   s := Demo.ExecuteNoExceptionUtf8('SELECT datetime(current_timestamp);');
   check(s <> '', 'datetime');
   s := Demo.ExecuteNoExceptionUtf8('SELECT datetime(current_timestamp,''localtime'');');
-  check(s <> '', 'localtime');
+  // 'localtime' returns NULL with a SQLITE_OMIT_LOCALTIME library, e.g. any
+  // .dll built with FOR_WIN10=1 as the official win-arm64 binaries are
+  check((s <> '') or
+        (Demo.ExecuteNoExceptionUtf8(
+          'SELECT sqlite_compileoption_used(''OMIT_LOCALTIME'');') = '1'),
+        'localtime');
 end;
 
 procedure TTestSQLite3Engine.VirtualTableDirectAccess;
@@ -603,7 +610,7 @@ begin
       with TOrmPeople.CreateAndFillPrepare(Client.Orm,
         'FirstName REGEXP ?', [EXPRESSIONS[i]]) do
       try
-        if not CheckFailed(FillContext <> nil) then
+        if Check(FillContext <> nil) then
         begin
           CheckEqual(FillContext.Table.RowCount, 1001);
           n := 0;
@@ -1019,7 +1026,7 @@ begin
     for i := 1 to high(dID) do
     begin
       check(MS.DestList.SourceGet(aClient, dID[i], res));
-      if not CheckFailed(length(res) = 1) then
+      if Check(length(res) = 1) then
         check(res[0] = sID[i]);
       check(MS.DestList.ManySelect(aClient, sID[i], dID[i]));
       check(MS.DestList.AssociationTime = i);
@@ -1037,7 +1044,7 @@ begin
       check(MS.DestList.AssociationTime = i);
       check(not MS.DestList.FillOne);
       check(MS.DestList.DestGetJoined(aClient, '', sID[i], res));
-      if not CheckFailed(length(res) = 1) then
+      if Check(length(res) = 1) then
         check(res[0] = dID[i]);
       check(MS.DestList.DestGetJoined(aClient, 'ADest.SignatureTime=:(0):', sID[i], res));
       check(length(res) = 0);
@@ -1566,7 +1573,7 @@ begin
         Client.Server.DB.LockingMode := lmExclusive;
         with Client.Server.Model do
           for i := 0 to high(Tables) do
-            if not CheckFailed(GetTableIndex(Tables[i]) = i) then
+            if Check(GetTableIndex(Tables[i]) = i) then
               check(GetTableIndex(Tables[i].SqlTableName) = i);
         // direct client access test
         Client.Server.Server.CreateMissingTables; // NEED Dest,Source,Dests,...
@@ -1620,7 +1627,7 @@ begin
           CheckEqual(Client.Orm.OneFieldValue(TOrmPeople, 'LastName', IntArray[i]), 'Dali');
         List := Client.Orm.RetrieveList(TOrmPeople, 'Lastname=?', ['Dali'],
           'ID,LastName');
-        if not CheckFailed(List <> nil) then
+        if Check(List <> nil) then
         begin
           CheckEqual(List.Count, Length(IntArray));
           for i := 0 to List.Count - 1 do
@@ -2136,17 +2143,17 @@ begin
         check(T.FieldIndex(J.Get(0, aF)) = aF);
       for aR := 0 to T.RowCount do
         for aF := 0 to T.FieldCount - 1 do // aF=3=Blob
-          check((aF = 3) or (StrIComp(T.Get(aR, aF), J.Get(aR, aF)) = 0));
+          check((aF = 3) or StrIEqual(T.Get(aR, aF), J.Get(aR, aF)));
       n := 0;
       while T.Step do
       begin
         for aF := 0 to T.FieldCount - 1 do // aF=3=Blob
-          check((aF = 3) or (StrIComp(T.FieldBuffer(aF), J.Get(T.StepRow, aF)) = 0));
+          check((aF = 3) or StrIEqual(T.FieldBuffer(aF), J.Get(T.StepRow, aF)));
         inc(n);
       end;
       check(n = J.RowCount);
       n := 0;
-      if not CheckFailed(T.Step(true, @row)) then
+      if Check(T.Step(true, @row)) then
         repeat
           check(row.ID = J.GetAsInteger(T.StepRow, fid));
           check(row.FirstName = J.GetU(T.StepRow, ffn));
@@ -2277,7 +2284,7 @@ begin
   J := TOrmTableJson.Create('', s);
   try
     check(J.fieldCount = 24);
-    if not checkfailed(J.rowCount = 3) then
+    if Check(J.rowCount = 3) then
       check(J.Get(2, J.FieldCount - 1) = nil);
     check(J.Get(J.rowCount, J.FieldCount - 1) = 'sjentonpg@senate.gov');
   finally
@@ -2764,6 +2771,126 @@ begin
     finally
       R.Free;
     end;
+  finally
+    db.Free;
+  end;
+end;
+
+type
+  // two tables with the very same layout, i.e. the same field bits
+  TOrmBatchUpdA = class(TOrm)
+  protected
+    fX, fY: integer;
+  published
+    property X: integer
+      read fX write fX;
+    property Y: integer
+      read fY write fY;
+  end;
+
+  TOrmBatchUpdB = class(TOrmBatchUpdA);
+
+procedure TTestSqliteMemory.BatchUpdate;
+var
+  db: TRestServerDB;
+  b: TRestBatch;
+  res: TIDDynArray;
+
+  procedure Fill(Table: TOrmClass);
+  var
+    r: TOrmBatchUpdA;
+    i: integer;
+  begin
+    r := Table.Create as TOrmBatchUpdA;
+    try
+      for i := 1 to 3 do
+      begin
+        r.IDValue := i;
+        r.X := i;
+        r.Y := 0;
+        CheckEqual(db.Orm.Add(r, true, true), i);
+      end;
+    finally
+      r.Free;
+    end;
+  end;
+
+  procedure AddUpdates(Table: TOrmClass; Base: integer);
+  var
+    r: TOrmBatchUpdA;
+    i: integer;
+  begin
+    r := Table.Create as TOrmBatchUpdA;
+    try
+      for i := 1 to 3 do
+      begin
+        r.IDValue := i;
+        r.Y := Base + i;
+        check(b.Update(r, 'Y') >= 0); // "uhex" encoding of the Y field only
+      end;
+    finally
+      r.Free;
+    end;
+  end;
+
+  function Update(Table: TOrmClass; Base: integer;
+    Options: TRestBatchOptions): integer;
+  begin
+    b := TRestBatch.Create(db.Orm, Table, 1000, Options);
+    try
+      AddUpdates(Table, Base);
+      result := db.Orm.BatchSend(b, res);
+    finally
+      b.Free;
+    end;
+  end;
+
+  function Values(Table: TOrmClass): RawUtf8;
+  begin
+    result := db.Orm.OneFieldValues(Table, 'Y', '');
+  end;
+
+begin
+  db := TRestServerDB.CreateWithOwnModel([TOrmBatchUpdA, TOrmBatchUpdB],
+    SQLITE_MEMORY_DATABASE_NAME);
+  try
+    db.Server.CreateMissingTables;
+    Fill(TOrmBatchUpdA);
+    Fill(TOrmBatchUpdB);
+    // two separated batches over two tables with the same field bits
+    CheckEqual(Update(TOrmBatchUpdA, 100, [boExtendedJson]), HTTP_SUCCESS);
+    CheckEqual(Values(TOrmBatchUpdA), '101,102,103');
+    CheckEqual(Values(TOrmBatchUpdB), '0,0,0');
+    CheckEqual(Update(TOrmBatchUpdB, 200, [boExtendedJson]), HTTP_SUCCESS);
+    CheckEqual(Values(TOrmBatchUpdA), '101,102,103', 'no cross-table write');
+    CheckEqual(Values(TOrmBatchUpdB), '201,202,203');
+    // a single batch over two tables with the same field bits
+    b := TRestBatch.Create(db.Orm, nil, 1000, [boExtendedJson]);
+    try
+      AddUpdates(TOrmBatchUpdA, 300);
+      AddUpdates(TOrmBatchUpdB, 400);
+      CheckEqual(db.Orm.BatchSend(b, res), HTTP_SUCCESS);
+    finally
+      b.Free;
+    end;
+    CheckEqual(Values(TOrmBatchUpdA), '301,302,303');
+    CheckEqual(Values(TOrmBatchUpdB), '401,402,403');
+    // a row rejected by the database is reported as such
+    db.DB.Execute('CREATE TRIGGER BatchUpdReject BEFORE UPDATE ON BatchUpdB ' +
+      'WHEN OLD.ID=2 BEGIN SELECT RAISE(ABORT,''rejected''); END');
+    CheckEqual(Update(TOrmBatchUpdB, 500, [boExtendedJson]), HTTP_SUCCESS);
+    if CheckEqual(length(res), 3) then
+    begin
+      CheckEqual(res[0], HTTP_SUCCESS);
+      check(res[1] <> HTTP_SUCCESS, 'rejected');
+      CheckEqual(res[2], HTTP_SUCCESS);
+    end;
+    CheckEqual(Values(TOrmBatchUpdB), '501,402,503');
+    // and boRollbackOnError aborts the whole batch transaction
+    check(Update(TOrmBatchUpdB, 600, [boExtendedJson, boRollbackOnError])
+      <> HTTP_SUCCESS, 'rollback');
+    CheckEqual(Values(TOrmBatchUpdB), '501,402,503', 'rollbacked');
+    CheckEqual(Values(TOrmBatchUpdA), '301,302,303');
   finally
     db.Free;
   end;

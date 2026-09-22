@@ -35,6 +35,7 @@ uses
   mormot.core.log,
   mormot.core.threads,
   mormot.core.interfaces,
+  mormot.crypt.core,
   mormot.net.client;
 
 
@@ -191,7 +192,7 @@ type
     destructor Destroy; override;
     /// used by the published methods to run a test assertion
     // - condition must equals TRUE to pass the test
-    procedure Check(condition: boolean; const msg: string = '');
+    function Check(condition: boolean; const msg: string = ''): boolean;
       {$ifdef HASSAFEINLINE}inline;{$endif} // Delphi 2007 has trouble inlining this
     /// used by the published methods to run a test assertion
     // - condition must equals TRUE to pass the test
@@ -218,7 +219,7 @@ type
     /// used by the published methods to run test assertion against UTF-8/Ansi strings
     // - will ignore the a+b string codepages, and call SortDynArrayRawByteString()
     // - if a<>b, will fail and include '#<>#' text before the supplied msg
-    function CheckEqualShort(const a, b: shortstring; const msg: RawUtf8 = ''): boolean;
+    function CheckEqualShort(const a, b: ShortString; const msg: RawUtf8 = ''): boolean;
     /// used by the published methods to run test assertion against
     // - if BinToHexLower(a)<>b, will fail and include '#<>#' hexa before the supplied msg
     function CheckEqualHex(const a: RawByteString; const b: RawUtf8;
@@ -255,17 +256,17 @@ type
       CaseSentitive: boolean = true; ExpectedResult: boolean = true; const msg: string = ''): boolean;
     /// used by the published methods to run a test assertion, with an UTF-8 error message
     // - condition must equals TRUE to pass the test
-    procedure CheckUtf8(condition: boolean; const msg: RawUtf8); overload;
+    function CheckUtf8(condition: boolean; const msg: RawUtf8): boolean; overload;
       {$ifdef HASINLINE}inline;{$endif}
     /// used by the published methods to run a test assertion, with a error
     // message computed via FormatUtf8()
     // - condition must equals TRUE to pass the test
-    procedure CheckUtf8(condition: boolean; const msg: RawUtf8;
-      const args: array of const); overload;
+    function CheckUtf8(condition: boolean; const msg: RawUtf8;
+      const args: array of const): boolean; overload;
     /// used by the published methods to execute a Method with the given
     // parameters, and ensure a (optionally specific) exception is raised
     function CheckRaised(const Method: TOnTestCheck; const Params: array of const;
-      Raised: ExceptionClass = nil): boolean;
+      Raised: ExceptionClass = nil; const Context: RawUtf8 = ''): boolean;
     /// used by published methods to start some timing on associated log
     // - call this once, before one or several consecutive CheckLogTime()
     // - warning: this method is not thread-safe
@@ -281,22 +282,16 @@ type
       const args: array of const; level: TSynLogLevel = sllTrace);
     /// used by the published methods to run test assertion against a Hash32() constant
     procedure CheckHash(const data: RawByteString; expectedhash32: cardinal;
-      const msg: RawUtf8 = '');
-    {$ifndef PUREMORMOT2}
-    class function RandomString(CharCount: integer): WinAnsiString;
-      {$ifdef HASINLINE}inline;{$endif}
-    {$endif PUREMORMOT2}
-    /// create a temporary string, containing some fake text, with paragraphs
-    class function RandomTextParagraph(WordCount: integer; LastPunctuation: AnsiChar = '.';
-      const RandomInclude: RawUtf8 = ''): RawUtf8;
-    /// add containing some "bla bli blo blu" fake text, with paragraphs
-    class procedure AddRandomTextParagraph(WR: TTextWriter; WordCount: integer;
-      LastPunctuation: AnsiChar = '.'; const RandomInclude: RawUtf8 = '';
-      NoLineFeed: boolean = false);
+      const msg: RawUtf8 = ''); overload;
+    /// used by the published methods to run test assertion against a Hash32() constant
+    procedure CheckHash(data: pointer; len: PtrInt; expectedhash32: cardinal;
+      const msg: RawUtf8 = ''); overload;
     /// safely download some reference material (e.g. from api.github.com)
     // - with proper retry if the server denies it, due to a rate limit
     function DownloadFile(const uri: RawUtf8; localfile: TFileName = '';
       retry: integer = 3): RawByteString;
+    /// wait up to 5 seconds that a given file is deleted
+    function WaitDeleted(const fn: TFileName; const msg: ShortString): boolean;
     /// execute a method possibly in a dedicated TLoggedWorkThread
     // - OnTask() should take some time running, to be worth a thread execution
     // - won't create more background threads than currently available CPU cores,
@@ -690,7 +685,6 @@ function ToText(c: TInterfaceMockSpyCheck): PShortString; overload;
 
 implementation
 
-
 { ************ Unit-Testing classes and functions }
 
 { TSynTest }
@@ -700,7 +694,7 @@ var
   id: RawUtf8;
   s: string;
   methods: TPublishedMethodInfoDynArray;
-  i: integer;
+  i: PtrInt;
 begin
   inherited Create; // may have been overriden
   if Ident <> '' then
@@ -839,41 +833,27 @@ begin
   fOwner.DoLog(LEV[condition], '%', [msg], {notify=}not condition);
 end;
 
-procedure TSynTestCase.Check(condition: boolean; const msg: string);
+function TSynTestCase.Check(condition: boolean; const msg: string): boolean;
 begin
+  result := condition;
   if self = nil then
     exit;
   inc(fAssertions);
   if (msg <> '') and
      (tcoLogEachCheck in fOptions) then
-    AddLog(condition, msg);
-  if not condition then
+    AddLog(result, msg);
+  if not result then
     TestFailed(msg);
 end;
 
 function TSynTestCase.CheckFailed(condition: boolean; const msg: string): boolean;
 begin
-  if self = nil then
-  begin
-    result := false;
-    exit;
-  end;
-  inc(fAssertions);
-  if (msg <> '') and
-     (tcoLogEachCheck in fOptions) then
-    AddLog(condition, msg);
-  if condition then
-    result := false
-  else
-  begin
-    TestFailed(msg);
-    result := true;
-  end;
+  result := not Check(condition, msg);
 end;
 
 function TSynTestCase.CheckNot(condition: boolean; const msg: string): boolean;
 begin
-  result := CheckFailed(not condition, msg);
+  result := not Check(not condition, msg);
 end;
 
 procedure TSynTestCase.DoCheckUtf8(condition: boolean; const msg: RawUtf8;
@@ -925,21 +905,23 @@ begin
   TestFailed(EQUAL_MSG, [a, b, msg], {notify=}false);
 end;
 
-procedure TSynTestCase.CheckUtf8(condition: boolean; const msg: RawUtf8;
-  const args: array of const);
+function TSynTestCase.CheckUtf8(condition: boolean; const msg: RawUtf8;
+  const args: array of const): boolean;
 begin
   inc(fAssertions);
   if not condition or
      (tcoLogEachCheck in fOptions) then
     DoCheckUtf8(condition, msg, args);
+  result := condition;
 end;
 
-procedure TSynTestCase.CheckUtf8(condition: boolean; const msg: RawUtf8);
+function TSynTestCase.CheckUtf8(condition: boolean; const msg: RawUtf8): boolean;
 begin
   inc(fAssertions);
   if not condition or
      (tcoLogEachCheck in fOptions) then
     DoCheckUtf8(condition, '%', [msg]);
+  result := condition;
 end;
 
 function TSynTestCase.CheckEqual(a, b: Int64; const msg: RawUtf8): boolean;
@@ -961,7 +943,7 @@ begin
     DoCheckUtf8(result, EQUAL_MSG, [a, b, msg]);
 end;
 
-function TSynTestCase.CheckEqualShort(const a, b: shortstring; const msg: RawUtf8): boolean;
+function TSynTestCase.CheckEqualShort(const a, b: ShortString; const msg: RawUtf8): boolean;
 begin
   inc(fAssertions);
   result := (a = b);
@@ -1035,44 +1017,40 @@ end;
 function TSynTestCase.CheckSameTime(const Value1, Value2: TDateTime;
   const msg: string): boolean;
 begin
-  result := CheckSame(Value1, Value2, SecsPerDate);
+  result := CheckSame(Value1, Value2, SecsPerDate * 2, msg);
 end;
 
 function TSynTestCase.CheckMatchAny(const Value: RawUtf8; const Values: array of RawUtf8;
-  CaseSentitive: boolean; ExpectedResult: boolean; const msg: string): boolean;
+  CaseSentitive, ExpectedResult: boolean; const msg: string): boolean;
 begin
   result := (FindRawUtf8(Values, Value, CaseSentitive) >= 0) = ExpectedResult;
   Check(result);
 end;
 
 function TSynTestCase.CheckRaised(const Method: TOnTestCheck;
-  const Params: array of const; Raised: ExceptionClass): boolean;
+  const Params: array of const; Raised: ExceptionClass; const Context: RawUtf8): boolean;
 var
   msg: string;
 begin
-  {$ifndef NOEXCEPTIONINTERCEPT}
   TSynLog.Family.ExceptionIgnoreCurrentThread := true;
-  {$endif NOEXCEPTIONINTERCEPT}
   try
     Method(Params);
     result := false;
     if Raised = nil then
       Raised := Exception;
-    FormatString('% missing', [Raised], msg);
+    FormatString('% missing%', [Raised, Context], msg);
   except
     on E: Exception do
     begin
       result := (Raised = nil) or
                 (PClass(E)^ = Raised);
       if result then
-        FormatString('% [%]', [E, E.Message], msg)
+        FormatString('% [%]%', [E, E.Message, Context], msg)
       else
-        FormatString('% instead of %', [E, Raised], msg);
+        FormatString('% instead of %%', [E, Raised, Context], msg);
     end;
   end;
-  {$ifndef NOEXCEPTIONINTERCEPT}
   TSynLog.Family.ExceptionIgnoreCurrentThread := false;
-  {$endif NOEXCEPTIONINTERCEPT}
   Check(result, msg);
 end;
 
@@ -1094,117 +1072,19 @@ end;
 
 procedure TSynTestCase.CheckHash(const data: RawByteString;
   expectedhash32: cardinal; const msg: RawUtf8);
+begin
+  CheckHash(pointer(data), length(data), expectedhash32, msg);
+end;
+
+procedure TSynTestCase.CheckHash(data: pointer; len: PtrInt;
+  expectedhash32: cardinal; const msg: RawUtf8);
 var
   crc: cardinal;
 begin
-  crc := Hash32(data);
+  crc := Hash32(data, len);
   //if crc <> expectedhash32 then ConsoleWrite(data);
   CheckUtf8(crc = expectedhash32, 'Hash32()=$% expected=$% %',
     [CardinalToHexShort(crc), CardinalToHexShort(expectedhash32), msg]);
-end;
-
-{$ifndef PUREMORMOT2}
-class function TSynTestCase.RandomString(CharCount: integer): WinAnsiString;
-begin
-  result := RandomWinAnsi(CharCount);
-end;
-{$endif PUREMORMOT2}
-
-class function TSynTestCase.RandomTextParagraph(WordCount: integer;
-  LastPunctuation: AnsiChar; const RandomInclude: RawUtf8): RawUtf8;
-var
-  tmp: TTextWriterStackBuffer; // 8KB work buffer on stack
-  WR: TTextWriter;
-begin
-  WR := TTextWriter.CreateOwnedStream(tmp);
-  try
-    AddRandomTextParagraph(WR, WordCount, LastPunctuation, RandomInclude);
-    WR.SetText(result);
-  finally
-    WR.Free;
-  end;
-end;
-
-class procedure TSynTestCase.AddRandomTextParagraph(WR: TTextWriter;
-  WordCount: integer; LastPunctuation: AnsiChar; const RandomInclude: RawUtf8;
-  NoLineFeed: boolean);
-type
-  TKind = (
-    space, comma, dot, question, paragraph);
-const
-  bla: array[0 .. 15] of TShort3 = (
-    'bla', 'ble', 'bli', 'blo', 'blu', 'bla', 'bli', 'blo',
-    'cha', 'che', 'chi', 'cho', 'chu', 'cha', 'chi', 'cho');
-  endKind = [dot, paragraph, question];
-var
-  n: integer;
-  s: TShort7;
-  last: TKind;
-  rnd: cardinal;
-begin
-  last := paragraph;
-  while WordCount > 0 do
-  begin
-    rnd := Random32;  // get 32 bits of randomness for up to 5 words per loop
-    n := (rnd and 3) + 2;  // n = 2..5
-    rnd := rnd shr 2;      // consume 2 bits
-    repeat
-      PCardinal(@s)^ := PCardinal(@bla[rnd and 15])^;
-      rnd := rnd shr 4;    // consume up to 5*4 = 20 bits from rnd
-      s[0] := #4;
-      s[4] := ' ';
-      if last in endKind then
-      begin
-        last := space;
-        s[1] := 'P';
-      end;
-      WR.AddShorter(s);
-      dec(WordCount);
-      if WordCount = 0 then
-        break;
-      dec(n);
-    until n = 0;
-    WR.CancelLastChar(' ');
-    case rnd and 127 of // consume 7 bits from rnd (total up to 29 bits)
-      0 .. 4:
-        begin
-          if RandomInclude <> '' then
-          begin
-            WR.AddDirect(' ');
-            WR.AddString(RandomInclude); // 5/128 = 4% chance of text inclusion
-          end;
-          last := space;
-        end;
-      5 .. 50:
-        last := space;
-      51 .. 90:
-        last := comma;
-      91 .. 105:
-        last := dot;
-      106 .. 115:
-        last := question;
-      116 .. 127:
-        if NoLineFeed then
-          last := dot
-        else
-          last := paragraph;
-    end;
-    case last of
-      space:
-        WR.AddDirect(' ');
-      comma:
-        WR.AddDirect(',', ' ');
-      dot:
-        WR.AddDirect('.', ' ');
-      question:
-        WR.AddDirect('?', ' ');
-      paragraph:
-        WR.AddDirect('.', #13, #10);
-    end;
-  end;
-  if (LastPunctuation <> ' ') and
-     not (last in endKind) then
-    WR.AddDirect('b', 'l', 'a', LastPunctuation);
 end;
 
 function TSynTestCase.DownloadFile(const uri: RawUtf8;
@@ -1230,6 +1110,17 @@ begin
       exit;
     SleepHiRes(10);
   until false;
+end;
+
+function TSynTestCase.WaitDeleted(const fn: TFileName; const msg: ShortString): boolean;
+var
+  endtix: cardinal;
+begin
+  endtix := GetTickSec + 5; // never wait forever
+  while FileExists(fn) and
+        (GetTickSec < endtix) do
+    SleepHiRes(5);
+  result := CheckUtf8(not FileExists(fn), 'WaitDeleted(%) for %', [fn, msg]);
 end;
 
 threadvar
@@ -1436,7 +1327,7 @@ end;
 
 procedure TSynTests.DoText(const value: RawUtf8);
 begin
-  ConsoleWrite(value, ccLightGray, {nolf=}true, {nocolor=}true);
+  ConsoleWrite(value, ccDefault, {nolf=}true, {nocolor=}true);
   if Assigned(CustomOutput) then
     CustomOutput(value);
 end;
@@ -1488,7 +1379,7 @@ begin
   Append(fNotifyProgress, value);
   DoColor(cc);
   DoText(value);
-  DoColor(ccLightGray);
+  DoColor(ccDefault);
 end;
 
 procedure TSynTests.DoLog(Level: TSynLogLevel; const TextFmt: RawUtf8;
@@ -1573,8 +1464,8 @@ var
 begin
   result := true;
   if Executable.Command.Option('multithread')
-     {$ifdef OSWINDOWS} and not IsWow64Emulation {$endif} then
-    fMultiThread := CpuThreads > 2; // enabled with 3 cores
+     {$ifdef OSWINDOWS} and not (wsFavorFewThreads in WindowsSpecs) {$endif} then
+    fMultiThread := SystemInfo.dwNumberOfProcessors > 2; // enabled with 3 cores
   if Executable.Command.Option('&methods') then
   begin
     for m := 0 to Count - 1 do
@@ -1632,7 +1523,7 @@ begin
                 titledone := true;
                 DoColor(ccWhite);
                 DoTextLn([CRLF + CRLF, m + 1, '. ', fTests[m].TestName]);
-                DoColor(ccLightGray);
+                DoColor(ccDefault);
               end;
               if not started then
               begin
@@ -1644,7 +1535,7 @@ begin
                 c.Setup;
                 DoColor(ccWhite);
                 DoTextLn([CRLF + ' ', m + 1, '.', i + 1, '. ', c.Ident, ': ']);
-                DoColor(ccLightGray);
+                DoColor(ccDefault);
                 started := true;
               end;
               c.fAssertionsBeforeRun := c.fAssertions;
@@ -1672,7 +1563,7 @@ begin
                 {$ifndef NOEXCEPTIONINTERCEPT}
                 DoTextLn(['! ', GetLastExceptionText]); // with extended info
                 {$endif NOEXCEPTIONINTERCEPT}
-                DoColor(ccLightGray);
+                DoColor(ccDefault);
               end;
             end;
             _CurrentMethodInfo := nil;
@@ -1699,7 +1590,7 @@ begin
               AppendShortToUtf8(' FAILED', s);
             Append(s, ['  ', TotalTimer.Stop, CRLF]);
             DoText(s); // write at once to the console output
-            DoColor(ccLightGray);
+            DoColor(ccDefault);
             inc(fAssertions, c.fAssertions); // compute global assertions count
             inc(fAssertionsFailed, c.fAssertionsFailed);
           finally
@@ -1750,7 +1641,7 @@ begin
     DoTextLn([CRLF + '! Some tests FAILED: please correct the code.']);
     ExitCode := 1;
   end;
-  DoColor(ccLightGray);
+  DoColor(ccDefault);
 end;
 
 procedure TSynTests.AfterOneRun;
@@ -1808,7 +1699,7 @@ begin
     C.fRunConsole := '';
   end;
   DoText(s); // append whole information at once to the console
-  DoColor(ccLightGray);
+  DoColor(ccDefault);
 end;
 
 class procedure TSynTests.DescribeCommandLine;
@@ -1877,7 +1768,7 @@ begin
   err := Executable.Command.DetectUnknown;
   if (err <> '') or
      Executable.Command.Option(['?', 'help'], 'display this message') or
-     SameText(redirect, 'help') then
+     SameTextS(redirect, 'help') then
   begin
     ConsoleWrite(err);
     ConsoleWrite(Executable.Command.FullDescription);
