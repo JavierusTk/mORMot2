@@ -280,7 +280,7 @@ end;
 cd /mnt/w/mORMot2/test
 
 # Delphi 7
-compilD7.bat
+compil7.bat
 
 # Delphi 2007/2010
 compilD2007.bat

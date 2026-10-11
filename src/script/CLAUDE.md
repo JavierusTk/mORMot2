@@ -21,15 +21,15 @@ The mORMot scripting layer provides thread-safe JavaScript engine integration fo
 
 ### Two-Layer Design
 
-1. **Abstract Core** (`mormot.script.core.pas` - 731 lines)
+1. **Abstract Core** (`mormot.script.core.pas`)
    - Engine-agnostic base classes and interfaces
    - Thread-safe engine pooling via `TThreadSafeManager`
    - Remote debugging infrastructure (Firefox DevTools protocol)
    - Worker thread management
 
-2. **Engine Implementation** (`mormot.script.quickjs.pas` - 30 lines)
-   - Currently minimal (implementation pending)
-   - Will implement QuickJS-specific bindings
+2. **Engine Implementation** (`mormot.script.quickjs.pas`, compiled only with `LIBQUICKJS` / `LIBQUICKJSSTATIC`)
+   - `TQuickJSEngine` (a `TThreadSafeEngine`) over the `mormot.lib.quickjs` bindings
+   - `TQuickJSVariant` custom variant type for late-binding access to JS values
 
 ### Key Classes
 
@@ -126,10 +126,9 @@ Manager.StartDebugger('6000'); // Default port
 - Debugging infrastructure (Firefox DevTools protocol)
 - Worker thread interfaces
 - **Low-level QuickJS bindings** (`mormot.lib.quickjs`) - fully functional with `JS_NewRuntime`, `JS_Eval`, etc.
+- **High-level QuickJS engine** (`mormot.script.quickjs`): `TQuickJSEngine` + `TQuickJSVariant`
 
 ### In Development
-- High-level QuickJS wrapper (`mormot.script.quickjs`) - convenience layer
-- TQuickJSVariant custom variant type for late-binding
 - ORM/SOA integration helpers
 
 ### Planned
@@ -167,7 +166,7 @@ var
   Manager: TThreadSafeManager;
   Engine: TThreadSafeEngine;
 begin
-  Manager := TQuickJSManager.Create(TQuickJSEngine); // Hypothetical
+  Manager := TThreadSafeManager.Create(TQuickJSEngine);
   try
     // In request handler thread:
     Engine := Manager.ThreadSafeEngine;
@@ -206,7 +205,7 @@ Manager.OnNewEngine :=
 1. **Never call engine constructors directly** - Use `TThreadSafeManager.ThreadSafeEngine`
 2. **Thread affinity is strict** - One engine per thread, never shared
 3. **Low-level QuickJS is available** - Use `mormot.lib.quickjs` for direct JS execution
-4. **High-level wrapper in development** - `mormot.script.quickjs` convenience layer coming
+4. **High-level engine available** - `mormot.script.quickjs` provides `TQuickJSEngine` / `TQuickJSVariant` (requires `LIBQUICKJS`)
 5. **Debugging uses Firefox protocol** - Not Chrome DevTools
 6. **ContentVersion drives hot reload** - Application responsibility to increment
 7. **FPU corruption prevention** - Always use `ThreadSafeCall()` for script execution
@@ -227,5 +226,5 @@ Manager.OnNewEngine :=
 ---
 
 **Last Updated**: 2025-10-10 (based on source analysis)
-**Status**: Abstract layer complete, engine implementations pending
+**Status**: Abstract layer and QuickJS engine implemented; SpiderMonkey planned
 **License**: MPL/GPL/LGPL tri-license

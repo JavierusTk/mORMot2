@@ -179,7 +179,7 @@ rt := Rtti.RegisterType(TypeInfo(TMyRecord));  // Returns cached instance
 
 ### Source Files
 ```
-mormot.core.*.pas          # Main unit implementations (24 units)
+mormot.core.*.pas          # Main unit implementations
 mormot.core.*.inc          # Compiler/platform-specific code
 mormot.defines.inc         # Global conditionals
 mormot.uses.inc            # Memory manager selection
